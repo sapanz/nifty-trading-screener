@@ -61,6 +61,7 @@ NSE_INDEX_LIST_URLS = (
 # token refresh that keeps this fully working without a manual token paste.
 UPSTOX_BASE_URL = "https://api.upstox.com/v2"
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
+UPSTOX_EQUITY_TYPE = "EQUITY"  # instrument_type value for cash-market equities (confirmed live, not "EQ")
 UPSTOX_REQUEST_DELAY_SECONDS = 0.25  # spacing between historical-candle calls
 UPSTOX_MAX_RETRIES = 3
 

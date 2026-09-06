@@ -78,11 +78,12 @@ class UpstoxClient:
         if type_col is not None:
             value_counts = df[type_col].astype(str).value_counts().head(10).to_dict()
             logger.info("Instrument master %s value counts: %s", type_col, value_counts)
-            df = df[df[type_col].astype(str).str.upper() == "EQ"]
+            df = df[df[type_col].astype(str).str.upper() == config.UPSTOX_EQUITY_TYPE]
             if df.empty:
                 raise UpstoxError(
-                    f"Filtering {type_col} == 'EQ' left zero rows. Actual {type_col} values seen: "
-                    f"{value_counts}. Upstox likely uses a different value for equities now."
+                    f"Filtering {type_col} == {config.UPSTOX_EQUITY_TYPE!r} left zero rows. "
+                    f"Actual {type_col} values seen: {value_counts}. "
+                    "Upstox likely uses a different value for equities now."
                 )
         logger.info("Instrument master: %d rows after instrument_type filter", len(df))
         logger.info("Sample %s/%s pairs: %s", symbol_col, key_col, df[[symbol_col, key_col]].head(5).to_dict("records"))
