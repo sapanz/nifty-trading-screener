@@ -48,12 +48,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scripts/login_upstox.py
 
-      - name: Upload login failure screenshot
+      - name: Upload login failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: upstox-login-failure
-          path: upstox_login_failure.png
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
           if-no-files-found: ignore
 
       - name: Run Nifty500 signal screeners
