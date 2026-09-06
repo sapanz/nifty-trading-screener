@@ -82,10 +82,18 @@ def get_authorization_code(
         context = browser.new_context()
 
         def _capture_redirect(route):
-            captured["url"] = route.request.url
-            route.fulfill(status=200, body="ok")
+            # Plain string-prefix check rather than Playwright's glob
+            # matching - a glob pattern here was silently failing to match
+            # the real redirect (trailing slash / query string edge cases),
+            # letting the browser try to actually load a URL that doesn't
+            # resolve to anything (chrome-error://chromewebdata).
+            if route.request.url.startswith(redirect_uri):
+                captured["url"] = route.request.url
+                route.fulfill(status=200, body="ok")
+            else:
+                route.continue_()
 
-        context.route(f"{redirect_uri}*", _capture_redirect)
+        context.route("**/*", _capture_redirect)
         page = context.new_page()
 
         try:
