@@ -81,3 +81,26 @@ def test_fetch_daily_circuit_breaker_aborts_on_systemic_failure(monkeypatch):
 
     with pytest.raises(RuntimeError, match="blocking requests wholesale"):
         data.fetch_daily(_FakeClient(), instrument_map)
+
+
+class _FakeInstrumentClient:
+    def __init__(self, full_map):
+        self._full_map = full_map
+
+    def fetch_instrument_map(self):
+        return self._full_map
+
+
+def test_build_instrument_map_keeps_only_requested_symbols():
+    client = _FakeInstrumentClient({"GOOD1": "KEY1", "GOOD2": "KEY2", "OTHERSTOCK": "KEY3"})
+    mapping = data.build_instrument_map(client, ["GOOD1", "GOOD2"])
+    assert mapping == {"GOOD1": "KEY1", "GOOD2": "KEY2"}
+
+
+def test_build_instrument_map_raises_when_almost_nothing_matches():
+    # Mirrors the real incident: a filter bug zeroed out the whole
+    # instrument master, matching 0 of ~500 requested symbols.
+    client = _FakeInstrumentClient({})
+    symbols = [f"SYM{i}" for i in range(500)]
+    with pytest.raises(RuntimeError, match="instrument master likely changed shape"):
+        data.build_instrument_map(client, symbols)

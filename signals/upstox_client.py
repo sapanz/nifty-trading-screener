@@ -70,10 +70,10 @@ class UpstoxClient:
                 "Upstox may have changed the file format - check developer.upstox.com."
             )
 
-        segment_col = next((c for c in ("segment", "exchange") if c in df.columns), None)
+        # The instruments URL is already NSE-specific, so no exchange/segment
+        # filter is needed here - just exclude non-equity instruments (F&O,
+        # indices) that the same per-exchange file also lists.
         type_col = next((c for c in ("instrument_type", "instrumenttype") if c in df.columns), None)
-        if segment_col is not None:
-            df = df[df[segment_col].astype(str).str.upper() == config.UPSTOX_EQUITY_SEGMENT]
         if type_col is not None:
             df = df[df[type_col].astype(str).str.upper() == "EQ"]
 

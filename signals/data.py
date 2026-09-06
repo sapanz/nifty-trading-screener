@@ -25,12 +25,27 @@ _RESAMPLE_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", 
 
 
 def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, str]:
-    """Map NSE trading symbols to Upstox instrument keys, dropping unknowns."""
+    """Map NSE trading symbols to Upstox instrument keys, dropping unknowns.
+
+    Raises if only a small fraction match - a handful of unlisted/renamed
+    symbols is normal, but most of the universe failing to map means the
+    instrument master's shape changed underneath us (e.g. a filtered
+    column's values no longer look like we assumed), not that Upstox
+    genuinely doesn't list most of Nifty 500.
+    """
     full_map = client.fetch_instrument_map()
     mapping = {sym: full_map[sym] for sym in symbols if sym in full_map}
     missing = sorted(set(symbols) - mapping.keys())
     if missing:
         logger.warning("No Upstox instrument_key found for %d symbols: %s", len(missing), missing[:20])
+
+    match_ratio = len(mapping) / len(symbols) if symbols else 0
+    if match_ratio < config.MIN_INSTRUMENT_MATCH_RATIO:
+        raise RuntimeError(
+            f"Only {len(mapping)}/{len(symbols)} symbols matched an Upstox instrument_key "
+            f"({match_ratio:.0%}) - the instrument master likely changed shape; "
+            "check signals/upstox_client.py's column/filter assumptions."
+        )
     return mapping
 
 

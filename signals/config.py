@@ -61,9 +61,14 @@ NSE_INDEX_LIST_URLS = (
 # token refresh that keeps this fully working without a manual token paste.
 UPSTOX_BASE_URL = "https://api.upstox.com/v2"
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
-UPSTOX_EQUITY_SEGMENT = "NSE_EQ"
 UPSTOX_REQUEST_DELAY_SECONDS = 0.25  # spacing between historical-candle calls
 UPSTOX_MAX_RETRIES = 3
+
+# If fewer than this fraction of requested symbols map to an Upstox
+# instrument_key, something is systemically wrong (e.g. the instrument
+# master's column values changed shape) rather than a handful of unlisted
+# symbols - fail loudly instead of quietly scanning nothing.
+MIN_INSTRUMENT_MATCH_RATIO = 0.5
 
 # Single daily-history depth, reused (via resampling) for weekly, monthly,
 # and the monthly all-time-high check - one fetch per symbol serves every

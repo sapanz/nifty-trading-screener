@@ -185,6 +185,15 @@ for the "day" interval, no matter how many strategies fire that day.
   end will break it. When it breaks, the run fails loudly with a
   Telegram error report (not silently), and the uploaded screenshot
   artifact should make the fix quick — see setup step 5.
+- **The instrument master's column shapes are similarly unverified.**
+  `signals/upstox_client.py` maps NSE trading symbols to Upstox
+  instrument keys by reading specific column names/values from Upstox's
+  instrument file; if that file's shape changes, matching can silently
+  drop to zero. `build_instrument_map` guards against this by raising
+  (reported to Telegram, not swallowed) if fewer than half of the
+  requested symbols match — a "no stocks matched today" message for
+  every single strategy in one run is more likely this than a real
+  quiet market.
 - **All-time-high depth is bounded**, not literal all-time. The monthly
   ATH check only sees `DAILY_HISTORY_YEARS` (6, by default) of history,
   because it's derived from the same daily fetch every other strategy
