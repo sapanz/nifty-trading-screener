@@ -11,9 +11,16 @@ One shared fetch keeps NSE load to a single scrape per day even when
 several strategies fire on the same run (e.g. every Friday).
 """
 import os
+import sys
 from datetime import date
 
-from signals import data, runtime, universe
+# Allow running as `python scripts/run_signals.py` from anywhere (CI or
+# local) without needing PYTHONPATH set - Python only searches this
+# script's own directory by default, not the repo root where `signals/`
+# lives.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from signals import data, runtime, universe  # noqa: E402
 from signals.calendar_utils import is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
 from signals.nse_client import NseClient
