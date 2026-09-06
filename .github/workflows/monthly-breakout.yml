@@ -1,0 +1,36 @@
+name: Monthly ATH Breakout Screener
+
+on:
+  schedule:
+    # 11:30 UTC = 5:00pm IST, every day from the 28th onward.
+    # The script itself checks whether today is actually the last trading
+    # day of the month and no-ops otherwise (cron ORs day-of-month with
+    # day-of-week when both are restricted, so weekday filtering is left
+    # to the script rather than the cron expression).
+    - cron: "30 11 28-31 * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even if today isn't the last trading day of the month (for manual testing)"
+        type: boolean
+        default: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run monthly ATH breakout screener
+        env:
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_RUN: ${{ inputs.force && 'true' || '' }}
+        run: python scripts/run_monthly_breakout.py
