@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Run this once a day (before 5pm IST) to refresh the Upstox access token
-the GitHub Actions screener uses.
+"""Manual fallback: run this to refresh the Upstox access token used by the
+GitHub Actions screener, without automated TOTP login.
 
-No PIN, password, or TOTP secret is stored anywhere - this does the same
-OAuth login Upstox's own web app uses, in your browser, and captures the
-result locally. What it automates is only the boring parts: opening the
-right URL and pushing the resulting token to your GitHub secret for you.
+The default setup (see README) uses signals/upstox_login.py to log in
+automatically every run via TOTP. Use *this* script instead only if that
+automation breaks (e.g. Upstox changed their login page) and you need a
+stopgap: it does the same OAuth login in your own browser, once a day,
+with no PIN/password/TOTP secret stored anywhere - just today's login.
 
 One-time setup:
   1. pip install -r tools/requirements.txt
@@ -37,10 +38,12 @@ import requests
 from dotenv import load_dotenv
 from nacl import encoding, public
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from signals.upstox_oauth import exchange_code_for_token  # noqa: E402
+
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 AUTH_DIALOG_URL = "https://api.upstox.com/v2/login/authorization/dialog"
-TOKEN_URL = "https://api.upstox.com/v2/login/authorization/token"
 CALLBACK_TIMEOUT_SECONDS = 300
 
 
@@ -95,26 +98,6 @@ def _get_auth_code(redirect_uri: str, client_id: str) -> str:
     return _CallbackHandler.auth_code
 
 
-def _exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: str) -> str:
-    resp = requests.post(
-        TOKEN_URL,
-        data={
-            "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        },
-        headers={"accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    if "access_token" not in payload:
-        sys.exit(f"Upstox token exchange didn't return an access_token: {payload}")
-    return payload["access_token"]
-
-
 def _push_github_secret(owner: str, repo: str, github_token: str, secret_name: str, secret_value: str) -> None:
     api_base = f"https://api.github.com/repos/{owner}/{repo}"
     headers = {
@@ -149,7 +132,10 @@ def main() -> None:
     github_repo = _require_env("GITHUB_REPO")
 
     code = _get_auth_code(redirect_uri, client_id)
-    token = _exchange_code_for_token(code, client_id, client_secret, redirect_uri)
+    try:
+        token = exchange_code_for_token(code, client_id, client_secret, redirect_uri)
+    except RuntimeError as exc:
+        sys.exit(str(exc))
     _push_github_secret(github_owner, github_repo, github_token, "UPSTOX_ACCESS_TOKEN", token)
 
     print("UPSTOX_ACCESS_TOKEN updated on GitHub. Today's runs are good to go.")

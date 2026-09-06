@@ -19,9 +19,10 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST).
-  `scripts/run_signals.py` fetches daily OHLCV **once**, then always
-  runs the daily swing screener, additionally runs both weekly
+- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
+  first logs into Upstox automatically (`scripts/login_upstox.py`, via
+  TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
+  always runs the daily swing screener, additionally runs both weekly
   strategies on Fridays, and additionally runs the monthly ATH breakout
   on the last trading day of the month — one Upstox pass serves every
   strategy that fires that day, whatever the day.
@@ -40,10 +41,15 @@ Nifty 500 constituent list is still fetched fresh from NSE's own archives
 historical endpoint).
 
 The catch with a broker API: Upstox access tokens **expire daily**
-(~3:30am IST) and there's no refresh-token mechanism, only a browser
-login. This repo solves that with `tools/refresh_upstox_token.py` — a
-script you run locally once a day that does the login in your browser and
-pushes the resulting token to GitHub for you. See setup below.
+(~3:30am IST) and there's no refresh-token mechanism, only a login. This
+repo solves that with fully automated TOTP login
+(`signals/upstox_login.py`), which runs as the first step of every
+workflow run: it drives Upstox's real login page headlessly (mobile
+number → password → a TOTP code generated from your authenticator
+secret) and mints a fresh access token for that run only — nothing to do
+daily. See [Security trade-offs](#security-trade-offs-of-totp-auto-login)
+before setting this up; `tools/refresh_upstox_token.py` remains available
+as a manual fallback if you'd rather not store login credentials at all.
 
 ## One-time setup
 
@@ -61,10 +67,20 @@ pushes the resulting token to GitHub for you. See setup below.
 
 Register an app at [developer.upstox.com](https://developer.upstox.com/)
 to get an **API key** (client ID) and **API secret**. While registering,
-set the **redirect URI** to `http://localhost:5000/callback` (or another
-port of your choice — just keep it consistent with `tools/.env` below).
+set the **redirect URI** to anything syntactically valid, e.g.
+`https://localhost/callback` — it never needs to actually resolve to
+anything; the login automation intercepts the redirect before the
+browser tries to load it.
 
-### 3. Add GitHub repository secrets
+### 3. Enable TOTP (authenticator app) 2FA on your Upstox account
+
+In the Upstox app/website's account security settings, switch your
+second factor from SMS OTP to an authenticator app. During setup, look
+for a link like **"can't scan the QR code? enter this key manually"** —
+that string (a short base32 code) is your `UPSTOX_TOTP_SECRET`. Save it
+now; most apps only show it once.
+
+### 4. Add GitHub repository secrets
 
 In this repo: **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -72,41 +88,54 @@ In this repo: **Settings → Secrets and variables → Actions → New repositor
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | from BotFather |
 | `TELEGRAM_CHAT_ID` | your chat ID |
-| `UPSTOX_ACCESS_TOKEN` | leave any placeholder value for now — the daily refresh tool below overwrites it |
+| `UPSTOX_CLIENT_ID` | from your Upstox app |
+| `UPSTOX_CLIENT_SECRET` | from your Upstox app |
+| `UPSTOX_REDIRECT_URI` | must exactly match what you registered in step 2 |
+| `UPSTOX_MOBILE_NUMBER` | your Upstox login mobile number |
+| `UPSTOX_PASSWORD` | whatever credential Upstox's login page asks for after your mobile number (password or PIN, depending on your account) |
+| `UPSTOX_TOTP_SECRET` | from step 3 |
 
-### 4. Set up the daily token refresh tool
-
-```bash
-pip install -r tools/requirements.txt
-cp tools/.env.example tools/.env
-```
-
-Fill in `tools/.env`:
-- `UPSTOX_CLIENT_ID` / `UPSTOX_CLIENT_SECRET` / `UPSTOX_REDIRECT_URI` — from step 2.
-- `GITHUB_TOKEN` — a **fine-grained GitHub Personal Access Token**, scoped
-  to **only this repository**, with **Secrets: Read and write** permission
-  and nothing else. Create one at
-  [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).
-  This token lives only on your machine, in `tools/.env` (already
-  gitignored) — never commit it.
-- `GITHUB_OWNER` / `GITHUB_REPO` — `sapanz` / `nifty-trading-screener`.
-
-**Every day before 5pm IST**, run:
-
-```bash
-python tools/refresh_upstox_token.py
-```
-
-This opens your browser to Upstox's login page, you log in as usual, and
-the script captures the result and pushes it straight to the
-`UPSTOX_ACCESS_TOKEN` GitHub secret. No PIN, password, or 2FA secret is
-ever stored — only today's login, done the normal way.
+There is no `UPSTOX_ACCESS_TOKEN` secret to manage — it's minted fresh at
+the start of every run and only exists in that run's memory.
 
 ### 5. Test it
 
 Go to the **Actions** tab → **Nifty500 Signals** → **Run workflow**. Tick
 **force_weekly** and/or **force_monthly** to exercise those strategies on
 a day when they wouldn't normally fire.
+
+**Expect the first run to need one fix.** The login automation
+(`signals/upstox_login.py`) drives Upstox's real login page, but its
+field selectors were written without being able to load that page live —
+there's no officially documented way to log in headlessly, so this is
+the least-bad option, not a verified one. If the "Log in to Upstox
+(TOTP)" step fails, download the `upstox-login-failure` artifact from
+that run (a screenshot of the page at the point it got stuck) and share
+it — the fix is almost always a one-line selector update in
+`signals/upstox_login.py`.
+
+## Security trade-offs of TOTP auto-login
+
+This setup stores your Upstox login password and TOTP secret as GitHub
+Actions secrets, which is more sensitive than anything else in this repo
+handles. Concretely:
+
+- These secrets are only ever readable by workflows running in this
+  repo — never logged in plaintext (the derived access token is
+  explicitly masked in `scripts/login_upstox.py` before it's used) and
+  not visible to anyone browsing the repo, including you, once saved.
+- Anyone with admin/write access to this repository's secrets could use
+  them to log into your Upstox account. Keep this repo private (it
+  already is) and don't add collaborators you wouldn't trust with your
+  broker login.
+- If you ever suspect these secrets have leaked, rotate your Upstox
+  password and re-link your authenticator app (which changes the TOTP
+  secret) immediately, then update the GitHub secrets.
+- If this trade-off stops feeling worth it, switch back to
+  `tools/refresh_upstox_token.py` (manual daily refresh, no credentials
+  stored at all) by removing the "Log in to Upstox (TOTP)" step from
+  `.github/workflows/signals.yml` and restoring an `UPSTOX_ACCESS_TOKEN`
+  secret.
 
 ## How the rules are encoded
 
@@ -142,10 +171,11 @@ for the "day" interval, no matter how many strategies fire that day.
 
 ## Known limitations
 
-- **Daily token refresh is manual (by design).** See setup step 4. Skip
-  it on a given day and that day's Telegram message will be a Telegram
-  *error* report instead of signals — the workflow fails loudly rather
-  than silently.
+- **The login automation is inherently fragile.** It drives Upstox's own
+  login page rather than a documented API, so a layout change on their
+  end will break it. When it breaks, the run fails loudly with a
+  Telegram error report (not silently), and the uploaded screenshot
+  artifact should make the fix quick — see setup step 5.
 - **All-time-high depth is bounded**, not literal all-time. The monthly
   ATH check only sees `DAILY_HISTORY_YEARS` (6, by default) of history,
   because it's derived from the same daily fetch every other strategy
@@ -170,11 +200,19 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 pytest -q                      # runs against synthetic OHLCV data, no network needed
 
-export UPSTOX_ACCESS_TOKEN=...
+export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
 python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
 FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
+
+# To test the TOTP login automation itself (install chromium first with
+# `playwright install chromium`; HEADLESS=false opens a real, visible
+# browser window instead of the workflow's headless one, useful for
+# watching exactly where a selector doesn't match):
+export UPSTOX_CLIENT_ID=... UPSTOX_CLIENT_SECRET=... UPSTOX_REDIRECT_URI=...
+export UPSTOX_MOBILE_NUMBER=... UPSTOX_PASSWORD=... UPSTOX_TOTP_SECRET=...
+HEADLESS=false python scripts/login_upstox.py
 ```
 
 ## Project layout
@@ -184,6 +222,8 @@ signals/
   config.py          tunable thresholds
   universe.py        Nifty 500 constituent list (from NSE)
   upstox_client.py   Upstox API wrapper (instrument master + daily candles)
+  upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
+  upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
   data.py            daily fetch orchestration + weekly/monthly resampling + circuit breaker
   indicators.py      SMA, Bollinger Bands, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
@@ -192,8 +232,10 @@ signals/
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram
   calendar_utils.py   "is this the last trading day of the month" check
-scripts/run_signals.py       the single daily entry point
-tools/refresh_upstox_token.py   local one-tap daily token refresh (not run by CI)
+scripts/
+  login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
+  run_signals.py     the single daily entry point for the strategies
+tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
 .github/workflows/            the cron schedule + a test workflow
 tests/                         unit tests against synthetic OHLCV data
 ```
