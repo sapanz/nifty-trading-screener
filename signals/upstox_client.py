@@ -61,6 +61,7 @@ class UpstoxClient:
         raw = gzip.decompress(resp.content)
         df = pd.read_csv(io.BytesIO(raw))
         df.columns = [c.strip().lower() for c in df.columns]
+        logger.info("Instrument master: %d rows, columns=%s", len(df), list(df.columns))
 
         symbol_col = next((c for c in ("tradingsymbol", "trading_symbol") if c in df.columns), None)
         key_col = next((c for c in ("instrument_key", "instrumentkey") if c in df.columns), None)
@@ -75,7 +76,16 @@ class UpstoxClient:
         # indices) that the same per-exchange file also lists.
         type_col = next((c for c in ("instrument_type", "instrumenttype") if c in df.columns), None)
         if type_col is not None:
+            value_counts = df[type_col].astype(str).value_counts().head(10).to_dict()
+            logger.info("Instrument master %s value counts: %s", type_col, value_counts)
             df = df[df[type_col].astype(str).str.upper() == "EQ"]
+            if df.empty:
+                raise UpstoxError(
+                    f"Filtering {type_col} == 'EQ' left zero rows. Actual {type_col} values seen: "
+                    f"{value_counts}. Upstox likely uses a different value for equities now."
+                )
+        logger.info("Instrument master: %d rows after instrument_type filter", len(df))
+        logger.info("Sample %s/%s pairs: %s", symbol_col, key_col, df[[symbol_col, key_col]].head(5).to_dict("records"))
 
         return dict(zip(df[symbol_col].astype(str).str.strip(), df[key_col].astype(str).str.strip()))
 

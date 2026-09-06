@@ -41,10 +41,15 @@ def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, 
 
     match_ratio = len(mapping) / len(symbols) if symbols else 0
     if match_ratio < config.MIN_INSTRUMENT_MATCH_RATIO:
+        sample_wanted = symbols[:10]
+        sample_master = list(full_map.keys())[:10]
         raise RuntimeError(
             f"Only {len(mapping)}/{len(symbols)} symbols matched an Upstox instrument_key "
-            f"({match_ratio:.0%}) - the instrument master likely changed shape; "
-            "check signals/upstox_client.py's column/filter assumptions."
+            f"({match_ratio:.0%}) - the instrument master likely changed shape. "
+            f"Symbols we looked for: {sample_wanted}. "
+            f"Symbols actually in the instrument master ({len(full_map)} total): {sample_master}. "
+            "Compare these two lists to see the mismatch; check signals/upstox_client.py's "
+            "column/filter assumptions."
         )
     return mapping
 
