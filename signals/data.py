@@ -1,67 +1,53 @@
-"""Fetch OHLCV data for the Nifty 500 universe via Upstox."""
+"""Fetch daily OHLCV for the Nifty 500 universe from NSE, once per run.
+
+NSE's public historical API only speaks daily bars (no native weekly/
+monthly interval like a broker API would offer), so weekly and monthly
+series used by the other strategies are derived here by resampling the
+same daily fetch - one NSE scrape serves every strategy that runs that day.
+"""
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
 
 import pandas as pd
 
 from signals import config
-from signals.upstox_client import UpstoxClient
+from signals.nse_client import NseClient
 
 logger = logging.getLogger(__name__)
 
-
-def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, str]:
-    """Map NSE trading symbols to Upstox instrument keys, dropping unknowns."""
-    full_map = client.fetch_instrument_map()
-    mapping = {sym: full_map[sym] for sym in symbols if sym in full_map}
-    missing = sorted(set(symbols) - mapping.keys())
-    if missing:
-        logger.warning("No Upstox instrument_key found for %d symbols: %s", len(missing), missing[:20])
-    return mapping
+_RESAMPLE_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 
-def fetch_all(
-    client: UpstoxClient,
-    instrument_map: dict[str, str],
-    interval: str,
-    years: int | None = None,
-    start: str | None = None,
-) -> dict[str, pd.DataFrame]:
-    """Fetch historical candles for every symbol at the given interval.
-
-    Provide either `years` (relative to today) or an explicit `start` date
-    string (YYYY-MM-DD). Symbols whose fetch fails are logged and skipped
-    rather than aborting the whole run.
-    """
-    today = date.today()
-    from_date = date.fromisoformat(start) if start else today - timedelta(days=365 * years)
-
+def fetch_daily(client: NseClient, symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """Fetch daily OHLCV for every symbol. Failures are logged and skipped."""
     result: dict[str, pd.DataFrame] = {}
     failures: list[str] = []
-    for symbol, instrument_key in instrument_map.items():
+    for symbol in symbols:
         try:
-            df = client.get_historical_candles(instrument_key, interval, from_date, today)
+            df = client.get_daily_history(symbol, years=config.DAILY_HISTORY_YEARS)
             if not df.empty:
                 result[symbol] = df
+            else:
+                failures.append(symbol)
         except Exception as exc:  # noqa: BLE001 - one bad symbol shouldn't kill the run
             failures.append(symbol)
-            logger.warning("Failed to fetch %s candles for %s: %s", interval, symbol, exc)
-        client.throttle()
+            logger.warning("Failed to fetch daily history for %s: %s", symbol, exc)
 
     if failures:
-        logger.warning("Skipped %d/%d symbols for interval=%s due to fetch errors", len(failures), len(instrument_map), interval)
+        logger.warning("Skipped %d/%d symbols due to fetch errors or empty data: %s", len(failures), len(symbols), failures[:20])
     return result
 
 
-def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
-    return fetch_all(client, instrument_map, "day", years=config.DAILY_HISTORY_YEARS)
+def _resample(daily_df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    if daily_df.empty:
+        return daily_df
+    return daily_df.resample(rule).agg(_RESAMPLE_AGG).dropna(subset=["close"])
 
 
-def fetch_weekly(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
-    return fetch_all(client, instrument_map, "week", years=config.WEEKLY_HISTORY_YEARS)
+def to_weekly(daily_data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    return {symbol: _resample(df, "W-FRI") for symbol, df in daily_data.items()}
 
 
-def fetch_monthly(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
-    return fetch_all(client, instrument_map, "month", start=config.MONTHLY_HISTORY_START)
+def to_monthly(daily_data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    return {symbol: _resample(df, "ME") for symbol, df in daily_data.items()}

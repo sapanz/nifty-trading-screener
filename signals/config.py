@@ -50,18 +50,18 @@ NSE_INDEX_LIST_URLS = (
     "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
 )
 
-# --- Upstox market data API -------------------------------------------------
-# https://upstox.com/developer/api-documentation/ - verify against current
-# docs if requests start failing, brokers do change these occasionally.
-UPSTOX_BASE_URL = "https://api.upstox.com/v2"
-UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
-UPSTOX_EQUITY_SEGMENT = "NSE_EQ"
-UPSTOX_REQUEST_DELAY_SECONDS = 0.25  # spacing between historical-candle calls
-UPSTOX_MAX_RETRIES = 3
+# --- NSE historical-data scraping ------------------------------------------
+# No auth, no daily token - but NSE's public API is undocumented, rate
+# limited, and blocks obviously bot-like traffic. Requests are chunked and
+# spaced out accordingly; see signals/nse_client.py.
+NSE_HISTORICAL_URL = "https://www.nseindia.com/api/historical/cm/equity"
+NSE_CHUNK_DAYS = 360          # stay safely under NSE's per-request date-range limit
+NSE_REQUEST_DELAY_SECONDS = 0.4
+NSE_MAX_RETRIES = 3
 
-# History depth requested per interval. Daily needs enough bars for a 5y
-# weekly-SMA200 lookback with margin; monthly requests the full available
-# history since Upstox has no "max" shorthand.
-DAILY_HISTORY_YEARS = 6
-WEEKLY_HISTORY_YEARS = 6
-MONTHLY_HISTORY_START = "2000-01-01"
+# Single daily-history depth, reused (via resampling) for weekly, monthly,
+# and the monthly all-time-high check - one NSE scrape per run serves every
+# strategy that fires that day. 8 years comfortably covers a weekly
+# SMA200 lookback (~4y) with margin; it also caps how far back the
+# monthly ATH check can "see" (see README caveats).
+DAILY_HISTORY_YEARS = 8

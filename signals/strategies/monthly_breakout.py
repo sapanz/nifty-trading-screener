@@ -2,7 +2,7 @@
 
 A stock qualifies when, on the monthly timeframe:
   - this month's close is above every prior month's close (a fresh
-    closing-basis all-time high, within the history Upstox has available)
+    closing-basis all-time high, within the history that was fetched)
   - volume was elevated
 
 Each result also reports how long (in months) the stock spent below its
