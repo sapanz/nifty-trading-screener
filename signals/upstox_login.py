@@ -72,8 +72,12 @@ def get_authorization_code(
 ) -> str:
     """Drive the Upstox login UI headlessly and return the OAuth `code`.
 
-    Uses Playwright's request routing to intercept the final redirect to
-    `redirect_uri` - it never needs to actually resolve or be reachable.
+    Passively observes every outgoing request rather than trying to
+    intercept/block the final redirect - `redirect_uri` doesn't need to
+    resolve to anything real, since we only need the URL itself (and its
+    `code` query param), not a successful page load. The browser is left
+    to fail loading it normally (chrome-error://chromewebdata); we've
+    already captured what we needed by the time that happens.
     """
     captured: dict[str, str] = {}
 
@@ -81,19 +85,11 @@ def get_authorization_code(
         browser = p.chromium.launch(headless=_HEADLESS)
         context = browser.new_context()
 
-        def _capture_redirect(route):
-            # Plain string-prefix check rather than Playwright's glob
-            # matching - a glob pattern here was silently failing to match
-            # the real redirect (trailing slash / query string edge cases),
-            # letting the browser try to actually load a URL that doesn't
-            # resolve to anything (chrome-error://chromewebdata).
-            if route.request.url.startswith(redirect_uri):
-                captured["url"] = route.request.url
-                route.fulfill(status=200, body="ok")
-            else:
-                route.continue_()
+        def _observe_request(request):
+            if "url" not in captured and request.url.startswith(redirect_uri):
+                captured["url"] = request.url
 
-        context.route("**/*", _capture_redirect)
+        context.on("request", _observe_request)
         page = context.new_page()
 
         try:
