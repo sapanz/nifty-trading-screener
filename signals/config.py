@@ -14,9 +14,10 @@ SMA_LONG = 200          # "above 200 SMA" trend filter used by every strategy
 # getting rejected and closing well below it.
 MAX_UPPER_WICK_RATIO = 0.25  # (high - close) / (high - low) must be <= this
 
-# --- Volume candle --------------------------------------------------------
+# --- Volume candle ---------------------------------------------------------
+# Only weekly breakout and monthly ATH breakout gate on volume; weekly SMA
+# support and daily swing dropped it as a condition.
 VOLUME_LOOKBACK = 20
-DAILY_VOLUME_MULTIPLIER = 1.5
 WEEKLY_VOLUME_MULTIPLIER = 1.3
 MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3

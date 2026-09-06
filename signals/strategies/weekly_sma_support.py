@@ -4,7 +4,6 @@ A stock qualifies when, on the weekly timeframe:
   - it is above its 200-period SMA (long-term uptrend)
   - the week's low tested the 30 SMA and closed back above it (support held)
   - the candle closed properly (small upper wick, bullish)
-  - volume was elevated (institutional participation on the bounce)
 """
 from __future__ import annotations
 
@@ -12,18 +11,15 @@ import pandas as pd
 
 from signals import config
 from signals.indicators import (
-    add_avg_volume,
     add_sma,
     is_above_sma,
     is_bullish,
     is_proper_close,
     is_support_test,
-    is_volume_candle,
 )
 from signals.models import Signal
 
 SMA_SUPPORT = config.SMA_SUPPORT_WEEKLY
-VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
 
 
 def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
@@ -36,7 +32,6 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         add_sma(df, config.SMA_LONG)
         add_sma(df, SMA_SUPPORT)
-        add_avg_volume(df, config.VOLUME_LOOKBACK)
         row = df.iloc[-1]
 
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{SMA_SUPPORT}")):
@@ -47,16 +42,15 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
         if not (is_proper_close(row) and is_bullish(row)):
             continue
-        if not is_volume_candle(row, VOL_COL, config.WEEKLY_VOLUME_MULTIPLIER):
-            continue
 
+        sma_support_val = float(row[f"sma{SMA_SUPPORT}"])
         entry = float(row["close"])
-        stop_loss = float(min(row["low"], row[f"sma{SMA_SUPPORT}"]) * (1 - config.SL_BUFFER))
+        stop_loss = float(min(row["low"], sma_support_val) * (1 - config.SL_BUFFER))
         risk = entry - stop_loss
         if risk <= 0:
             continue
 
-        vol_ratio = float(row["volume"] / row[VOL_COL])
+        support_gap = abs(row["low"] - sma_support_val) / sma_support_val
         targets = [round(entry + risk * mult, 2) for mult in config.RISK_REWARD_TARGETS]
 
         signals.append(
@@ -65,8 +59,8 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
-                sort_key=vol_ratio,
-                note=f"Vol {vol_ratio:.1f}x avg | SMA30 {row[f'sma{SMA_SUPPORT}']:.2f}",
+                sort_key=-support_gap,  # tightest support test first
+                note=f"SMA30 {sma_support_val:.2f}",
             )
         )
 

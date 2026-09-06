@@ -20,11 +20,11 @@ def _ramp_then_flat_df(freq: str, ramp_weeks: int, flat_weeks: int, start: float
 
 
 class TestWeeklySmaSupport:
-    def test_detects_support_bounce_with_volume(self):
+    def test_detects_support_bounce(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200)
-        # append the support-test candle: dips to plateau, closes higher, big volume
+        # append the support-test candle: dips to plateau, closes higher
         support_row = pd.DataFrame(
-            {"open": [200.0], "high": [205.0], "low": [198.0], "close": [204.0], "volume": [300_000.0]},
+            {"open": [200.0], "high": [205.0], "low": [198.0], "close": [204.0], "volume": [100_000.0]},
             index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
         df = pd.concat([df, support_row])
@@ -35,7 +35,8 @@ class TestWeeklySmaSupport:
         assert sig.symbol == "TESTCO"
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-    def test_no_signal_without_volume_spike(self):
+    def test_no_signal_without_a_real_support_test(self):
+        # flat close == sma exactly -> is_support_test requires close > sma
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=30, start=50, plateau=200)
         signals = weekly_sma_support.scan({"TESTCO": df})
         assert signals == []
@@ -79,7 +80,7 @@ class TestDailySwing:
     def test_detects_confluence_support(self):
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200)
         support_row = pd.DataFrame(
-            {"open": [200.0], "high": [204.0], "low": [197.0], "close": [203.0], "volume": [300_000.0]},
+            {"open": [200.0], "high": [204.0], "low": [197.0], "close": [203.0], "volume": [100_000.0]},
             index=[df.index[-1] + pd.Timedelta(days=1)],
         )
         df = pd.concat([df, support_row])
