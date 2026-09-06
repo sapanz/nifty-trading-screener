@@ -16,28 +16,34 @@ No manual judgement calls at run time — every "properly closed candle" /
 
 ## How it runs
 
-There's no server to keep online, and no broker account or API token
-needed. A single GitHub Actions workflow does the work on a cron schedule
-and posts straight to Telegram:
+There's no server to keep online. A single GitHub Actions workflow does
+the work on a cron schedule and posts straight to Telegram:
 
 - `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST).
-  `scripts/run_signals.py` fetches NSE daily data **once**, then always
+  `scripts/run_signals.py` fetches daily OHLCV **once**, then always
   runs the daily swing screener, additionally runs both weekly
   strategies on Fridays, and additionally runs the monthly ATH breakout
-  on the last trading day of the month — one NSE scrape serves every
+  on the last trading day of the month — one Upstox pass serves every
   strategy that fires that day, whatever the day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
 on any day for testing.
 
-Market data comes directly from **NSE's own public historical-data API**
-(the same one nseindia.com's charts use) — no Yahoo Finance/yfinance
-(unreliable for bulk NSE data) and no broker account (which would mean a
-daily access-token refresh). The Nifty 500 constituent list is fetched
-fresh from NSE's own archives on every run too. The trade-off: this is an
-undocumented API that NSE rate-limits and blocks bot-like traffic on —
-see [Known limitations](#known-limitations).
+Market data comes from the **Upstox API**. Two alternatives were tried
+and rejected first: **yfinance** is unreliable for bulk NSE data, and
+**scraping NSE's own historical-data API directly** (no auth needed at
+all) turned out to be blocked outright from GitHub Actions' cloud IP
+ranges — a live run hung for 90+ minutes with every request failing. The
+Nifty 500 constituent list is still fetched fresh from NSE's own archives
+(a lightweight, one-off CSV download, unrelated to the blocked per-symbol
+historical endpoint).
+
+The catch with a broker API: Upstox access tokens **expire daily**
+(~3:30am IST) and there's no refresh-token mechanism, only a browser
+login. This repo solves that with `tools/refresh_upstox_token.py` — a
+script you run locally once a day that does the login in your browser and
+pushes the resulting token to GitHub for you. See setup below.
 
 ## One-time setup
 
@@ -51,7 +57,14 @@ see [Known limitations](#known-limitations).
    - For a group chat, add the bot to the group first, send a message
      there, then look for the group's (negative) chat ID the same way.
 
-### 2. Add GitHub repository secrets
+### 2. Create an Upstox app
+
+Register an app at [developer.upstox.com](https://developer.upstox.com/)
+to get an **API key** (client ID) and **API secret**. While registering,
+set the **redirect URI** to `http://localhost:5000/callback` (or another
+port of your choice — just keep it consistent with `tools/.env` below).
+
+### 3. Add GitHub repository secrets
 
 In this repo: **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -59,12 +72,37 @@ In this repo: **Settings → Secrets and variables → Actions → New repositor
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | from BotFather |
 | `TELEGRAM_CHAT_ID` | your chat ID |
+| `UPSTOX_ACCESS_TOKEN` | leave any placeholder value for now — the daily refresh tool below overwrites it |
 
-That's it — no broker credentials, no daily token refresh. Once these
-are set, the schedule in `.github/workflows/signals.yml` fires
-automatically with no further action needed.
+### 4. Set up the daily token refresh tool
 
-### 3. Test it
+```bash
+pip install -r tools/requirements.txt
+cp tools/.env.example tools/.env
+```
+
+Fill in `tools/.env`:
+- `UPSTOX_CLIENT_ID` / `UPSTOX_CLIENT_SECRET` / `UPSTOX_REDIRECT_URI` — from step 2.
+- `GITHUB_TOKEN` — a **fine-grained GitHub Personal Access Token**, scoped
+  to **only this repository**, with **Secrets: Read and write** permission
+  and nothing else. Create one at
+  [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).
+  This token lives only on your machine, in `tools/.env` (already
+  gitignored) — never commit it.
+- `GITHUB_OWNER` / `GITHUB_REPO` — `sapanz` / `nifty-trading-screener`.
+
+**Every day before 5pm IST**, run:
+
+```bash
+python tools/refresh_upstox_token.py
+```
+
+This opens your browser to Upstox's login page, you log in as usual, and
+the script captures the result and pushes it straight to the
+`UPSTOX_ACCESS_TOKEN` GitHub secret. No PIN, password, or 2FA secret is
+ever stored — only today's login, done the normal way.
+
+### 5. Test it
 
 Go to the **Actions** tab → **Nifty500 Signals** → **Run workflow**. Tick
 **force_weekly** and/or **force_monthly** to exercise those strategies on
@@ -99,34 +137,31 @@ percentage targets for fresh all-time-high breakouts (which by definition
 have no prior resistance to aim at).
 
 Weekly and monthly OHLCV are both *derived* from the same daily fetch by
-resampling (`signals/data.py`) — NSE's public API only speaks daily bars,
-so there's no separate network round-trip per timeframe.
+resampling (`signals/data.py`) — Upstox only gets called once per symbol,
+for the "day" interval, no matter how many strategies fire that day.
 
 ## Known limitations
 
-- **NSE is an undocumented, rate-limited API.** `signals/nse_client.py`
-  scrapes the same JSON endpoint nseindia.com's own charts use, not an
-  official/stable API. NSE aggressively blocks bot-like traffic; requests
-  are spaced out and a failing symbol/chunk is skipped (logged) rather
-  than failing the whole run, but if NSE tightens blocking further,
-  expect more skipped symbols or a need to re-tune
-  `NSE_REQUEST_DELAY_SECONDS` / `NSE_CHUNK_DAYS` in `signals/config.py`.
-  If NSE changes the response field names, only `nse_client.py` needs
-  fixing — it fails loudly (and reports to Telegram) rather than silently
-  returning wrong data.
+- **Daily token refresh is manual (by design).** See setup step 4. Skip
+  it on a given day and that day's Telegram message will be a Telegram
+  *error* report instead of signals — the workflow fails loudly rather
+  than silently.
 - **All-time-high depth is bounded**, not literal all-time. The monthly
-  ATH check only sees `DAILY_HISTORY_YEARS` (8, by default) of history,
+  ATH check only sees `DAILY_HISTORY_YEARS` (6, by default) of history,
   because it's derived from the same daily fetch every other strategy
   uses. A stock whose real all-time high was set further back than that
   won't be recognized as still being below it. Increase
-  `DAILY_HISTORY_YEARS` in `signals/config.py` for a deeper look-back at
-  the cost of a slower daily fetch (more chunked requests per symbol).
+  `DAILY_HISTORY_YEARS` in `signals/config.py` for a deeper look-back.
 - **NSE holiday calendar**: the "last trading day of the month" check is
   pure calendar math (last weekday of the month). If the real last
   trading day happens to be an NSE holiday, the run fires one weekday
   early instead.
 - If a stock's data fetch fails for the day, it's just skipped (logged in
-  the Actions run) rather than failing the whole screener.
+  the Actions run) rather than failing the whole screener — unless a
+  large fraction of an early sample fails, in which case
+  `signals/data.py`'s circuit breaker aborts the whole run early with a
+  clear error (protects against a repeat of the NSE-blocking incident
+  that motivated the switch to Upstox).
 
 ## Local development
 
@@ -135,6 +170,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 pytest -q                      # runs against synthetic OHLCV data, no network needed
 
+export UPSTOX_ACCESS_TOKEN=...
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
 python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
@@ -147,8 +183,8 @@ FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise 
 signals/
   config.py          tunable thresholds
   universe.py        Nifty 500 constituent list (from NSE)
-  nse_client.py      NSE historical-data scraper (no auth, chunked + rate-limited)
-  data.py            daily fetch orchestration + weekly/monthly resampling
+  upstox_client.py   Upstox API wrapper (instrument master + daily candles)
+  data.py            daily fetch orchestration + weekly/monthly resampling + circuit breaker
   indicators.py      SMA, Bollinger Bands, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
@@ -156,9 +192,10 @@ signals/
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram
   calendar_utils.py   "is this the last trading day of the month" check
-scripts/run_signals.py   the single daily entry point
-.github/workflows/       the cron schedule + a test workflow
-tests/                   unit tests against synthetic OHLCV data
+scripts/run_signals.py       the single daily entry point
+tools/refresh_upstox_token.py   local one-tap daily token refresh (not run by CI)
+.github/workflows/            the cron schedule + a test workflow
+tests/                         unit tests against synthetic OHLCV data
 ```
 
 ## Disclaimer

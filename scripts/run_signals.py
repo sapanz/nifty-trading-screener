@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
-Fetches NSE daily OHLCV once, then:
+Fetches daily OHLCV via Upstox once, then:
   - always runs the daily swing screener
   - also runs both weekly screeners on Fridays (or FORCE_WEEKLY=true)
   - also runs the monthly ATH breakout on the last trading day of the
     month (or FORCE_MONTHLY=true)
 
-One shared fetch keeps NSE load to a single scrape per day even when
-several strategies fire on the same run (e.g. every Friday).
+One shared fetch keeps Upstox calls to a single pass per day even when
+several strategies fire on the same run (e.g. every Friday). Requires
+UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
 """
 import os
 import sys
@@ -23,8 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signals import data, runtime, universe  # noqa: E402
 from signals.calendar_utils import is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.nse_client import NseClient
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_sma_support
+from signals.upstox_client import UpstoxClient
 
 DAILY_TITLE = "Daily Swing (200 SMA trend, 44 SMA + Lower BB support)"
 DAILY_EMOJI = "📈"
@@ -43,9 +44,10 @@ def main() -> None:
     today = date.today()
 
     try:
-        client = NseClient()
+        client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
         symbols = universe.fetch_nifty500_symbols()
-        daily = data.fetch_daily(client, symbols)
+        instrument_map = data.build_instrument_map(client, symbols)
+        daily = data.fetch_daily(client, instrument_map)
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise

@@ -50,18 +50,30 @@ NSE_INDEX_LIST_URLS = (
     "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
 )
 
-# --- NSE historical-data scraping ------------------------------------------
-# No auth, no daily token - but NSE's public API is undocumented, rate
-# limited, and blocks obviously bot-like traffic. Requests are chunked and
-# spaced out accordingly; see signals/nse_client.py.
-NSE_HISTORICAL_URL = "https://www.nseindia.com/api/historical/cm/equity"
-NSE_CHUNK_DAYS = 360          # stay safely under NSE's per-request date-range limit
-NSE_REQUEST_DELAY_SECONDS = 0.4
-NSE_MAX_RETRIES = 3
+# --- Upstox market data API -------------------------------------------------
+# https://upstox.com/developer/api-documentation/ - verify against current
+# docs if requests start failing, brokers do change these occasionally.
+# NSE's own historical-data API was tried first (no auth needed at all),
+# but it appears to block GitHub Actions' cloud IP ranges outright - a live
+# run hung for 90+ minutes retrying every single request. Upstox is the
+# reliable option; see tools/refresh_upstox_token.py for the one-tap daily
+# token refresh that keeps this fully working without a manual token paste.
+UPSTOX_BASE_URL = "https://api.upstox.com/v2"
+UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
+UPSTOX_EQUITY_SEGMENT = "NSE_EQ"
+UPSTOX_REQUEST_DELAY_SECONDS = 0.25  # spacing between historical-candle calls
+UPSTOX_MAX_RETRIES = 3
 
 # Single daily-history depth, reused (via resampling) for weekly, monthly,
-# and the monthly all-time-high check - one NSE scrape per run serves every
-# strategy that fires that day. 8 years comfortably covers a weekly
+# and the monthly all-time-high check - one fetch per symbol serves every
+# strategy that fires that day. 6 years comfortably covers a weekly
 # SMA200 lookback (~4y) with margin; it also caps how far back the
 # monthly ATH check can "see" (see README caveats).
-DAILY_HISTORY_YEARS = 8
+DAILY_HISTORY_YEARS = 6
+
+# --- Circuit breaker --------------------------------------------------------
+# If the data source is blocking/rejecting requests wholesale (as NSE direct
+# scraping turned out to do from GitHub Actions), fail fast after a small
+# sample instead of grinding through hundreds of symbols for hours.
+CIRCUIT_BREAKER_SAMPLE_SIZE = 20     # check failure rate after this many symbols
+CIRCUIT_BREAKER_FAILURE_RATIO = 0.8  # abort if this fraction of the sample failed

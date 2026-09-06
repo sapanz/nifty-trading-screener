@@ -5,7 +5,7 @@ on:
     # 11:30 UTC = 5:00pm IST, Monday-Friday.
     # scripts/run_signals.py decides internally whether to also run the
     # weekly strategies (Fridays) and/or the monthly ATH breakout (last
-    # trading day of the month) - one workflow, one NSE fetch per day.
+    # trading day of the month) - one workflow, one Upstox fetch per day.
     - cron: "30 11 * * 1-5"
   workflow_dispatch:
     inputs:
@@ -21,6 +21,10 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    # Belt-and-suspenders alongside the circuit breaker in signals/data.py:
+    # a normal run finishes in a few minutes, so cap the job well below
+    # GitHub's 6-hour default in case something still hangs.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +36,7 @@ jobs:
 
       - name: Run Nifty500 signal screeners
         env:
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FORCE_WEEKLY: ${{ inputs.force_weekly && 'true' || '' }}

@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from signals import data
+from signals import config, data
 
 
 def _daily_df():
@@ -48,3 +49,35 @@ def test_resample_handles_empty_frame():
     empty = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     assert data.to_weekly({"TESTCO": empty})["TESTCO"].empty
     assert data.to_monthly({"TESTCO": empty})["TESTCO"].empty
+
+
+class _FakeClient:
+    """Stands in for UpstoxClient: every symbol whose instrument_key starts
+    with 'FAIL' raises, everything else returns a small valid frame."""
+
+    def get_daily_history(self, instrument_key, years):
+        if instrument_key.startswith("FAIL"):
+            raise RuntimeError("simulated blocked request")
+        return _daily_df()
+
+    def throttle(self):
+        pass
+
+
+def test_fetch_daily_skips_individual_failures():
+    instrument_map = {"GOOD1": "OK1", "BAD1": "FAIL1", "GOOD2": "OK2"}
+    result = data.fetch_daily(_FakeClient(), instrument_map)
+    assert set(result.keys()) == {"GOOD1", "GOOD2"}
+
+
+def test_fetch_daily_circuit_breaker_aborts_on_systemic_failure(monkeypatch):
+    monkeypatch.setattr(config, "CIRCUIT_BREAKER_SAMPLE_SIZE", 5)
+    monkeypatch.setattr(config, "CIRCUIT_BREAKER_FAILURE_RATIO", 0.8)
+
+    # 5 symbols, all failing -> should abort right after the 5th, not
+    # continue on to the remaining 95.
+    instrument_map = {f"BAD{i}": f"FAIL{i}" for i in range(5)}
+    instrument_map.update({f"GOOD{i}": f"OK{i}" for i in range(95)})
+
+    with pytest.raises(RuntimeError, match="blocking requests wholesale"):
+        data.fetch_daily(_FakeClient(), instrument_map)
