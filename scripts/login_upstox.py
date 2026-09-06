@@ -3,14 +3,14 @@
 token to the rest of the job.
 
 The access token itself is never stored as a GitHub secret - only the
-long-lived login credentials are (mobile number, TOTP secret, client
-id/secret). This script writes the derived token to $GITHUB_ENV (masked
-in logs) so the next step in the same job can read it as a plain
+long-lived login credentials are (mobile number, TOTP secret, login PIN,
+client id/secret). This script writes the derived token to $GITHUB_ENV
+(masked in logs) so the next step in the same job can read it as a plain
 environment variable; it exists only for the lifetime of that job run.
 
 Required environment variables:
   UPSTOX_CLIENT_ID, UPSTOX_CLIENT_SECRET, UPSTOX_REDIRECT_URI
-  UPSTOX_MOBILE_NUMBER, UPSTOX_TOTP_SECRET
+  UPSTOX_MOBILE_NUMBER, UPSTOX_TOTP_SECRET, UPSTOX_PIN
 
 This automates Upstox's login *page*, not a documented API - if Upstox
 changes it, this breaks. See signals/upstox_login.py for the selectors
@@ -38,6 +38,7 @@ def main() -> None:
     redirect_uri = runtime.get_env("UPSTOX_REDIRECT_URI")
     mobile_number = runtime.get_env("UPSTOX_MOBILE_NUMBER")
     totp_secret = runtime.get_env("UPSTOX_TOTP_SECRET")
+    pin = runtime.get_env("UPSTOX_PIN")
 
     try:
         code = get_authorization_code(
@@ -45,6 +46,7 @@ def main() -> None:
             redirect_uri,
             mobile_number,
             totp_secret,
+            pin,
             screenshot_path=SCREENSHOT_PATH,
         )
         token = exchange_code_for_token(code, client_id, client_secret, redirect_uri)

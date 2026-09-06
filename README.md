@@ -90,12 +90,15 @@ In this repo: **Settings → Secrets and variables → Actions → New repositor
 | `UPSTOX_CLIENT_ID` | from your Upstox app |
 | `UPSTOX_CLIENT_SECRET` | from your Upstox app |
 | `UPSTOX_REDIRECT_URI` | must exactly match what you registered in step 2 |
-| `UPSTOX_MOBILE_NUMBER` | your Upstox login mobile number |
+| `UPSTOX_MOBILE_NUMBER` | your Upstox login mobile number — exactly 10 digits, no `+91`/`91` prefix |
 | `UPSTOX_TOTP_SECRET` | from step 3 |
+| `UPSTOX_PIN` | your 6-digit Upstox login PIN |
 
-(Login here is mobile number + a verification code, with no separate
-password step — the TOTP code from step 3 fills that verification-code
-field instead of a texted SMS OTP.)
+(The real flow, confirmed against a live account: mobile number → a
+verification code screen, where the TOTP code from step 3 fills the
+"OTP or TOTP" field instead of a texted SMS OTP → a "Hi \<name\>, welcome
+back" screen asking for your 6-digit login PIN before Upstox completes
+the authorization. No separate account *password* is ever needed.)
 
 There is no `UPSTOX_ACCESS_TOKEN` secret to manage — it's minted fresh at
 the start of every run and only exists in that run's memory.
@@ -118,12 +121,11 @@ it — the fix is almost always a one-line selector update in
 
 ## Security trade-offs of TOTP auto-login
 
-This setup stores your Upstox TOTP secret as a GitHub Actions secret,
-which is more sensitive than anything else in this repo handles. Since
-login here is just mobile number + verification code with no separate
-password, **the TOTP secret is the entire gate on logging into your
-account** — anyone who has it (plus your mobile number, which isn't
-really a secret) can log in as you. Concretely:
+This setup stores your Upstox TOTP secret **and** your login PIN as
+GitHub Actions secrets, which is more sensitive than anything else in
+this repo handles — together they're the entire gate on logging into
+your account (plus your mobile number, which isn't really a secret).
+Concretely:
 
 - These secrets are only ever readable by workflows running in this
   repo — never logged in plaintext (the derived access token is
@@ -133,9 +135,10 @@ really a secret) can log in as you. Concretely:
   them to log into your Upstox account. Keep this repo private (it
   already is) and don't add collaborators you wouldn't trust with your
   broker login.
-- If you ever suspect this secret has leaked, re-link your authenticator
-  app in Upstox's security settings immediately (this issues a new TOTP
-  secret and invalidates the old one), then update the GitHub secret.
+- If you ever suspect these have leaked: re-link your authenticator app
+  in Upstox's security settings immediately (issues a new TOTP secret,
+  invalidating the old one), change your login PIN, then update both
+  GitHub secrets.
 - If this trade-off stops feeling worth it, switch back to
   `tools/refresh_upstox_token.py` (manual daily refresh, no credentials
   stored at all) by removing the "Log in to Upstox (TOTP)" step from
@@ -216,7 +219,7 @@ FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise 
 # browser window instead of the workflow's headless one, useful for
 # watching exactly where a selector doesn't match):
 export UPSTOX_CLIENT_ID=... UPSTOX_CLIENT_SECRET=... UPSTOX_REDIRECT_URI=...
-export UPSTOX_MOBILE_NUMBER=... UPSTOX_TOTP_SECRET=...
+export UPSTOX_MOBILE_NUMBER=... UPSTOX_TOTP_SECRET=... UPSTOX_PIN=...
 HEADLESS=false python scripts/login_upstox.py
 ```
 

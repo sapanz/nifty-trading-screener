@@ -12,13 +12,12 @@ erroring - a screenshot and the full page HTML are saved next to
 `screenshot_path` (uploaded as CI artifacts by the workflow) specifically
 to make that fix fast.
 
-Assumes a 2-step login: mobile number, then a single verification code
-field satisfied by a TOTP code from an authenticator app (Upstox's
-account security settings must have TOTP enabled as the 2FA method,
-replacing SMS OTP, for this code to be accepted there instead of a
-texted one) - no separate password/PIN step. A best-effort attempt is
-also made to click through a subsequent OAuth consent/"Authorize" screen,
-since that's a common extra step this flow doesn't otherwise know about.
+Assumes a 3-step login, confirmed against a real account: mobile number;
+a verification code satisfied by a TOTP code from an authenticator app
+(Upstox's account security settings must have TOTP enabled as the 2FA
+method, replacing SMS OTP, for this to be accepted instead of a texted
+OTP); then the account's 6-digit login PIN on a "Hi <name>, welcome
+back" screen before Upstox will complete the API authorization.
 
 If Upstox changes their login flow, this is the file to update - nothing
 else in the codebase needs to know how the login happened, only that it
@@ -41,7 +40,6 @@ _HEADLESS = os.environ.get("HEADLESS", "true").lower() != "false"
 
 AUTH_DIALOG_URL = "https://api.upstox.com/v2/login/authorization/dialog"
 STEP_TIMEOUT_MS = 15_000
-CONSENT_BUTTON_LABELS = ("Authorize", "Allow", "Continue", "Proceed", "Approve")
 
 
 def _build_dialog_url(client_id: str, redirect_uri: str) -> str:
@@ -69,6 +67,7 @@ def get_authorization_code(
     redirect_uri: str,
     mobile_number: str,
     totp_secret: str,
+    pin: str,
     screenshot_path: str | None = None,
 ) -> str:
     """Drive the Upstox login UI headlessly and return the OAuth `code`.
@@ -102,18 +101,12 @@ def get_authorization_code(
             page.fill("#otpNum", pyotp.TOTP(totp_secret).now())
             page.click("#continueBtn")
 
-            page.wait_for_timeout(3000)  # give the final redirect a moment to fire
+            logger.info("Entering login PIN")
+            page.wait_for_selector("#pinCode", timeout=STEP_TIMEOUT_MS)
+            page.fill("#pinCode", pin)
+            page.click("#pinContinueBtn")
 
-            if "url" not in captured:
-                # Some OAuth flows show a separate consent/authorize screen
-                # after login succeeds - best-effort click through it.
-                for label in CONSENT_BUTTON_LABELS:
-                    button = page.get_by_role("button", name=label, exact=False)
-                    if button.count() > 0:
-                        logger.info("Login done but no redirect yet; clicking possible consent button %r", label)
-                        button.first.click()
-                        page.wait_for_timeout(3000)
-                        break
+            page.wait_for_timeout(3000)  # give the final redirect a moment to fire
         except Exception:
             logger.error("Upstox login flow raised an exception")
             raise
