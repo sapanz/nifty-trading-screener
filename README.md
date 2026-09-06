@@ -45,9 +45,8 @@ The catch with a broker API: Upstox access tokens **expire daily**
 repo solves that with fully automated TOTP login
 (`signals/upstox_login.py`), which runs as the first step of every
 workflow run: it drives Upstox's real login page headlessly (mobile
-number → password → a TOTP code generated from your authenticator
-secret) and mints a fresh access token for that run only — nothing to do
-daily. See [Security trade-offs](#security-trade-offs-of-totp-auto-login)
+number → a TOTP code generated from your authenticator secret) and mints
+a fresh access token for that run only — nothing to do daily. See [Security trade-offs](#security-trade-offs-of-totp-auto-login)
 before setting this up; `tools/refresh_upstox_token.py` remains available
 as a manual fallback if you'd rather not store login credentials at all.
 
@@ -92,8 +91,11 @@ In this repo: **Settings → Secrets and variables → Actions → New repositor
 | `UPSTOX_CLIENT_SECRET` | from your Upstox app |
 | `UPSTOX_REDIRECT_URI` | must exactly match what you registered in step 2 |
 | `UPSTOX_MOBILE_NUMBER` | your Upstox login mobile number |
-| `UPSTOX_PASSWORD` | whatever credential Upstox's login page asks for after your mobile number (password or PIN, depending on your account) |
 | `UPSTOX_TOTP_SECRET` | from step 3 |
+
+(Login here is mobile number + a verification code, with no separate
+password step — the TOTP code from step 3 fills that verification-code
+field instead of a texted SMS OTP.)
 
 There is no `UPSTOX_ACCESS_TOKEN` secret to manage — it's minted fresh at
 the start of every run and only exists in that run's memory.
@@ -116,9 +118,12 @@ it — the fix is almost always a one-line selector update in
 
 ## Security trade-offs of TOTP auto-login
 
-This setup stores your Upstox login password and TOTP secret as GitHub
-Actions secrets, which is more sensitive than anything else in this repo
-handles. Concretely:
+This setup stores your Upstox TOTP secret as a GitHub Actions secret,
+which is more sensitive than anything else in this repo handles. Since
+login here is just mobile number + verification code with no separate
+password, **the TOTP secret is the entire gate on logging into your
+account** — anyone who has it (plus your mobile number, which isn't
+really a secret) can log in as you. Concretely:
 
 - These secrets are only ever readable by workflows running in this
   repo — never logged in plaintext (the derived access token is
@@ -128,9 +133,9 @@ handles. Concretely:
   them to log into your Upstox account. Keep this repo private (it
   already is) and don't add collaborators you wouldn't trust with your
   broker login.
-- If you ever suspect these secrets have leaked, rotate your Upstox
-  password and re-link your authenticator app (which changes the TOTP
-  secret) immediately, then update the GitHub secrets.
+- If you ever suspect this secret has leaked, re-link your authenticator
+  app in Upstox's security settings immediately (this issues a new TOTP
+  secret and invalidates the old one), then update the GitHub secret.
 - If this trade-off stops feeling worth it, switch back to
   `tools/refresh_upstox_token.py` (manual daily refresh, no credentials
   stored at all) by removing the "Log in to Upstox (TOTP)" step from
@@ -211,7 +216,7 @@ FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise 
 # browser window instead of the workflow's headless one, useful for
 # watching exactly where a selector doesn't match):
 export UPSTOX_CLIENT_ID=... UPSTOX_CLIENT_SECRET=... UPSTOX_REDIRECT_URI=...
-export UPSTOX_MOBILE_NUMBER=... UPSTOX_PASSWORD=... UPSTOX_TOTP_SECRET=...
+export UPSTOX_MOBILE_NUMBER=... UPSTOX_TOTP_SECRET=...
 HEADLESS=false python scripts/login_upstox.py
 ```
 

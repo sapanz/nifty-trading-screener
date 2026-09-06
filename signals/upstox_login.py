@@ -9,6 +9,12 @@ to match what Upstox's login page actually looks like. On failure, a
 screenshot is saved to `screenshot_path` (uploaded as a CI artifact by
 the workflow) specifically to make that fix fast.
 
+Assumes a 2-step login: mobile number, then a single verification code
+field satisfied by a TOTP code from an authenticator app (Upstox's
+account security settings must have TOTP enabled as the 2FA method,
+replacing SMS OTP, for this code to be accepted there instead of a
+texted one) - no separate password/PIN step.
+
 If Upstox changes their login flow, this is the file to update - nothing
 else in the codebase needs to know how the login happened, only that it
 produces an OAuth authorization `code`.
@@ -43,7 +49,6 @@ def get_authorization_code(
     client_id: str,
     redirect_uri: str,
     mobile_number: str,
-    password: str,
     totp_secret: str,
     screenshot_path: str | None = None,
 ) -> str:
@@ -73,14 +78,9 @@ def get_authorization_code(
             page.fill("#mobileNum", mobile_number)
             page.click("#getOtp")
 
-            logger.info("Entering password/PIN")
-            page.wait_for_selector("#pinCode", timeout=STEP_TIMEOUT_MS)
-            page.fill("#pinCode", password)
-            page.click("#pinContinueBtn")
-
             logger.info("Entering TOTP code")
-            page.wait_for_selector("#totpNum", timeout=STEP_TIMEOUT_MS)
-            page.fill("#totpNum", pyotp.TOTP(totp_secret).now())
+            page.wait_for_selector("#otpNum", timeout=STEP_TIMEOUT_MS)
+            page.fill("#otpNum", pyotp.TOTP(totp_secret).now())
             page.click("#continueBtn")
 
             page.wait_for_timeout(3000)  # give the final redirect a moment to fire
