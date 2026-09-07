@@ -52,10 +52,20 @@ CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many dist
 # the target is a fixed 1:3 risk-reward. (Two earlier versions of this
 # strategy slot - Darvas Box, and Darvas Box + technical CANSLIM - were
 # tried and replaced.)
+#
+# Tuning history (optimizing for win rate/capital protection over signal
+# frequency, per explicit request - fewer, higher-conviction trades are
+# fine): v1 (15% ATH tolerance, 2% support tolerance, no other filters)
+# backtested at 24% win rate over 4329 decided trades - a coin flip at
+# this setup's own 1:3 breakeven rate (25%). v2 below adds a rising-SMA
+# requirement, a low-volume ("quiet") pullback requirement, and a
+# proper-close check, and tightens both tolerances.
 DAILY_SWING_SMA_SUPPORT = 30          # the SMA tested for support
-DAILY_SWING_SUPPORT_TOLERANCE = 0.02  # candle's low may sit up to this much above the SMA and still count as a touch
-DAILY_SWING_ATH_TOLERANCE = 0.15      # today's close must be within this much of the stock's all-time-high close
+DAILY_SWING_SUPPORT_TOLERANCE = 0.01  # candle's low may sit up to this much above the SMA and still count as a touch
+DAILY_SWING_ATH_TOLERANCE = 0.05      # today's close must be within this much of the stock's all-time-high close
 DAILY_SWING_MIN_HISTORY_DAYS = 500    # ~2 years - enough history for "all-time high" to mean something
+DAILY_SWING_SMA_SLOPE_LOOKBACK = 5     # the SMA itself must be higher than it was this many periods back
+DAILY_SWING_MAX_VOLUME_RATIO = 1.0     # support-test day's volume must be below this x its trailing average - a quiet pullback, not a panic dump
 DAILY_SWING_RISK_REWARD_TARGETS = (3,)  # fixed 1:3 risk-reward, single target
 
 # --- Weekly breakout ------------------------------------------------------

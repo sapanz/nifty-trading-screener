@@ -157,11 +157,19 @@ class TestCipWeekly:
 
 
 def _sma_support_setup_df(
-    ramp_periods: int = 500, plateau: float = 300.0, low_mult: float = 0.995, close_mult: float = 1.01, high_mult: float = 1.015
+    ramp_periods: int = 500,
+    plateau: float = 300.0,
+    low_mult: float = 0.995,
+    close_mult: float = 1.01,
+    high_mult: float = 1.012,
+    volume: float = 70_000.0,
 ) -> pd.DataFrame:
     """Ramp up towards `plateau` (never reaching it, so it stays this
-    stock's all-time-high close), then append a single green candle
-    anchored to the trailing 30-day SMA - a textbook support test."""
+    stock's all-time-high close, and keeping the 30-SMA rising throughout),
+    then append a single green, quiet-volume candle anchored to the
+    trailing 30-day SMA - a textbook support test. Base rate volume is
+    100,000/day, so the default `volume` (70,000) is a genuine pullback in
+    turnover relative to the trailing average."""
     df = _ramp_then_flat_df("B", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=plateau)
     anchor = df["close"].tail(config.DAILY_SWING_SMA_SUPPORT - 1).mean()
     support_row = pd.DataFrame(
@@ -170,7 +178,7 @@ def _sma_support_setup_df(
             "high": [anchor * high_mult],
             "low": [anchor * low_mult],
             "close": [anchor * close_mult],
-            "volume": [100_000.0],
+            "volume": [volume],
         },
         index=[df.index[-1] + pd.Timedelta(days=1)],
     )
@@ -187,11 +195,15 @@ class TestDailySwing:
         assert len(sig.targets) == 1  # fixed single 1:3 target
 
         # Entry is the signal candle's high; stop-loss is the lower of the
-        # signal candle's own low and the previous candle's low.
+        # signal candle's own low and the previous candle's low. The
+        # target is computed from the raw (unrounded) entry/stop, same as
+        # the strategy itself, to avoid a rounding-order mismatch.
         row, prev_row = df.iloc[-1], df.iloc[-2]
-        assert sig.entry == round(float(row["high"]), 2)
-        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
-        assert sig.targets[0] == round(sig.entry + (sig.entry - sig.stop_loss) * 3, 2)
+        raw_entry = float(row["high"])
+        raw_stop = float(min(row["low"], prev_row["low"]))
+        assert sig.entry == round(raw_entry, 2)
+        assert sig.stop_loss == round(raw_stop, 2)
+        assert sig.targets[0] == round(raw_entry + (raw_entry - raw_stop) * 3, 2)
 
     def test_no_signal_when_far_from_all_time_high(self):
         df = _sma_support_setup_df()
@@ -212,6 +224,13 @@ class TestDailySwing:
 
     def test_no_signal_when_candle_is_red(self):
         df = _sma_support_setup_df(close_mult=0.99)  # closes below its own open
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_pullback_volume_is_heavy(self):
+        # base rate is 100,000/day - 150,000 is a heavy-volume day, not the
+        # quiet, light-selling pullback this setup requires.
+        df = _sma_support_setup_df(volume=150_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
