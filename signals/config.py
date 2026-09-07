@@ -40,6 +40,38 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
+# --- Daily Swing: Darvas Box + technical CANSLIM --------------------------
+# Darvas Box: buy a stock making a fresh new high once it consolidates
+# into a tight box, then breaks out above the TOP of that box on volume;
+# the stop sits below the box bottom, per Darvas's own rule. Layered with
+# the price/volume-derivable legs of O'Neil's CANSLIM: N (new high, built
+# into the box top itself), S (volume-confirmed breakout - the box
+# breakout already requires this), L (leadership - only the strongest
+# stocks in the scanned universe by trailing relative return qualify),
+# and M (a weak overall market, measured by breadth, stands the whole
+# strategy down for the day). The fundamentals-only legs of CANSLIM (C, A,
+# I - quarterly/annual earnings growth, institutional ownership) aren't
+# available from the OHLCV-only Upstox feed this screener uses, so
+# they're intentionally left out rather than faked.
+#
+# Note: this is a single point-in-time EOD scan, not Darvas's original
+# stateful trailing-stop system (he raised the stop as new boxes formed
+# on top of each other and let winners run rather than taking a fixed
+# target) - targets here are risk-multiples instead, to fit this
+# screener's existing entry/SL/target architecture.
+DARVAS_NEW_HIGH_LOOKBACK = 252     # ~52 weeks: the box's top must be a new high over this many trading days
+DARVAS_NEW_HIGH_TOLERANCE = 0.02   # how much the box top may sit below the actual 52-week high and still count as "new"
+DARVAS_BOX_MIN_DAYS = 3            # minimum consecutive days price must hold inside the box to confirm it
+DARVAS_BOX_MAX_DAYS = 15           # give up looking for a box for a given peak after this many days
+DARVAS_BOX_TIGHTNESS = 0.12        # (box_top - box_bottom) / box_bottom must be <= 12%
+
+DAILY_SWING_VOLUME_MULTIPLIER = 1.5    # breakout candle's volume vs its trailing average
+DAILY_SWING_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
+
+DAILY_SWING_RS_LOOKBACK_DAYS = 63      # ~3 months: relative-strength ranking window
+DAILY_SWING_RS_TOP_PERCENTILE = 0.30   # only the top 30% of the scanned universe by trailing return count as "leaders"
+DAILY_SWING_MIN_MARKET_BREADTH = 0.50  # fraction of the universe that must sit above its own 200 SMA, else the whole run stands down
+
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
 BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be <= 15%

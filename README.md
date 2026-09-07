@@ -1,10 +1,11 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for three strategies:
+levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
+| **Daily Swing** | Every trading day, 5pm IST | Darvas Box breakout (tight, fresh-new-high consolidation broken on volume) layered with technical CANSLIM: market breadth healthy, stock ranks in the top 30% of the universe by relative strength |
 | **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a stock's own all-time-high zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support (the strongest support there is) by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
@@ -18,17 +19,14 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — scheduled Mon-Fri, 11:30 UTC (5:00pm
-  IST), but only actually does anything on a Friday or the last trading
-  day of the month — the only two days any strategy can fire. A cheap
-  pre-check step decides this before touching Upstox at all; on every
-  other day the job exits immediately without installing Playwright or
-  spending a TOTP login. When it does run, it first logs into Upstox
-  automatically (`scripts/login_upstox.py`, via TOTP), then
-  `scripts/run_signals.py` fetches daily OHLCV **once** and runs both
-  weekly strategies (Weekly Range Breakout and CIP Weekly) on Fridays
-  and/or the monthly ATH breakout on month-end — one Upstox pass serves
-  every strategy that fires that day.
+- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
+  first logs into Upstox automatically (`scripts/login_upstox.py`, via
+  TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
+  always runs the daily swing screener, additionally runs both weekly
+  strategies (Weekly Range Breakout and CIP Weekly) on Fridays, and
+  additionally runs the monthly ATH breakout on the last trading day of
+  the month — one Upstox pass serves every strategy that fires that day,
+  whatever the day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
@@ -158,6 +156,28 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
+- **Daily Swing (Darvas Box + technical CANSLIM)**:
+  `signals/strategies/daily_swing.py`. Two cross-sectional gates run once
+  per scan, across the whole scanned universe, before any single stock is
+  considered:
+  - **M (market direction)**: at least `DAILY_SWING_MIN_MARKET_BREADTH`
+    (50%) of the universe must be trading above its own 200 SMA, or the
+    entire strategy stands down for the day - never fight a weak tape.
+  - **L (leadership)**: only the top `DAILY_SWING_RS_TOP_PERCENTILE`
+    (30%) of the universe by trailing `DAILY_SWING_RS_LOOKBACK_DAYS`
+    (~3 month) return are even considered - a decent chart on a laggard
+    doesn't qualify.
+
+  For each of those leaders, `signals/strategies/daily_swing.py` looks
+  for a **Darvas Box**: `DARVAS_BOX_MIN_DAYS`-`DARVAS_BOX_MAX_DAYS`
+  consecutive candles right before today holding inside a tight range
+  (`DARVAS_BOX_TIGHTNESS`, box_top to box_bottom) whose top is itself a
+  fresh `DARVAS_NEW_HIGH_LOOKBACK`-day (~52-week) high ("N" - new high) -
+  and today's candle must close above that box top on volume ("S" -
+  supply/demand, the breakout itself). CANSLIM's fundamentals-only legs
+  (C, A, I - quarterly/annual earnings growth, institutional ownership)
+  aren't available from the OHLCV-only Upstox feed this screener uses, so
+  they're intentionally left out rather than approximated.
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
   the stock's own all-time high (as of the candidate breakout candle,
@@ -191,6 +211,15 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
+- **Daily Swing**: entry is the breakout candle's close; stop-loss sits
+  just under the box bottom (Darvas's own rule - the stop lives below
+  the whole consolidation, not just the breakout level). Targets are
+  risk-multiples of that distance (`DAILY_SWING_RISK_REWARD_TARGETS`,
+  2R/3R by default) - a simplification of Darvas's original approach,
+  which used a trailing stop raised as new boxes formed rather than a
+  fixed target; this screener's entry/SL/target architecture doesn't
+  track open positions across scans, so a fixed risk-multiple target is
+  the pragmatic fit here.
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -232,6 +261,13 @@ for the "day" interval, no matter how many strategies fire that day.
   uses. A stock whose real all-time high was set further back than that
   won't be recognized as still being below it. Increase
   `DAILY_HISTORY_YEARS` in `signals/config.py` for a deeper look-back.
+- **Daily Swing's CANSLIM is technical-only.** It only implements the
+  legs of O'Neil's CANSLIM derivable from price/volume (N, S, L, M) -
+  the earnings-growth and institutional-ownership legs (C, A, I) are
+  skipped entirely rather than approximated, since Upstox's OHLCV feed
+  doesn't carry fundamentals data. Its relative-strength ranking is also
+  a simplification: a single trailing-return lookback, not O'Neil's full
+  weighted 12-month RS Rating formula.
 - **NSE holiday calendar**: the "last trading day of the month" check is
   pure calendar math (last weekday of the month). If the real last
   trading day happens to be an NSE holiday, the run fires one weekday
@@ -279,7 +315,7 @@ pytest -q                      # runs against synthetic OHLCV data, no network n
 export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
-python scripts/run_signals.py                              # no-op unless today is Friday or month-end
+python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
 FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
 
 # To test the TOTP login automation itself (install chromium first with
@@ -304,6 +340,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
+    daily_swing.py      Darvas Box + technical CANSLIM
     cip_weekly.py       CIP (Change In Polarity, all-time-high based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
@@ -314,7 +351,7 @@ signals/
   backtest.py         historical replay of scan() over a lookback window + forward simulation
 scripts/
   login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
-  run_signals.py     entry point for the strategies (no-op unless Friday or month-end)
+  run_signals.py     the single daily entry point for the strategies
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
 .github/workflows/            the cron schedule, backtest workflow, and a test workflow

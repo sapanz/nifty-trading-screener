@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import cip_weekly, monthly_breakout, weekly_breakout
+from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -164,6 +164,80 @@ class TestCipWeekly:
         spike_idx = df.index[50]
         df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
         signals = cip_weekly.scan({"TESTCO": df})
+        assert signals == []
+
+
+def _darvas_setup_df(
+    ramp_periods: int = 500, box_days: int = 3, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
+) -> pd.DataFrame:
+    """Ramp up towards 200 (never quite reaching it, so it stays this
+    stock's 52-week high), hold a tight box for `box_days`, then break out
+    above the box top on strong volume."""
+    df = _ramp_then_flat_df("B", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=200)
+
+    for _ in range(box_days):
+        box_row = pd.DataFrame(
+            {"open": [199.0], "high": [box_top], "low": [box_bottom], "close": [199.0], "volume": [100_000.0]},
+            index=[df.index[-1] + pd.Timedelta(days=1)],
+        )
+        df = pd.concat([df, box_row])
+
+    breakout_row = pd.DataFrame(
+        {"open": [box_top], "high": [breakout_close * 1.01], "low": [box_top], "close": [breakout_close], "volume": [500_000.0]},
+        index=[df.index[-1] + pd.Timedelta(days=1)],
+    )
+    df = pd.concat([df, breakout_row])
+    return df
+
+
+class TestDailySwing:
+    def _universe(self, **testco_kwargs) -> dict[str, pd.DataFrame]:
+        """TESTCO (valid Darvas box + breakout, strongest recent performer)
+        plus three peers: PEER_SLOW (a slower uptrend, still above its own
+        200 SMA) and two PEER_WEAK symbols in a long decline (below their
+        own 200 SMA) - together giving a 4-symbol universe with market
+        breadth at exactly the 50% pass threshold and TESTCO as the clear
+        relative-strength leader."""
+        return {
+            "TESTCO": _darvas_setup_df(**testco_kwargs),
+            "PEER_SLOW": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=50, plateau=100),
+            "PEER_WEAK1": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50),
+            "PEER_WEAK2": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50),
+        }
+
+    def test_detects_darvas_breakout_for_the_rs_leader(self):
+        signals = daily_swing.scan(self._universe())
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.symbol == "TESTCO"
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+
+        # Entry is the breakout candle's close; stop-loss sits just below
+        # the box bottom.
+        assert sig.entry == 210.0
+        assert sig.stop_loss == round(197.0 * (1 - config.SL_BUFFER), 2)
+
+    def test_no_signal_when_market_breadth_weak(self):
+        universe = self._universe()
+        # Flip PEER_SLOW into a decline too - only TESTCO is left above its
+        # own 200 SMA (1 of 4 = 25%, below the 50% breadth threshold).
+        universe["PEER_SLOW"] = _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50)
+        signals = daily_swing.scan(universe)
+        assert signals == []
+
+    def test_no_signal_when_not_the_rs_leader(self):
+        universe = self._universe()
+        # A stronger peer with an even bigger breakout outranks TESTCO,
+        # pushing it out of the top 30% RS cutoff (which is just the single
+        # top symbol in a 5-name universe) - PEER_STRONGER still qualifies
+        # on its own merits, TESTCO no longer does.
+        universe["PEER_STRONGER"] = _darvas_setup_df(breakout_close=260.0)
+        signals = daily_swing.scan(universe)
+        assert [s.symbol for s in signals] == ["PEER_STRONGER"]
+
+    def test_no_signal_when_box_too_wide(self):
+        universe = self._universe(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
+        signals = daily_swing.scan(universe)
         assert signals == []
 
 
