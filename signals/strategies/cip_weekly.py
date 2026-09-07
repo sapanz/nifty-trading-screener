@@ -17,5 +17,6 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         weekly_data,
         touch_lookback=config.CIP_WEEKLY_TOUCH_LOOKBACK,
         breakout_search=config.CIP_WEEKLY_BREAKOUT_SEARCH,
+        min_touches=config.CIP_WEEKLY_MIN_TOUCHES,
         timeframe_label="weekly",
     )

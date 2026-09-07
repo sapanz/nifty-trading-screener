@@ -23,12 +23,13 @@ def _find_prior_breakout(
     signal_iloc: int,
     touch_lookback: int,
     breakout_search: int,
+    min_touches: int,
 ) -> tuple[int, float] | None:
     """Search backward from just before `signal_iloc` for the most recent
     candle that broke out above a resistance level tested at least
-    config.CIP_MIN_TOUCHES times in the touch_lookback candles immediately
-    preceding it. Returns (breakout_iloc, resistance_level), or None if no
-    qualifying breakout is found within breakout_search candles."""
+    `min_touches` times in the touch_lookback candles immediately preceding
+    it. Returns (breakout_iloc, resistance_level), or None if no qualifying
+    breakout is found within breakout_search candles."""
     earliest = max(touch_lookback, signal_iloc - breakout_search)
     for i in range(signal_iloc - 1, earliest - 1, -1):
         touches_start = i - touch_lookback
@@ -39,7 +40,7 @@ def _find_prior_breakout(
         if resistance <= 0:
             continue
         touch_count = int((touches_window["high"] >= resistance * (1 - config.CIP_ZONE_TOLERANCE)).sum())
-        if touch_count < config.CIP_MIN_TOUCHES:
+        if touch_count < min_touches:
             continue
         # the level must have actually held every time - no close in the
         # touches window already broke decisively above it
@@ -57,7 +58,9 @@ def _find_prior_breakout(
     return None
 
 
-def scan_cip(data: dict[str, pd.DataFrame], *, touch_lookback: int, breakout_search: int, timeframe_label: str) -> list[Signal]:
+def scan_cip(
+    data: dict[str, pd.DataFrame], *, touch_lookback: int, breakout_search: int, min_touches: int, timeframe_label: str
+) -> list[Signal]:
     """Scan for CIP setups. `touch_lookback`/`breakout_search` are in bars
     of whatever timeframe `data` is already in (daily or weekly)."""
     signals: list[Signal] = []
@@ -82,7 +85,7 @@ def scan_cip(data: dict[str, pd.DataFrame], *, touch_lookback: int, breakout_sea
         if not is_proper_close(row):
             continue
 
-        found = _find_prior_breakout(df, len(df) - 1, touch_lookback, breakout_search)
+        found = _find_prior_breakout(df, len(df) - 1, touch_lookback, breakout_search, min_touches)
         if found is None:
             continue
         breakout_iloc, resistance = found

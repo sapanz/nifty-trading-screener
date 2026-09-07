@@ -160,14 +160,17 @@ them there rather than in the strategy code.
   shared detection logic used by both `cip_daily.py` and `cip_weekly.py`.
   Scanning backward from today, it looks for the most recent candle that
   broke out above a resistance level which was tested at least
-  `CIP_MIN_TOUCHES` times (a high coming within `CIP_ZONE_TOLERANCE` of
-  the level, without any close in that window breaking decisively above
-  it) in the `CIP_*_TOUCH_LOOKBACK` candles right before it, on volume
-  >= `CIP_VOLUME_MULTIPLIER`x average, with a proper close. If found (within
-  `CIP_*_BREAKOUT_SEARCH` candles of today), today's candle must then be
-  bullish, closed properly, dip back down within `CIP_ZONE_TOLERANCE` of
-  that old resistance, and close back above it — the "change in polarity"
-  from resistance to support.
+  `CIP_WEEKLY_MIN_TOUCHES`/`CIP_DAILY_MIN_TOUCHES` times (a high coming
+  within `CIP_ZONE_TOLERANCE` of the level, without any close in that
+  window breaking decisively above it) in the `CIP_*_TOUCH_LOOKBACK`
+  candles right before it, on volume >= `CIP_VOLUME_MULTIPLIER`x average,
+  with a proper close. Daily requires a much more established zone (20
+  touches over a 90-day window) than weekly (3 touches over 12 weeks) -
+  the looser daily criteria fired far too often in backtesting. If found
+  (within `CIP_*_BREAKOUT_SEARCH` candles of today), today's candle must
+  then be bullish, closed properly, dip back down within
+  `CIP_ZONE_TOLERANCE` of that old resistance, and close back above it -
+  the "change in polarity" from resistance to support.
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.

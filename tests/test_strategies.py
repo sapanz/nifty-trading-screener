@@ -60,7 +60,7 @@ class TestWeeklyBreakout:
 
 
 def _cip_setup_df(
-    freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 300, gap_periods: int = 3
+    freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 400, gap_periods: int = 3
 ) -> pd.DataFrame:
     """Ramp up towards `resistance`, hold flat there for `touch_lookback`
     periods (repeated resistance touches), break out above it on high
