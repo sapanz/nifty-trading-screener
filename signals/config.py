@@ -44,35 +44,31 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# --- Daily Swing: SMA-30 support in all-time-high stocks -------------------
-# A stock trading at/near its own all-time high pulls back and takes
-# support at its 30-day SMA with a green candle; entry triggers the next
-# day if price breaks back above that candle's high, stop-loss is the
-# lower of the signal candle's own low and the previous candle's low, and
-# the target is a fixed 1:3 risk-reward. (Two earlier versions of this
-# strategy slot - Darvas Box, and Darvas Box + technical CANSLIM - were
-# tried and replaced.)
-#
-# Tuning history (optimizing for win rate/capital protection over signal
-# frequency, per explicit request - fewer, higher-conviction trades are
-# fine, targeting >70% win rate): v1 (15% ATH tolerance, 2% support
-# tolerance, no other filters) backtested at 24% win rate over 4329
-# decided trades - a coin flip at this setup's own 1:3 breakeven rate
-# (25%). v2 added a rising-SMA requirement, a low-volume ("quiet")
-# pullback requirement, a proper-close check, and tighter tolerances ->
-# 30% win rate over 313 decided trades. v3 below tightens further: a
-# floor on how far price may undershoot the SMA (no violent whipsaws
-# counted as "support"), a stronger/longer rising-SMA requirement, and a
-# tighter ATH tolerance.
-DAILY_SWING_SMA_SUPPORT = 30          # the SMA tested for support
-DAILY_SWING_SUPPORT_TOLERANCE = 0.01  # candle's low may sit up to this much above the SMA and still count as a touch
-DAILY_SWING_SUPPORT_UNDERSHOOT = 0.02  # candle's low may not sit more than this much below the SMA - a controlled test, not a violent whipsaw
-DAILY_SWING_ATH_TOLERANCE = 0.03      # today's close must be within this much of the stock's all-time-high close
-DAILY_SWING_MIN_HISTORY_DAYS = 500    # ~2 years - enough history for "all-time high" to mean something
-DAILY_SWING_SMA_SLOPE_LOOKBACK = 10    # the SMA itself must be higher than it was this many periods back
-DAILY_SWING_MIN_SMA_SLOPE = 0.01       # ...and by at least this much (1%), not just marginally higher
-DAILY_SWING_MAX_VOLUME_RATIO = 1.0     # support-test day's volume must be below this x its trailing average - a quiet pullback, not a panic dump
-DAILY_SWING_RISK_REWARD_TARGETS = (3,)  # fixed 1:3 risk-reward, single target
+# --- Daily Swing: Accumulation Spring (Wyckoff-style base/breakout/retest) -
+# Modeled on how a real institutional buyer has to behave: they can't
+# accumulate a full position in one session without moving price against
+# themselves, so genuine accumulation shows up as a quiet, tight, sideways
+# base where volume actually dries up as the base matures (fewer willing
+# sellers left as the position fills) - followed by a breakout candle
+# whose volume surges far above that base's own (already low) average,
+# the "effort" finally showing in price - and finally a retest of the
+# breakout level on LOW volume: the "Last Point of Support" in Wyckoff
+# terms, where the last unconvinced sellers get absorbed with essentially
+# no real supply left. That low-volume retest, not the breakout candle
+# itself, is the actual entry trigger. The target is a measured move
+# projected from the base's own height ("cause equals effect"), not an
+# arbitrary fixed risk-reward. Everything here reads price/volume
+# directly - no moving averages, no oscillators. (Replaces the SMA-30-
+# support version, which plateaued at 24-30% win rate after two rounds of
+# threshold-tightening - see git history for that tuning trail.)
+DAILY_SWING_BASE_LENGTH = 50                    # trading days spanning the accumulation base
+DAILY_SWING_BASE_TIGHTNESS = 0.25               # (base_high - base_low) / base_low must be <= this
+DAILY_SWING_VOLUME_DRYUP_RATIO = 0.75           # 2nd-half base volume must be <= this x 1st-half base volume
+DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER = 2.0    # breakout candle's volume vs the base's own (quiet) average
+DAILY_SWING_BREAKOUT_SEARCH = 20                # how many days back a qualifying breakout can still count as "recent" for today's retest
+DAILY_SWING_RETEST_TOLERANCE = 0.02             # retest candle's low may sit this far below the base high and still count as a touch
+DAILY_SWING_RETEST_MAX_VOLUME_RATIO = 1.0       # retest candle's volume must be below this x the base's own average - real absence of supply
+DAILY_SWING_MEASURED_MOVE_MULTIPLES = (1, 2)    # targets as multiples of the base's own height, projected above the breakout level
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

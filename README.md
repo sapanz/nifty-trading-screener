@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Stock within 15% of its own all-time-high close, green candle takes support on its 30 SMA |
+| **Daily Swing (Accumulation Spring)** | Every trading day, 5pm IST | Tight base with volume drying up, breakout on a volume surge, then a bullish LOW-volume retest of the breakout level ("Last Point of Support") |
 | **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
@@ -156,18 +156,34 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
-- **Daily Swing (SMA-30 support in all-time-high stocks)**:
-  `signals/strategies/daily_swing.py`. Two conditions on the same candle:
-  the stock's close must be within `DAILY_SWING_ATH_TOLERANCE` (15%) of
-  its own all-time-high close (within the fetched history) - only trade
-  stocks that are already leaders - and that candle must be bullish
-  (close > open) while taking support at its `DAILY_SWING_SMA_SUPPORT`
-  (30-day) SMA: its low comes within `DAILY_SWING_SUPPORT_TOLERANCE`
-  above the SMA (doesn't need to touch it exactly) and its close is back
-  above it. No volume or long-term trend filter is applied - the
-  all-time-high proximity already implies a strong stock. (Two earlier
-  versions of this strategy slot - Darvas Box, and Darvas Box + technical
-  CANSLIM - were tried and replaced.)
+- **Daily Swing (Accumulation Spring)**: `signals/strategies/daily_swing.py`.
+  Modeled on how a real institutional buyer has to behave - they can't
+  accumulate a full position in one session without moving price against
+  themselves, so genuine accumulation shows up as a quiet, tight,
+  sideways **base**: a `DAILY_SWING_BASE_LENGTH`-day (50) window whose
+  high-low range stays within `DAILY_SWING_BASE_TIGHTNESS` (25%) of its
+  own low, and whose second half trades on meaningfully lower volume
+  (`DAILY_SWING_VOLUME_DRYUP_RATIO`, 75%) than its first half - real
+  supply drying up, not drift. Scanning backward from today (within
+  `DAILY_SWING_BREAKOUT_SEARCH`, 20 days), it looks for a **breakout**
+  candle that closed above that base, properly closed, on volume at
+  least `DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER` (2x) the base's own
+  (already quiet) average - the "effort" finally showing in price - with
+  price having held above the base ever since (no failed breakout
+  round-tripping back into the range). If found, today's candle must
+  then be bullish, closed properly, dip back to within
+  `DAILY_SWING_RETEST_TOLERANCE` (2%) of the base high (now support)
+  without closing back below it, and - critically - do so on volume
+  below `DAILY_SWING_RETEST_MAX_VOLUME_RATIO` (1x) the base's own
+  average: a genuine absence of selling pressure, not just a quiet day by
+  coincidence. In Wyckoff terms this low-volume retest is the "Last Point
+  of Support" - the lower-risk entry a real accumulator would use, not
+  the breakout candle itself. No moving averages or oscillators anywhere
+  in this - every condition reads price/volume directly. (Three earlier
+  versions of this strategy slot - Darvas Box, Darvas Box + technical
+  CANSLIM, and SMA-30 support in all-time-high stocks - were tried and
+  replaced; the SMA-30 version plateaued at 24-30% win rate after two
+  rounds of threshold-tightening.)
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
   the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
@@ -199,11 +215,13 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **Daily Swing**: entry is the signal candle's **high** (a buy-stop
+- **Daily Swing**: entry is the retest candle's **high** (a buy-stop
   triggered the next day price trades up to it); stop-loss is the
-  **lower of the signal candle's own low and the previous candle's low**.
-  The target is a single, fixed 1:3 risk-reward
-  (`DAILY_SWING_RISK_REWARD_TARGETS`).
+  **lower of the retest candle's own low and the previous candle's low**.
+  Targets are a **measured move**: the base's own height (base high -
+  base low) projected as multiples above the base high
+  (`DAILY_SWING_MEASURED_MOVE_MULTIPLES`, 1x/2x) - "cause equals effect",
+  not an arbitrary fixed risk-reward.
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -317,7 +335,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      SMA-30 support in all-time-high stocks
+    daily_swing.py      Accumulation Spring (Wyckoff base/breakout/retest)
     cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout

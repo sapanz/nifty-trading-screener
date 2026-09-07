@@ -156,86 +156,142 @@ class TestCipWeekly:
         assert signals == []
 
 
-def _sma_support_setup_df(
-    ramp_periods: int = 500,
-    plateau: float = 300.0,
-    low_mult: float = 0.995,
-    close_mult: float = 1.01,
-    high_mult: float = 1.012,
-    volume: float = 70_000.0,
+def _accumulation_spring_df(
+    base_low: float = 195.0,
+    base_high: float = 205.0,
+    first_half_volume: float = 150_000.0,
+    second_half_volume: float = 80_000.0,
+    breakout_volume: float = 300_000.0,
+    retest_low_mult: float = 1.015,
+    retest_bullish: bool = True,
+    retest_volume: float = 90_000.0,
+    filler_dip: bool = False,
 ) -> pd.DataFrame:
-    """Ramp up towards `plateau` (never reaching it, so it stays this
-    stock's all-time-high close, and keeping the 30-SMA rising throughout),
-    then append a single green, quiet-volume candle anchored to the
-    trailing 30-day SMA - a textbook support test. Base rate volume is
-    100,000/day, so the default `volume` (70,000) is a genuine pullback in
-    turnover relative to the trailing average."""
-    df = _ramp_then_flat_df("B", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=plateau)
-    anchor = df["close"].tail(config.DAILY_SWING_SMA_SUPPORT - 1).mean()
-    support_row = pd.DataFrame(
+    """Ramp up to `base_low`, then a DAILY_SWING_BASE_LENGTH-day tight base
+    between `base_low`/`base_high` whose second half trades on lower
+    volume than its first half (accumulation: real supply drying up) -
+    then a breakout candle closing above the base on a volume surge, a
+    few quiet filler days holding above the base, and finally a bullish,
+    low-volume retest candle dipping back down near the base high (now
+    support). All the breakout/filler/retest prices are expressed as
+    multiples of `base_high` so the geometry holds regardless of the
+    base's own absolute level."""
+    base_length = config.DAILY_SWING_BASE_LENGTH
+    half = base_length // 2
+    df = _ramp_then_flat_df("B", ramp_weeks=150, flat_weeks=0, start=50, plateau=base_low)
+
+    mid = (base_high + base_low) / 2
+    base_rows = pd.DataFrame(
         {
-            "open": [anchor],
-            "high": [anchor * high_mult],
-            "low": [anchor * low_mult],
-            "close": [anchor * close_mult],
-            "volume": [volume],
+            "open": [mid] * base_length,
+            "high": [base_high] * base_length,
+            "low": [base_low] * base_length,
+            "close": [mid] * base_length,
+            "volume": [first_half_volume] * half + [second_half_volume] * (base_length - half),
+        },
+        index=[df.index[-1] + pd.Timedelta(days=i + 1) for i in range(base_length)],
+    )
+    df = pd.concat([df, base_rows])
+
+    breakout_row = pd.DataFrame(
+        {
+            "open": [base_high * 1.005],
+            "high": [base_high * 1.073],
+            "low": [base_high * 1.010],
+            "close": [base_high * 1.063],
+            "volume": [breakout_volume],
         },
         index=[df.index[-1] + pd.Timedelta(days=1)],
     )
-    return pd.concat([df, support_row])
+    df = pd.concat([df, breakout_row])
+
+    for i in range(4):
+        filler_low = base_high * (0.9 if filler_dip and i == 0 else 1.005)
+        filler_row = pd.DataFrame(
+            {"open": [base_high * 1.025], "high": [base_high * 1.030], "low": [filler_low], "close": [base_high * 1.025], "volume": [100_000.0]},
+            index=[df.index[-1] + pd.Timedelta(days=1)],
+        )
+        df = pd.concat([df, filler_row])
+
+    retest_open = base_high * 1.010
+    retest_close = base_high * (1.024 if retest_bullish else 1.005)
+    retest_row = pd.DataFrame(
+        {
+            "open": [retest_open],
+            "high": [base_high * 1.024],
+            "low": [base_high * retest_low_mult],
+            "close": [retest_close],
+            "volume": [retest_volume],
+        },
+        index=[df.index[-1] + pd.Timedelta(days=1)],
+    )
+    return pd.concat([df, retest_row])
 
 
 class TestDailySwing:
-    def test_detects_sma_support_in_ath_stock(self):
-        df = _sma_support_setup_df()
+    def test_detects_accumulation_spring(self):
+        base_low, base_high = 195.0, 205.0
+        df = _accumulation_spring_df(base_low=base_low, base_high=base_high)
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0]
-        assert len(sig.targets) == 1  # fixed single 1:3 target
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Entry is the signal candle's high; stop-loss is the lower of the
-        # signal candle's own low and the previous candle's low. The
-        # target is computed from the raw (unrounded) entry/stop, same as
-        # the strategy itself, to avoid a rounding-order mismatch.
+        # Entry is the retest candle's high; stop-loss is the lower of the
+        # retest candle's own low and the previous candle's low.
         row, prev_row = df.iloc[-1], df.iloc[-2]
         raw_entry = float(row["high"])
         raw_stop = float(min(row["low"], prev_row["low"]))
         assert sig.entry == round(raw_entry, 2)
         assert sig.stop_loss == round(raw_stop, 2)
-        assert sig.targets[0] == round(raw_entry + (raw_entry - raw_stop) * 3, 2)
 
-    def test_no_signal_when_far_from_all_time_high(self):
-        df = _sma_support_setup_df()
-        # An early spike far above the eventual plateau (500 vs ~300),
-        # placed well outside the 30-day SMA window - the stock's real
-        # all-time high sits far above its current price, so it no longer
-        # counts as an "all-time-high stock" even though today's candle is
-        # a textbook SMA support test.
-        spike_idx = df.index[100]
-        df.loc[spike_idx, ["open", "high", "low", "close"]] = [500.0, 505.0, 495.0, 500.0]
+        # Targets are measured-move multiples of the base's own height,
+        # projected above the base high.
+        base_height = base_high - base_low
+        assert sig.targets == [
+            round(base_high + base_height * mult, 2) for mult in config.DAILY_SWING_MEASURED_MOVE_MULTIPLES
+        ]
+
+    def test_no_signal_when_base_too_wide(self):
+        # (205 - 140) / 140 = 46% range - not a genuine tight accumulation.
+        df = _accumulation_spring_df(base_low=140.0, base_high=205.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_not_touching_the_sma(self):
-        df = _sma_support_setup_df(low_mult=1.05, close_mult=1.06, high_mult=1.07)  # low sits well above the SMA
+    def test_no_signal_without_volume_dryup(self):
+        # second half (90,000) isn't meaningfully below first half (100,000)
+        df = _accumulation_spring_df(first_half_volume=100_000.0, second_half_volume=90_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_undershoot_is_violent(self):
-        df = _sma_support_setup_df(low_mult=0.90)  # low crashes 10% below the SMA - a whipsaw, not controlled support
+    def test_no_signal_when_breakout_volume_is_weak(self):
+        # base's own average volume is 115,000; 150,000 isn't the
+        # multi-x surge a real breakout needs.
+        df = _accumulation_spring_df(breakout_volume=150_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_candle_is_red(self):
-        df = _sma_support_setup_df(close_mult=0.99)  # closes below its own open
+    def test_no_signal_when_breakout_fails_and_reenters_base(self):
+        # A filler day dips back below the base low - a failed breakout,
+        # not a real accumulation spring.
+        df = _accumulation_spring_df(filler_dip=True)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_pullback_volume_is_heavy(self):
-        # base rate is 100,000/day - 150,000 is a heavy-volume day, not the
-        # quiet, light-selling pullback this setup requires.
-        df = _sma_support_setup_df(volume=150_000.0)
+    def test_no_signal_when_retest_is_too_far_from_base_high(self):
+        df = _accumulation_spring_df(retest_low_mult=1.05)  # never comes back down to retest support
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_retest_candle_is_red(self):
+        df = _accumulation_spring_df(retest_bullish=False)
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_retest_volume_is_heavy(self):
+        # base's own average volume is 115,000 - a retest at or above that
+        # shows real supply, not the absence of sellers a spring needs.
+        df = _accumulation_spring_df(retest_volume=120_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
