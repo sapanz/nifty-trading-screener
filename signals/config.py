@@ -44,27 +44,19 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# --- Daily Swing: Darvas Box -----------------------------------------------
-# Buy a stock making a fresh new high once it consolidates into a tight
-# box, then breaks out above the TOP of that box on volume; the stop sits
-# below the box bottom, per Darvas's own rule. (A technical-CANSLIM
-# overlay - leadership ranking + market-breadth gate - was tried and
-# dropped in favor of pure Darvas Box, keeping this a straightforward
-# per-stock breakout screener rather than a cross-sectional one.)
-#
-# Note: this is a single point-in-time EOD scan, not Darvas's original
-# stateful trailing-stop system (he raised the stop as new boxes formed
-# on top of each other and let winners run rather than taking a fixed
-# target) - targets here are risk-multiples instead, to fit this
-# screener's existing entry/SL/target architecture.
-DARVAS_NEW_HIGH_LOOKBACK = 252     # ~52 weeks: the box's top must be a new high over this many trading days
-DARVAS_NEW_HIGH_TOLERANCE = 0.02   # how much the box top may sit below the actual 52-week high and still count as "new"
-DARVAS_BOX_MIN_DAYS = 3            # minimum consecutive days price must hold inside the box to confirm it
-DARVAS_BOX_MAX_DAYS = 15           # give up looking for a box for a given peak after this many days
-DARVAS_BOX_TIGHTNESS = 0.12        # (box_top - box_bottom) / box_bottom must be <= 12%
-
-DAILY_SWING_VOLUME_MULTIPLIER = 1.5       # breakout candle's volume vs its trailing average
-DAILY_SWING_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
+# --- Daily Swing: SMA-30 support in all-time-high stocks -------------------
+# A stock trading at/near its own all-time high pulls back and takes
+# support at its 30-day SMA with a green candle; entry triggers the next
+# day if price breaks back above that candle's high, stop-loss is the
+# lower of the signal candle's own low and the previous candle's low, and
+# the target is a fixed 1:3 risk-reward. (Two earlier versions of this
+# strategy slot - Darvas Box, and Darvas Box + technical CANSLIM - were
+# tried and replaced.)
+DAILY_SWING_SMA_SUPPORT = 30          # the SMA tested for support
+DAILY_SWING_SUPPORT_TOLERANCE = 0.02  # candle's low may sit up to this much above the SMA and still count as a touch
+DAILY_SWING_ATH_TOLERANCE = 0.15      # today's close must be within this much of the stock's all-time-high close
+DAILY_SWING_MIN_HISTORY_DAYS = 500    # ~2 years - enough history for "all-time high" to mean something
+DAILY_SWING_RISK_REWARD_TARGETS = (3,)  # fixed 1:3 risk-reward, single target
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

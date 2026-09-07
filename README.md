@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Darvas Box breakout: a tight consolidation whose top is itself a fresh ~52-week high, broken on volume |
+| **Daily Swing** | Every trading day, 5pm IST | Stock within 15% of its own all-time-high close, green candle takes support on its 30 SMA |
 | **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
@@ -156,17 +156,18 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
-- **Daily Swing (Darvas Box)**: `signals/strategies/daily_swing.py`.
-  Looks for `DARVAS_BOX_MIN_DAYS`-`DARVAS_BOX_MAX_DAYS` consecutive
-  candles right before today holding inside a tight range
-  (`DARVAS_BOX_TIGHTNESS`, box_top to box_bottom) whose top is itself a
-  fresh `DARVAS_NEW_HIGH_LOOKBACK`-day (~52-week) high - Darvas only ever
-  bought stocks making new highs, so a box that isn't sitting at one
-  isn't a genuine Darvas box. Today's candle must then close above that
-  box top on volume, with a proper close. (A technical-CANSLIM overlay -
-  ranking stocks by relative strength and gating on overall market
-  breadth - was tried and dropped in favor of pure Darvas Box, keeping
-  this a straightforward per-stock breakout screener.)
+- **Daily Swing (SMA-30 support in all-time-high stocks)**:
+  `signals/strategies/daily_swing.py`. Two conditions on the same candle:
+  the stock's close must be within `DAILY_SWING_ATH_TOLERANCE` (15%) of
+  its own all-time-high close (within the fetched history) - only trade
+  stocks that are already leaders - and that candle must be bullish
+  (close > open) while taking support at its `DAILY_SWING_SMA_SUPPORT`
+  (30-day) SMA: its low comes within `DAILY_SWING_SUPPORT_TOLERANCE`
+  above the SMA (doesn't need to touch it exactly) and its close is back
+  above it. No volume or long-term trend filter is applied - the
+  all-time-high proximity already implies a strong stock. (Two earlier
+  versions of this strategy slot - Darvas Box, and Darvas Box + technical
+  CANSLIM - were tried and replaced.)
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
   the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
@@ -198,15 +199,11 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **Daily Swing**: entry is the breakout candle's close; stop-loss sits
-  just under the box bottom (Darvas's own rule - the stop lives below
-  the whole consolidation, not just the breakout level). Targets are
-  risk-multiples of that distance (`DAILY_SWING_RISK_REWARD_TARGETS`,
-  2R/3R by default) - a simplification of Darvas's original approach,
-  which used a trailing stop raised as new boxes formed rather than a
-  fixed target; this screener's entry/SL/target architecture doesn't
-  track open positions across scans, so a fixed risk-multiple target is
-  the pragmatic fit here.
+- **Daily Swing**: entry is the signal candle's **high** (a buy-stop
+  triggered the next day price trades up to it); stop-loss is the
+  **lower of the signal candle's own low and the previous candle's low**.
+  The target is a single, fixed 1:3 risk-reward
+  (`DAILY_SWING_RISK_REWARD_TARGETS`).
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -320,7 +317,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      Darvas Box breakout
+    daily_swing.py      SMA-30 support in all-time-high stocks
     cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout

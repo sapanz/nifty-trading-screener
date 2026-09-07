@@ -156,54 +156,62 @@ class TestCipWeekly:
         assert signals == []
 
 
-def _darvas_setup_df(
-    ramp_periods: int = 500, box_days: int = 3, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
+def _sma_support_setup_df(
+    ramp_periods: int = 500, plateau: float = 300.0, low_mult: float = 0.995, close_mult: float = 1.01, high_mult: float = 1.015
 ) -> pd.DataFrame:
-    """Ramp up towards 200 (never quite reaching it, so it stays this
-    stock's 52-week high), hold a tight box for `box_days`, then break out
-    above the box top on strong volume."""
-    df = _ramp_then_flat_df("B", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=200)
-
-    for _ in range(box_days):
-        box_row = pd.DataFrame(
-            {"open": [199.0], "high": [box_top], "low": [box_bottom], "close": [199.0], "volume": [100_000.0]},
-            index=[df.index[-1] + pd.Timedelta(days=1)],
-        )
-        df = pd.concat([df, box_row])
-
-    breakout_row = pd.DataFrame(
-        {"open": [box_top], "high": [breakout_close * 1.01], "low": [box_top], "close": [breakout_close], "volume": [500_000.0]},
+    """Ramp up towards `plateau` (never reaching it, so it stays this
+    stock's all-time-high close), then append a single green candle
+    anchored to the trailing 30-day SMA - a textbook support test."""
+    df = _ramp_then_flat_df("B", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=plateau)
+    anchor = df["close"].tail(config.DAILY_SWING_SMA_SUPPORT - 1).mean()
+    support_row = pd.DataFrame(
+        {
+            "open": [anchor],
+            "high": [anchor * high_mult],
+            "low": [anchor * low_mult],
+            "close": [anchor * close_mult],
+            "volume": [100_000.0],
+        },
         index=[df.index[-1] + pd.Timedelta(days=1)],
     )
-    df = pd.concat([df, breakout_row])
-    return df
+    return pd.concat([df, support_row])
 
 
 class TestDailySwing:
-    def test_detects_darvas_box_breakout(self):
-        df = _darvas_setup_df()
+    def test_detects_sma_support_in_ath_stock(self):
+        df = _sma_support_setup_df()
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert sig.stop_loss < sig.entry < sig.targets[0]
+        assert len(sig.targets) == 1  # fixed single 1:3 target
 
-        # Entry is the breakout candle's close; stop-loss sits just below
-        # the box bottom.
-        assert sig.entry == 210.0
-        assert sig.stop_loss == round(197.0 * (1 - config.SL_BUFFER), 2)
+        # Entry is the signal candle's high; stop-loss is the lower of the
+        # signal candle's own low and the previous candle's low.
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+        assert sig.targets[0] == round(sig.entry + (sig.entry - sig.stop_loss) * 3, 2)
 
-    def test_no_signal_when_box_too_wide(self):
-        df = _darvas_setup_df(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
+    def test_no_signal_when_far_from_all_time_high(self):
+        df = _sma_support_setup_df()
+        # An early spike far above the eventual plateau (500 vs ~300),
+        # placed well outside the 30-day SMA window - the stock's real
+        # all-time high sits far above its current price, so it no longer
+        # counts as an "all-time-high stock" even though today's candle is
+        # a textbook SMA support test.
+        spike_idx = df.index[100]
+        df.loc[spike_idx, ["open", "high", "low", "close"]] = [500.0, 505.0, 495.0, 500.0]
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_box_top_not_a_fresh_high(self):
-        df = _darvas_setup_df()
-        # A spike well above the box top (300 vs 201), placed within the
-        # 252-day new-high lookback before the box - the box didn't
-        # actually form at a genuine new high.
-        spike_idx = df.index[350]
-        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
+    def test_no_signal_when_not_touching_the_sma(self):
+        df = _sma_support_setup_df(low_mult=1.05, close_mult=1.06, high_mult=1.07)  # low sits well above the SMA
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_candle_is_red(self):
+        df = _sma_support_setup_df(close_mult=0.99)  # closes below its own open
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 

@@ -1,97 +1,69 @@
-"""Daily Swing strategy: Darvas Box breakout (runs every trading day
-after close).
+"""Daily Swing strategy: SMA-30 support in all-time-high stocks (runs
+every trading day after close).
 
 A stock qualifies when, on the daily timeframe:
-  - it is above its own 200 SMA (long-term uptrend)
-  - the DARVAS_BOX_MIN_DAYS-DARVAS_BOX_MAX_DAYS candles right before today
-    formed a tight (DARVAS_BOX_TIGHTNESS) box whose top is itself a fresh
-    DARVAS_NEW_HIGH_LOOKBACK-day high - Darvas only ever bought stocks
-    making new highs, so a box that isn't sitting at one isn't a genuine
-    Darvas box
-  - today's candle closed above the box top on volume, with a proper close
+  - its close is within DAILY_SWING_ATH_TOLERANCE of its own all-time-high
+    close (within the fetched history) - only trade stocks that are
+    already leaders, not laggards that happen to sit near their own SMA
+  - today's candle is bullish (close > open) and takes support at the
+    DAILY_SWING_SMA_SUPPORT-day SMA: its low comes within
+    DAILY_SWING_SUPPORT_TOLERANCE above the SMA (doesn't need to touch it
+    exactly) and its close is back above it
 
-Entry is the breakout candle's close; stop-loss sits below the box
-bottom, per Darvas's own rule - the stop lives below the whole
-consolidation, not just the breakout level.
+Entry is today's high (a buy-stop triggered the next day price trades up
+to it); stop-loss is the lower of today's own low and the previous
+candle's low; the target is a fixed 1:3 risk-reward.
 """
 from __future__ import annotations
 
 import pandas as pd
 
 from signals import config
-from signals.indicators import add_avg_volume, add_sma, is_above_sma, is_proper_close, is_volume_candle
+from signals.indicators import add_sma
 from signals.models import Signal
 
-VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
+SMA_COL = f"sma{config.DAILY_SWING_SMA_SUPPORT}"
 
 
-def _find_darvas_box(df: pd.DataFrame) -> tuple[float, float] | None:
-    """Look for a valid Darvas box (a tight, fresh-new-high consolidation)
-    ending right before today. Returns (box_top, box_bottom) for the
-    shortest qualifying box, or None if no box between DARVAS_BOX_MIN_DAYS
-    and DARVAS_BOX_MAX_DAYS qualifies. Whether today actually breaks out
-    of it is checked separately by the caller."""
-    for box_days in range(config.DARVAS_BOX_MIN_DAYS, config.DARVAS_BOX_MAX_DAYS + 1):
-        box_window = df.iloc[-1 - box_days : -1]
-        if len(box_window) < box_days:
-            continue
-
-        box_top = float(box_window["high"].max())
-        box_bottom = float(box_window["low"].min())
-        if box_bottom <= 0:
-            continue
-        if (box_top - box_bottom) / box_bottom > config.DARVAS_BOX_TIGHTNESS:
-            continue
-
-        prior_start = -(1 + box_days + config.DARVAS_NEW_HIGH_LOOKBACK)
-        prior_history = df.iloc[prior_start : -1 - box_days]
-        if not prior_history.empty:
-            prior_high = float(prior_history["high"].max())
-            if box_top < prior_high * (1 - config.DARVAS_NEW_HIGH_TOLERANCE):
-                continue  # the box didn't actually form at a fresh high
-
-        return box_top, box_bottom
-    return None
+def _is_support_test(row: pd.Series, tolerance: float) -> bool:
+    sma_val = row.get(SMA_COL)
+    if sma_val is None or pd.isna(sma_val) or sma_val <= 0:
+        return False
+    return bool(row["low"] <= sma_val * (1 + tolerance) and row["close"] > sma_val)
 
 
 def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
     signals: list[Signal] = []
-    min_len = config.SMA_LONG + config.DARVAS_NEW_HIGH_LOOKBACK + config.DARVAS_BOX_MAX_DAYS + 2
 
     for symbol, raw_df in daily_data.items():
         df = raw_df.copy()
-        if len(df) < min_len:
+        if len(df) < config.DAILY_SWING_MIN_HISTORY_DAYS:
             continue
 
-        add_sma(df, config.SMA_LONG)
-        add_avg_volume(df, config.VOLUME_LOOKBACK)
+        add_sma(df, config.DAILY_SWING_SMA_SUPPORT)
         row = df.iloc[-1]
+        prev_row = df.iloc[-2]
 
-        if pd.isna(row.get(f"sma{config.SMA_LONG}")):
-            continue
-        if not is_above_sma(row, f"sma{config.SMA_LONG}"):
-            continue
-        if not is_proper_close(row):
-            continue
-        if not is_volume_candle(row, VOL_COL, config.DAILY_SWING_VOLUME_MULTIPLIER):
+        if pd.isna(row.get(SMA_COL)):
             continue
 
-        box = _find_darvas_box(df)
-        if box is None:
-            continue
-        box_top, box_bottom = box
-
-        if not row["close"] > box_top:
+        all_time_high = float(df["close"].max())
+        if all_time_high <= 0 or row["close"] < all_time_high * (1 - config.DAILY_SWING_ATH_TOLERANCE):
             continue
 
-        entry = float(row["close"])
-        stop_loss = float(box_bottom * (1 - config.SL_BUFFER))
+        if not row["close"] > row["open"]:  # must be a green candle
+            continue
+        if not _is_support_test(row, config.DAILY_SWING_SUPPORT_TOLERANCE):
+            continue
+
+        entry = float(row["high"])
+        stop_loss = float(min(row["low"], prev_row["low"]))
         risk = entry - stop_loss
         if risk <= 0:
             continue
 
         targets = [round(entry + risk * mult, 2) for mult in config.DAILY_SWING_RISK_REWARD_TARGETS]
-        vol_ratio = float(row["volume"] / row[VOL_COL])
+        ath_pct = row["close"] / all_time_high * 100
 
         signals.append(
             Signal(
@@ -99,8 +71,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
-                sort_key=vol_ratio,
-                note=f"Darvas box {box_bottom:.2f}-{box_top:.2f} | Vol {vol_ratio:.1f}x avg",
+                sort_key=ath_pct,  # closer to its all-time high sorts first
+                note=f"SMA{config.DAILY_SWING_SMA_SUPPORT} support | {ath_pct:.0f}% of ATH",
             )
         )
 
