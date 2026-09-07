@@ -5,9 +5,9 @@ levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Weekly SMA-30 Support** | Fridays, 5pm IST | Above 200 SMA, weekly low tests the 30 SMA and closes back above it, proper close |
+| **Weekly SMA-30 Support** | Fridays, 5pm IST | Above 200 SMA, 30 SMA itself rising, weekly low tests the 30 SMA and closes back above it, proper close |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
-| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, price tests the 44 SMA *and* the lower Bollinger Band together (confluence), proper close |
+| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, 44 SMA itself rising, price tests the 44 SMA *and* the lower Bollinger Band together (confluence), proper close |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
 No manual judgement calls at run time — every "properly closed candle" /
@@ -157,6 +157,11 @@ them there rather than in the strategy code.
   this — weekly SMA support and daily swing dropped it as a condition.
 - **"Taking support at an SMA"**: the candle's low comes within 2% above
   the SMA (doesn't need to touch it exactly) and the close is back above it.
+- **"SMA is rising"**: its current value is higher than it was 3 periods
+  ago. Required for the 30 SMA (weekly support) and 44 SMA (daily swing) -
+  a stock testing a *falling* average isn't taking support, it's just
+  pausing mid-decline. The 200 SMA has no such requirement in any
+  strategy: it can be flat or rising, price only needs to close above it.
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.

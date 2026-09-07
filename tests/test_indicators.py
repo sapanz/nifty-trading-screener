@@ -94,3 +94,28 @@ def test_add_bollinger_bands():
     assert row["bb_mid"] == 100
     assert row["bb_upper"] == 100  # zero std when all closes equal
     assert row["bb_lower"] == 100
+
+
+def test_is_sma_rising():
+    df = pd.DataFrame({"sma": [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]})
+    assert indicators.is_sma_rising(df, "sma", lookback=3) is True
+
+
+def test_is_sma_rising_false_when_flat():
+    df = pd.DataFrame({"sma": [10.0] * 6})
+    assert indicators.is_sma_rising(df, "sma", lookback=3) is False
+
+
+def test_is_sma_rising_false_when_falling():
+    df = pd.DataFrame({"sma": [15.0, 14.0, 13.0, 12.0, 11.0, 10.0]})
+    assert indicators.is_sma_rising(df, "sma", lookback=3) is False
+
+
+def test_is_sma_rising_false_with_insufficient_history():
+    df = pd.DataFrame({"sma": [10.0, 11.0]})
+    assert indicators.is_sma_rising(df, "sma", lookback=3) is False
+
+
+def test_is_sma_rising_false_with_nan():
+    df = pd.DataFrame({"sma": [float("nan"), 11.0, 12.0, 13.0]})
+    assert indicators.is_sma_rising(df, "sma", lookback=3) is False

@@ -78,3 +78,20 @@ def confluence_gap(value_a: float, value_b: float) -> float:
     if value_a <= 0 or value_b <= 0:
         return float("inf")
     return abs(value_a - value_b) / min(value_a, value_b)
+
+
+def is_sma_rising(df: pd.DataFrame, sma_column: str, lookback: int = config.SMA_SLOPE_LOOKBACK) -> bool:
+    """True if the SMA's latest value is higher than it was `lookback` periods ago.
+
+    Operates on the full column (not a single row) since a slope needs more
+    than one point - comparing against a few periods back rather than just
+    the prior one smooths out single-bar noise.
+    """
+    if len(df) <= lookback:
+        return False
+    series = df[sma_column]
+    current = series.iloc[-1]
+    prior = series.iloc[-1 - lookback]
+    if pd.isna(current) or pd.isna(prior):
+        return False
+    return bool(current > prior)

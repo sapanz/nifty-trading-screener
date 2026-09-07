@@ -1,7 +1,9 @@
 """Daily swing-trading strategy (runs every trading day after close).
 
 A stock qualifies when, on the daily timeframe:
-  - it is above its 200 SMA (long-term uptrend)
+  - it is above its 200 SMA (long-term uptrend; the 200 SMA itself can be
+    flat or rising, only price needs to be above it)
+  - the 44 SMA is itself rising (not flat or falling)
   - price is testing support at the 44 SMA, closing back above it
   - the 44 SMA and the lower Bollinger Band sit right on top of each other
     (a confluence of two independent support levels, not just one)
@@ -19,6 +21,7 @@ from signals.indicators import (
     is_above_sma,
     is_bullish,
     is_proper_close,
+    is_sma_rising,
     is_support_test,
 )
 from signals.models import Signal
@@ -42,6 +45,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{SMA_SWING}")) or pd.isna(row.get("bb_lower")):
             continue
         if not is_above_sma(row, f"sma{config.SMA_LONG}"):
+            continue
+        if not is_sma_rising(df, f"sma{SMA_SWING}"):
             continue
         if not is_support_test(row, f"sma{SMA_SWING}", config.DAILY_SUPPORT_TOLERANCE):
             continue

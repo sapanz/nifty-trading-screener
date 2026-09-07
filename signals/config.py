@@ -29,6 +29,12 @@ SMA_SUPPORT_WEEKLY = 30
 WEEKLY_SUPPORT_TOLERANCE = 0.02   # 2% for weekly 30-SMA support
 DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
 
+# The 30/44 SMA being tested for support must itself be rising (trending
+# up), not flat or falling - compares its current value against this many
+# periods back. The 200 SMA has no such requirement: price just needs to
+# be above it, trend can be sideways or rising.
+SMA_SLOPE_LOOKBACK = 3
+
 # --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
 SMA_SWING = 44
 BOLLINGER_PERIOD = 20

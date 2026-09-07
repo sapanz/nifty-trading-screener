@@ -1,7 +1,9 @@
 """Weekly SMA-30 support strategy (runs Fridays after close).
 
 A stock qualifies when, on the weekly timeframe:
-  - it is above its 200-period SMA (long-term uptrend)
+  - it is above its 200-period SMA (long-term uptrend; the 200 SMA itself
+    can be flat or rising, only price needs to be above it)
+  - the 30 SMA is itself rising (not flat or falling)
   - the week's low tested the 30 SMA and closed back above it (support held)
   - the candle closed properly (small upper wick, bullish)
 """
@@ -15,6 +17,7 @@ from signals.indicators import (
     is_above_sma,
     is_bullish,
     is_proper_close,
+    is_sma_rising,
     is_support_test,
 )
 from signals.models import Signal
@@ -37,6 +40,8 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{SMA_SUPPORT}")):
             continue
         if not is_above_sma(row, f"sma{config.SMA_LONG}"):
+            continue
+        if not is_sma_rising(df, f"sma{SMA_SUPPORT}"):
             continue
         if not is_support_test(row, f"sma{SMA_SUPPORT}", config.WEEKLY_SUPPORT_TOLERANCE):
             continue

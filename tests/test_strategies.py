@@ -4,12 +4,15 @@ from signals import config
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_sma_support
 
 
-def _ramp_then_flat_df(freq: str, ramp_weeks: int, flat_weeks: int, start: float, plateau: float) -> pd.DataFrame:
-    """Rising trend for `ramp_weeks` periods up to `plateau`, then flat for `flat_weeks`."""
+def _ramp_then_flat_df(
+    freq: str, ramp_weeks: int, flat_weeks: int, start: float, plateau: float, plateau_drift: float = 0.0
+) -> pd.DataFrame:
+    """Rising trend for `ramp_weeks` periods up to `plateau`, then flat (or,
+    with `plateau_drift` > 0, still gently rising) for `flat_weeks`."""
     n = ramp_weeks + flat_weeks
     dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n, freq=freq)
     ramp = [start + (plateau - start) * i / ramp_weeks for i in range(ramp_weeks)]
-    flat = [plateau] * flat_weeks
+    flat = [plateau + plateau_drift * i for i in range(flat_weeks)]
     closes = ramp + flat
     df = pd.DataFrame({"close": closes}, index=dates)
     df["open"] = df["close"]
@@ -19,15 +22,29 @@ def _ramp_then_flat_df(freq: str, ramp_weeks: int, flat_weeks: int, start: float
     return df
 
 
+def _append_support_row(df: pd.DataFrame, sma_period: int, freq_offset, low_mult=0.995, close_mult=1.008, high_mult=1.01) -> pd.DataFrame:
+    """Append a support-test candle anchored to the trailing SMA rather than
+    the last close - with a drifting series the two diverge, and a support
+    test is defined relative to the SMA, not the most recent price."""
+    anchor = df["close"].tail(sma_period - 1).mean()
+    support_row = pd.DataFrame(
+        {
+            "open": [anchor],
+            "high": [anchor * high_mult],
+            "low": [anchor * low_mult],
+            "close": [anchor * close_mult],
+            "volume": [100_000.0],
+        },
+        index=[df.index[-1] + freq_offset],
+    )
+    return pd.concat([df, support_row])
+
+
 class TestWeeklySmaSupport:
     def test_detects_support_bounce(self):
-        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200)
-        # append the support-test candle: dips to plateau, closes higher
-        support_row = pd.DataFrame(
-            {"open": [200.0], "high": [205.0], "low": [198.0], "close": [204.0], "volume": [100_000.0]},
-            index=[df.index[-1] + pd.Timedelta(weeks=1)],
-        )
-        df = pd.concat([df, support_row])
+        # gentle continued drift (not dead-flat) so the 30 SMA is clearly rising
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200, plateau_drift=0.5)
+        df = _append_support_row(df, 30, pd.Timedelta(weeks=1))
 
         signals = weekly_sma_support.scan({"TESTCO": df})
         assert len(signals) == 1
@@ -38,6 +55,15 @@ class TestWeeklySmaSupport:
     def test_no_signal_without_a_real_support_test(self):
         # flat close == sma exactly -> is_support_test requires close > sma
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=30, start=50, plateau=200)
+        signals = weekly_sma_support.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_sma_declining(self):
+        # same support-test candle shape as test_detects_support_bounce, but
+        # the weeks feeding the 30 SMA are declining -> not rising, even
+        # though this one bounce candle nudges the average up slightly
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200, plateau_drift=-1.0)
+        df = _append_support_row(df, 30, pd.Timedelta(weeks=1))
         signals = weekly_sma_support.scan({"TESTCO": df})
         assert signals == []
 
@@ -78,12 +104,10 @@ class TestWeeklyBreakout:
 
 class TestDailySwing:
     def test_detects_confluence_support(self):
-        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200)
-        support_row = pd.DataFrame(
-            {"open": [200.0], "high": [204.0], "low": [197.0], "close": [203.0], "volume": [100_000.0]},
-            index=[df.index[-1] + pd.Timedelta(days=1)],
-        )
-        df = pd.concat([df, support_row])
+        # gentle continued drift (not dead-flat) so the 44 SMA is clearly
+        # rising; small enough not to blow out the SMA44/lower-BB confluence
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
 
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
@@ -93,6 +117,12 @@ class TestDailySwing:
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_sma44_declining(self):
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
