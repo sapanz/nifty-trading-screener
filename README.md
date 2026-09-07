@@ -216,6 +216,32 @@ for the "day" interval, no matter how many strategies fire that day.
   clear error (protects against a repeat of the NSE-blocking incident
   that motivated the switch to Upstox).
 
+## Backtesting
+
+Go to the **Actions** tab → **Backtest** → **Run workflow**, set **months**
+(default 3), and run it. `scripts/run_backtest.py` fetches the same ~500
+symbol universe as a live run, then for every historical date in that
+window reconstructs what each strategy would have signalled using only
+data available up to that date — the same `scan()` functions the live
+screener uses, unmodified, so there's no separate backtest logic that
+could silently drift out of sync with what actually runs Monday-Friday.
+
+Every signal found is then walked forward on the real subsequent daily
+price action to see whether it would have hit a target or its stop-loss
+first (if a single day's range could have hit both, the stop-loss is
+assumed to trigger first — conservative, since there's no intraday data
+to say which happened first within the day).
+
+You'll get one Telegram message per strategy — signal count, win rate,
+average return, average holding period, and the best/worst individual
+trades — plus a `backtest-trades` artifact on the workflow run containing
+every individual trade (symbol, dates, entry/SL/targets, outcome, return)
+as a CSV, if you want to dig into the detail yourself.
+
+This takes noticeably longer than a live run (order of 10-20 minutes for
+3 months, more for a longer window) since it's re-scanning the whole
+universe once per historical date rather than just once.
+
 ## Local development
 
 ```bash
@@ -255,17 +281,20 @@ signals/
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram
   calendar_utils.py   "is this the last trading day of the month" check
+  backtest.py         historical replay of scan() over a lookback window + forward simulation
 scripts/
   login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
   run_signals.py     the single daily entry point for the strategies
+  run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
-.github/workflows/            the cron schedule + a test workflow
+.github/workflows/            the cron schedule, backtest workflow, and a test workflow
 tests/                         unit tests against synthetic OHLCV data
 ```
 
 ## Disclaimer
 
 This is a technical screener, not investment advice. Signals are
-generated mechanically from price/volume rules and have not been
-backtested here — validate against your own risk management before
-trading real capital.
+generated mechanically from price/volume rules — the backtest above
+tells you how they'd have performed historically, which is informative
+but never a guarantee of future results. Validate against your own risk
+management before trading real capital.
