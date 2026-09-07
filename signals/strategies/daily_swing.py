@@ -10,9 +10,11 @@ A stock qualifies when, on the daily timeframe:
     a flat or declining average that a bounce would otherwise misread as
     "support"
   - today's candle is bullish (close > open), closed properly (small
-    upper wick), and takes support at that SMA: its low comes within
-    DAILY_SWING_SUPPORT_TOLERANCE above the SMA (doesn't need to touch it
-    exactly) and its close is back above it
+    upper wick), and takes a *controlled* support test at that SMA: its
+    low comes within DAILY_SWING_SUPPORT_TOLERANCE above the SMA (doesn't
+    need to touch it exactly) but no more than DAILY_SWING_SUPPORT_UNDERSHOOT
+    below it (a violent whipsaw through the SMA isn't "support" even if
+    the close recovers), and its close is back above the SMA
   - today's volume is below DAILY_SWING_MAX_VOLUME_RATIO x its trailing
     average - a quiet pullback with light selling, not a panic dump that
     happens to close green
@@ -33,21 +35,25 @@ SMA_COL = f"sma{config.DAILY_SWING_SMA_SUPPORT}"
 VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
 
 
-def _is_support_test(row: pd.Series, tolerance: float) -> bool:
+def _is_support_test(row: pd.Series, tolerance: float, undershoot: float) -> bool:
     sma_val = row.get(SMA_COL)
     if sma_val is None or pd.isna(sma_val) or sma_val <= 0:
         return False
-    return bool(row["low"] <= sma_val * (1 + tolerance) and row["close"] > sma_val)
+    return bool(
+        row["low"] <= sma_val * (1 + tolerance)
+        and row["low"] >= sma_val * (1 - undershoot)
+        and row["close"] > sma_val
+    )
 
 
-def _is_sma_rising(df: pd.DataFrame, lookback: int) -> bool:
+def _is_sma_rising(df: pd.DataFrame, lookback: int, min_slope: float) -> bool:
     sma = df[SMA_COL]
     if len(sma) <= lookback:
         return False
     current, prior = sma.iloc[-1], sma.iloc[-1 - lookback]
-    if pd.isna(current) or pd.isna(prior):
+    if pd.isna(current) or pd.isna(prior) or prior <= 0:
         return False
-    return bool(current > prior)
+    return bool(current >= prior * (1 + min_slope))
 
 
 def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
@@ -70,13 +76,13 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if all_time_high <= 0 or row["close"] < all_time_high * (1 - config.DAILY_SWING_ATH_TOLERANCE):
             continue
 
-        if not _is_sma_rising(df, config.DAILY_SWING_SMA_SLOPE_LOOKBACK):
+        if not _is_sma_rising(df, config.DAILY_SWING_SMA_SLOPE_LOOKBACK, config.DAILY_SWING_MIN_SMA_SLOPE):
             continue
         if not row["close"] > row["open"]:  # must be a green candle
             continue
         if not is_proper_close(row):
             continue
-        if not _is_support_test(row, config.DAILY_SWING_SUPPORT_TOLERANCE):
+        if not _is_support_test(row, config.DAILY_SWING_SUPPORT_TOLERANCE, config.DAILY_SWING_SUPPORT_UNDERSHOOT):
             continue
 
         avg_vol = row.get(VOL_COL)

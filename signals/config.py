@@ -55,16 +55,22 @@ CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many dist
 #
 # Tuning history (optimizing for win rate/capital protection over signal
 # frequency, per explicit request - fewer, higher-conviction trades are
-# fine): v1 (15% ATH tolerance, 2% support tolerance, no other filters)
-# backtested at 24% win rate over 4329 decided trades - a coin flip at
-# this setup's own 1:3 breakeven rate (25%). v2 below adds a rising-SMA
-# requirement, a low-volume ("quiet") pullback requirement, and a
-# proper-close check, and tightens both tolerances.
+# fine, targeting >70% win rate): v1 (15% ATH tolerance, 2% support
+# tolerance, no other filters) backtested at 24% win rate over 4329
+# decided trades - a coin flip at this setup's own 1:3 breakeven rate
+# (25%). v2 added a rising-SMA requirement, a low-volume ("quiet")
+# pullback requirement, a proper-close check, and tighter tolerances ->
+# 30% win rate over 313 decided trades. v3 below tightens further: a
+# floor on how far price may undershoot the SMA (no violent whipsaws
+# counted as "support"), a stronger/longer rising-SMA requirement, and a
+# tighter ATH tolerance.
 DAILY_SWING_SMA_SUPPORT = 30          # the SMA tested for support
 DAILY_SWING_SUPPORT_TOLERANCE = 0.01  # candle's low may sit up to this much above the SMA and still count as a touch
-DAILY_SWING_ATH_TOLERANCE = 0.05      # today's close must be within this much of the stock's all-time-high close
+DAILY_SWING_SUPPORT_UNDERSHOOT = 0.02  # candle's low may not sit more than this much below the SMA - a controlled test, not a violent whipsaw
+DAILY_SWING_ATH_TOLERANCE = 0.03      # today's close must be within this much of the stock's all-time-high close
 DAILY_SWING_MIN_HISTORY_DAYS = 500    # ~2 years - enough history for "all-time high" to mean something
-DAILY_SWING_SMA_SLOPE_LOOKBACK = 5     # the SMA itself must be higher than it was this many periods back
+DAILY_SWING_SMA_SLOPE_LOOKBACK = 10    # the SMA itself must be higher than it was this many periods back
+DAILY_SWING_MIN_SMA_SLOPE = 0.01       # ...and by at least this much (1%), not just marginally higher
 DAILY_SWING_MAX_VOLUME_RATIO = 1.0     # support-test day's volume must be below this x its trailing average - a quiet pullback, not a panic dump
 DAILY_SWING_RISK_REWARD_TARGETS = (3,)  # fixed 1:3 risk-reward, single target
 

@@ -222,6 +222,11 @@ class TestDailySwing:
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
+    def test_no_signal_when_undershoot_is_violent(self):
+        df = _sma_support_setup_df(low_mult=0.90)  # low crashes 10% below the SMA - a whipsaw, not controlled support
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
     def test_no_signal_when_candle_is_red(self):
         df = _sma_support_setup_df(close_mult=0.99)  # closes below its own open
         signals = daily_swing.scan({"TESTCO": df})
