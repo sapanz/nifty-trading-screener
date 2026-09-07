@@ -14,6 +14,12 @@ daily bars give the finest resolution available for that walk. If a
 single day's range could have hit both the stop-loss and a target, the
 stop-loss is assumed to trigger first (conservative, standard practice
 without intraday data).
+
+Some strategies (CIP) set entry above the signal candle's own close - a
+resting buy-stop order, not an immediate fill. simulate_forward only
+starts tracking stop/target outcomes once a later day's high actually
+reaches that entry price; a signal whose entry is never subsequently
+reached is reported as "unfilled" rather than a real win/loss/open trade.
 """
 from __future__ import annotations
 
@@ -50,6 +56,21 @@ class TradeResult:
 def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
     """Walk the real daily price path after `signal_date` to see what happened."""
     future = daily_df[daily_df.index > signal_date]
+
+    as_of = daily_df[daily_df.index <= signal_date]
+    signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
+    if signal.entry > signal_close:
+        # A resting buy-stop above the signal candle's own close (e.g. CIP's
+        # entry-above-high) isn't filled yet - find the first later day that
+        # actually trades up to it, and don't track outcomes before that.
+        filled = future[future["high"] >= signal.entry]
+        if filled.empty:
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
+                return_pct=0.0, holding_days=0,
+            )
+        future = future[future.index >= filled.index[0]]
 
     for dt, row in future.iterrows():
         if row["low"] <= signal.stop_loss:
@@ -144,21 +165,26 @@ def summarize(trades: list[TradeResult]) -> str:
     wins = [t for t in trades if t.outcome.startswith("target")]
     losses = [t for t in trades if t.outcome == "stop_loss"]
     opens = [t for t in trades if t.outcome == "open"]
+    unfilled = [t for t in trades if t.outcome == "unfilled"]
     decided = len(wins) + len(losses)
     # Win rate is only meaningful over decided (closed) trades - diluting it
     # with still-open positions understates performance whenever a strategy
     # has a lot of recent, unresolved signals.
     win_rate = (len(wins) / decided * 100) if decided else 0.0
-    avg_return = sum(t.return_pct for t in trades) / total
-    avg_days = sum(t.holding_days for t in trades) / total
+    # Unfilled signals never actually entered a trade - excluded from
+    # return/holding-period stats and from the best/worst ranking too.
+    entered = [t for t in trades if t.outcome != "unfilled"]
+    avg_return = sum(t.return_pct for t in entered) / len(entered) if entered else 0.0
+    avg_days = sum(t.holding_days for t in entered) / len(entered) if entered else 0.0
 
-    ranked = sorted(trades, key=lambda t: t.return_pct, reverse=True)
+    ranked = sorted(entered, key=lambda t: t.return_pct, reverse=True)
     top = ranked[:3]
-    bottom = ranked[-3:][::-1] if total > 3 else []
+    bottom = ranked[-3:][::-1] if len(entered) > 3 else []
 
     win_rate_str = f"{win_rate:.0f}% win rate of {decided} decided" if decided else "no decided trades yet"
+    unfilled_str = f"-{len(unfilled)}Unfilled" if unfilled else ""
     lines = [
-        f"{total} signals | {len(wins)}W-{len(losses)}L-{len(opens)}Open ({win_rate_str})",
+        f"{total} signals | {len(wins)}W-{len(losses)}L-{len(opens)}Open{unfilled_str} ({win_rate_str})",
         f"Avg return: {avg_return:+.1f}% | Avg holding: {avg_days:.0f}d",
     ]
     if top:

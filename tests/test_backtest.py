@@ -71,6 +71,35 @@ class TestSimulateForward:
         assert result.exit_price == 100.0
         assert result.holding_days == 0
 
+    def test_stop_style_entry_unfilled_when_never_reached(self):
+        # entry (106) sits above the signal candle's own close (100) - a
+        # resting buy-stop, not an immediate fill. Price never trades back
+        # up to 106, so this should never count as a real trade.
+        df = _daily_df([100, 101, 102, 103])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("cip_daily", _signal(entry=106.0), signal_date, df)
+        assert result.outcome == "unfilled"
+        assert result.return_pct == 0.0
+        assert result.holding_days == 0
+
+    def test_stop_style_entry_tracks_outcome_only_after_fill(self):
+        # entry=106 isn't reached until day 2 (high=107.07); before that,
+        # a stop-loss breach shouldn't count since the order wasn't live yet.
+        dates = pd.date_range("2024-01-01", periods=4, freq="B")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 90.0, 106.0, 106.0],
+                "high": [100.0, 91.0, 107.0, 96.0],
+                "low": [100.0, 89.0, 106.0, 94.0],  # day1 low=89 would look like a stop breach if checked too early
+                "close": [100.0, 90.0, 106.5, 95.0],
+                "volume": [1000.0] * 4,
+            },
+            index=dates,
+        )
+        result = backtest.simulate_forward("cip_daily", _signal(entry=106.0, stop_loss=95.0), dates[0], df)
+        assert result.outcome == "stop_loss"
+        assert result.exit_date == dates[3]
+
 
 class TestSummarize:
     def test_empty_trades(self):
