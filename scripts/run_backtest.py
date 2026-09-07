@@ -62,7 +62,9 @@ def main() -> None:
     all_trades = []
     for strategy, trades in results.items():
         title, emoji = STRATEGY_LABELS[strategy]
-        send_message(token, chat_id, f"{emoji} <b>{title}</b>\n{backtest.summarize(trades)}")
+        summary = backtest.summarize(trades)
+        send_message(token, chat_id, f"{emoji} <b>{title}</b>\n{summary}")
+        print(f"\n=== {title} ===\n{summary}")  # also visible in the Actions run log, not just Telegram
         all_trades.extend(trades)
 
     backtest.write_csv(all_trades, CSV_PATH)
