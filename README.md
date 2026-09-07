@@ -1,11 +1,10 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for four strategies:
+levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing (Pocket Pivot)** | Every trading day, 5pm IST | Uptrend (higher swing low) + a bullish day whose volume beats the worst down-day of the last 2 weeks, still near the last pullback low |
 | **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
@@ -19,14 +18,16 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
-  first logs into Upstox automatically (`scripts/login_upstox.py`, via
-  TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
-  always runs the daily swing screener, additionally runs both weekly
-  strategies (Weekly Range Breakout and CIP Weekly) on Fridays, and
-  additionally runs the monthly ATH breakout on the last trading day of
-  the month — one Upstox pass serves every strategy that fires that day,
-  whatever the day.
+- `.github/workflows/signals.yml` — checks every weekday at 11:30 UTC
+  (5:00pm IST) whether today is a Friday or the last trading day of the
+  month; on any other day it skips the (expensive) Upstox login and
+  fetch entirely, since there's no daily-timeframe strategy left to feed.
+  On a day that qualifies, it logs into Upstox automatically
+  (`scripts/login_upstox.py`, via TOTP), then `scripts/run_signals.py`
+  fetches daily OHLCV **once** and runs both weekly strategies (Weekly
+  Range Breakout and CIP Weekly) on Fridays and/or the monthly ATH
+  breakout on the last trading day of the month — one Upstox pass serves
+  every strategy that fires that day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
@@ -156,34 +157,6 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
-- **Daily Swing (Pocket Pivot)**: `signals/strategies/daily_swing.py`. Not
-  a chart-pattern strategy at all - it looks for a single day's volume
-  anomaly that's a well-known footprint of stealth institutional buying
-  (Gil Morales & Chris Kacher's "pocket pivot", used by O'Neil-style
-  growth investors). First, price must be in a genuine uptrend
-  *structure*: the two most recent confirmed swing lows (a low that's
-  lower than the day before AND after it - a real pullback low, not just
-  any dip) within `DAILY_SWING_SWING_LOOKBACK` (60) days must show a
-  **higher low**, not a lower one - the raw-price definition of "uptrend"
-  used here, no moving average involved. Today's candle must then be
-  bullish, closed properly, and close no more than
-  `DAILY_SWING_MAX_EXTENSION` (18%) above that most recent swing low - an
-  entry still near support, not a chase after the move is obvious. The
-  actual pocket-pivot test: today's volume must be at least
-  `DAILY_SWING_MIN_VOLUME_RATIO` (1x) its own trailing average (rules out
-  illiquid false positives) **and** exceed the heaviest single down-day's
-  volume (a day that closed lower than the day before) in the trailing
-  `DAILY_SWING_DOWN_VOLUME_LOOKBACK` (10) days - i.e. today's buying
-  actually overwhelms the worst recent selling, before the stock has even
-  broken out to a new high and the crowd notices. No moving averages or
-  oscillators anywhere in this - every condition reads price/volume
-  directly. (Three earlier versions of this strategy slot - Darvas Box,
-  Darvas Box + technical CANSLIM, SMA-30 support in all-time-high stocks,
-  and Accumulation Spring, a Wyckoff base/breakout/retest sequence - were
-  tried and replaced; none showed a real edge in backtesting, including
-  Accumulation Spring under both a fixed target and this same trailing
-  stop, which is what prompted trying a structurally different mechanism
-  instead of tuning the old one further.)
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
   the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
@@ -215,20 +188,6 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **Daily Swing**: entry is the pivot candle's **high** (a buy-stop
-  triggered the next day price trades up to it); the initial stop-loss is
-  the **lower of the pivot candle's own low and the previous candle's
-  low**. There is **no fixed profit target** - two prior backtests on the
-  strategy slot's previous (structurally different) entry logic both came
-  back with a *negative* average return, once with a measured-move target
-  and once with this same trailing stop, so a fixed target isn't assumed
-  to be the fix. Instead, once the trade is running, the stop **trails up
-  to the lowest low of the trailing `DAILY_SWING_TRAIL_LOOKBACK`** (10)
-  **days** - a classic trend-following exit (Turtle Traders' N-day-low
-  exit; Darvas trailed his own boxes the same way) - cutting losers fast
-  at the tight initial stop while letting winners run as far as the trend
-  carries them. See `backtest.summarize()` output for profit factor / avg
-  win / avg loss - this strategy is judged on expectancy, not hit rate.
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -296,10 +255,6 @@ price action to see how it would have played out. Most strategies check a
 fixed target vs. a fixed stop-loss (if a single day's range could have hit
 both, the stop-loss is assumed to trigger first — conservative, since
 there's no intraday data to say which happened first within the day).
-Daily Swing instead trails its stop up to the lowest low of a trailing
-window once the trade is running, with no fixed target (see Strategies
-above) — win/loss for it, and every other strategy, is judged by the
-trade's actual return rather than which exit mechanism fired.
 
 You'll get one Telegram message per strategy — signal count, win rate,
 average return/win/loss, profit factor, average holding period, and the
@@ -322,7 +277,7 @@ pytest -q                      # runs against synthetic OHLCV data, no network n
 export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
-python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
+python scripts/run_signals.py                              # no-op unless today is Friday or month-end
 FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
 
 # To test the TOTP login automation itself (install chromium first with
@@ -347,7 +302,6 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      Pocket Pivot (volume-vs-worst-down-day)
     cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
@@ -358,7 +312,7 @@ signals/
   backtest.py         historical replay of scan() over a lookback window + forward simulation
 scripts/
   login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
-  run_signals.py     the single daily entry point for the strategies
+  run_signals.py     entry point for the weekly/monthly strategies (no-op on other days)
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
 .github/workflows/            the cron schedule, backtest workflow, and a test workflow

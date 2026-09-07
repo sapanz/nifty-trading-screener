@@ -44,36 +44,12 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# --- Daily Swing: Pocket Pivot -------------------------------------------
-# A different mechanism from the base/breakout/retest structures tried
-# before in this slot (Darvas Box, SMA-30 support, Accumulation Spring -
-# none showed a real edge; see git history). This looks for a single
-# day's volume anomaly that's a well-known footprint of stealth
-# institutional buying (Gil Morales & Chris Kacher's "pocket pivot"): a
-# day where buying volume actually exceeds the heaviest SELLING day of
-# the past couple of weeks, while the stock is still trading close to its
-# last pullback low - not already an obvious breakout everyone can see. A
-# buyer forceful enough to outmuscle the worst recent selling day, before
-# the crowd notices, is about as direct a read of "why would an
-# institution be buying right now" as raw price/volume data allows.
-# Everything here reads price/volume directly - no moving averages, no
-# oscillators; "uptrend" is defined structurally (a higher swing low),
-# not via any moving average.
-#
-# Exit is unchanged from the version before it: no fixed target, the
-# stop trails up to the lowest low of the trailing
-# DAILY_SWING_TRAIL_LOOKBACK days once the trade is running (a classic
-# trend-following exit - Turtle Traders' N-day-low exit) - a fixed target
-# on the prior (structurally different) entry logic came back with a
-# NEGATIVE average return twice in a row (once with a measured-move
-# target, once with this same trailing stop), so this slot no longer
-# optimizes for win rate - a low hit rate is fine as long as winners run
-# far further than losers get cut.
-DAILY_SWING_SWING_LOOKBACK = 60          # days searched for the two most recent confirmed swing lows (uptrend structure)
-DAILY_SWING_MAX_EXTENSION = 0.18         # today's close may not sit more than this far above the most recent swing low - an early entry, not a chase
-DAILY_SWING_MIN_VOLUME_RATIO = 1.0       # today's volume must be at least this x its own trailing average - rules out illiquid false positives
-DAILY_SWING_DOWN_VOLUME_LOOKBACK = 10    # today's volume must beat the heaviest down-day volume in this many trailing days - the actual pocket-pivot test
-DAILY_SWING_TRAIL_LOOKBACK = 10          # once in the trade, the stop trails up to the lowest low of this many trading days - no fixed target
+# A daily-timeframe "Daily Swing" strategy used to run here (Darvas Box,
+# then Darvas + CANSLIM, then SMA-30 support, then Accumulation Spring's
+# Wyckoff base/breakout/retest, then a "pocket pivot" volume-anomaly
+# entry). None of the five variants showed positive expectancy over a
+# 12-month backtest - the slot was retired rather than tuned further; see
+# git history if reviving daily-timeframe signals is worth trying again.
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

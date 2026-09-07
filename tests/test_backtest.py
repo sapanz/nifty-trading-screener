@@ -22,7 +22,7 @@ class TestSimulateForward:
     def test_hits_target1_first(self):
         df = _daily_df([100, 101, 102, 111, 112])  # day index 3 (close=111) -> high=112.11 crosses 110
         signal_date = df.index[0]
-        result = backtest.simulate_forward("daily_swing", _signal(), signal_date, df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.outcome == "target1"
         assert result.exit_price == 110.0
         assert result.return_pct > 0
@@ -30,7 +30,7 @@ class TestSimulateForward:
     def test_hits_stop_loss_first(self):
         df = _daily_df([100, 98, 94, 90])  # day index 2: low=94*0.99=93.06 <= stop 95
         signal_date = df.index[0]
-        result = backtest.simulate_forward("daily_swing", _signal(), signal_date, df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.outcome == "stop_loss"
         assert result.exit_price == 95.0
         assert result.return_pct < 0
@@ -43,7 +43,7 @@ class TestSimulateForward:
             {"open": [100.0, 100.0], "high": [101.0, 130.0], "low": [99.0, 90.0], "close": [100.0, 105.0], "volume": [1000.0, 1000.0]},
             index=dates,
         )
-        result = backtest.simulate_forward("daily_swing", _signal(), dates[0], df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), dates[0], df)
         assert result.outcome == "stop_loss"
 
     def test_hits_highest_target_reached_same_day(self):
@@ -52,21 +52,21 @@ class TestSimulateForward:
             {"open": [100.0, 105.0], "high": [101.0, 125.0], "low": [99.0, 104.0], "close": [100.0, 122.0], "volume": [1000.0, 1000.0]},
             index=dates,
         )
-        result = backtest.simulate_forward("daily_swing", _signal(), dates[0], df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), dates[0], df)
         assert result.outcome == "target2"
         assert result.exit_price == 120.0
 
     def test_still_open_when_neither_hit(self):
         df = _daily_df([100, 101, 102, 103])
         signal_date = df.index[0]
-        result = backtest.simulate_forward("daily_swing", _signal(), signal_date, df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.outcome == "open"
         assert result.exit_price == df["close"].iloc[-1]
 
     def test_open_with_no_future_data_falls_back_to_entry(self):
         df = _daily_df([100.0])
         signal_date = df.index[0]  # no rows after the signal date at all
-        result = backtest.simulate_forward("daily_swing", _signal(), signal_date, df)
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.outcome == "open"
         assert result.exit_price == 100.0
         assert result.holding_days == 0
@@ -101,68 +101,14 @@ class TestSimulateForward:
         assert result.exit_date == dates[3]
 
 
-class TestSimulateTrailing:
-    def test_hits_initial_stop_before_any_trailing(self):
-        # sharp drop straight through the initial stop on the very first
-        # day after entry - the stop hasn't had a chance to trail up yet.
-        df = _daily_df([100, 90, 80])  # day index 1: low=90*0.99=89.1 <= stop 95
-        signal_date = df.index[0]
-        result = backtest.simulate_trailing("daily_swing", _signal(targets=()), signal_date, df, trail_lookback=3)
-        assert result.outcome == "trailing_stop"
-        assert result.exit_price == 95.0
-        assert result.return_pct < 0
-
-    def test_stop_trails_up_and_locks_in_a_winner(self):
-        # entry=100, initial stop=95, trail_lookback=2. Price marches
-        # steadily higher, so the trailing stop (lowest low of the last 2
-        # days) ratchets up with it; the final sharp drop should stop the
-        # trade out well above entry, not at the original 95 stop.
-        dates = pd.date_range("2024-01-01", periods=6, freq="B")
-        df = pd.DataFrame(
-            {
-                "open": [100.0, 105.0, 110.0, 115.0, 120.0, 100.0],
-                "high": [101.0, 106.0, 111.0, 116.0, 121.0, 108.0],
-                "low": [99.0, 104.0, 109.0, 114.0, 119.0, 100.0],
-                "close": [100.0, 105.0, 110.0, 115.0, 120.0, 105.0],
-                "volume": [1000.0] * 6,
-            },
-            index=dates,
-        )
-        result = backtest.simulate_trailing("daily_swing", _signal(targets=()), dates[0], df, trail_lookback=2)
-        assert result.outcome == "trailing_stop"
-        # by the last day, the trailing stop has ratcheted up to the lowest
-        # low of the prior 2 days (114 from day index 3)
-        assert result.exit_price == 114.0
-        assert result.return_pct > 0  # a winner, even though it "stopped out"
-
-    def test_no_premature_stop_on_a_shallow_pullback(self):
-        # a shallow pullback that stays comfortably above the initial stop
-        # (95) shouldn't trigger an exit, even though the trailing stop
-        # ratchets up day by day as the pullback's own lows rise.
-        dates = pd.date_range("2024-01-01", periods=4, freq="B")
-        df = pd.DataFrame(
-            {"open": [100.0, 98.0, 99.0, 100.0], "high": [101.0, 99.0, 100.0, 101.0], "low": [99.0, 97.0, 98.0, 99.0], "close": [100.0, 98.0, 99.0, 100.0], "volume": [1000.0] * 4},
-            index=dates,
-        )
-        result = backtest.simulate_trailing("daily_swing", _signal(targets=()), dates[0], df, trail_lookback=2)
-        assert result.outcome == "open"
-
-    def test_unfilled_when_buy_stop_entry_never_reached(self):
-        df = _daily_df([100, 101, 102, 103])
-        signal_date = df.index[0]
-        result = backtest.simulate_trailing("daily_swing", _signal(entry=106.0, targets=()), signal_date, df, trail_lookback=3)
-        assert result.outcome == "unfilled"
-        assert result.return_pct == 0.0
-
-
 class TestSummarize:
     def test_empty_trades(self):
         assert backtest.summarize([]) == "No signals in this window."
 
     def test_win_rate_and_stats(self):
         trades = [
-            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
-            backtest.TradeResult("daily_swing", "B", pd.Timestamp("2024-01-01"), 100, 95, [110], "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+            backtest.TradeResult("weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [110], "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
         ]
         text = backtest.summarize(trades)
         assert "2 signals" in text
@@ -173,8 +119,8 @@ class TestSummarize:
         # a "trailing_stop" outcome with a positive return is a real win -
         # classification goes by the actual return, not the outcome label.
         trades = [
-            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-10"), 114, 14.0, 9),
-            backtest.TradeResult("daily_swing", "B", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-10"), 114, 14.0, 9),
+            backtest.TradeResult("weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
         ]
         text = backtest.summarize(trades)
         assert "1W-1L-0Open" in text
@@ -182,9 +128,9 @@ class TestSummarize:
 
     def test_profit_factor_and_avg_win_loss(self):
         trades = [
-            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-10"), 120, 20.0, 9),
-            backtest.TradeResult("daily_swing", "B", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
-            backtest.TradeResult("daily_swing", "C", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-10"), 120, 20.0, 9),
+            backtest.TradeResult("weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("weekly_breakout", "C", pd.Timestamp("2024-01-01"), 100, 95, [], "trailing_stop", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
         ]
         text = backtest.summarize(trades)
         assert "Avg win: +20.0%" in text
@@ -197,10 +143,10 @@ class TestSummarize:
         # trades, not 25% of all 4 (open positions haven't resolved yet,
         # they shouldn't silently drag the headline win rate down)
         trades = [
-            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
-            backtest.TradeResult("daily_swing", "B", pd.Timestamp("2024-01-01"), 100, 95, [110], "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
-            backtest.TradeResult("daily_swing", "C", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
-            backtest.TradeResult("daily_swing", "D", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 103, 3.0, 9),
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+            backtest.TradeResult("weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [110], "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("weekly_breakout", "C", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
+            backtest.TradeResult("weekly_breakout", "D", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 103, 3.0, 9),
         ]
         text = backtest.summarize(trades)
         assert "4 signals" in text
@@ -209,7 +155,7 @@ class TestSummarize:
 
     def test_win_rate_all_open(self):
         trades = [
-            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
         ]
         text = backtest.summarize(trades)
         assert "no decided trades yet" in text

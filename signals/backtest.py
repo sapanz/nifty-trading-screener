@@ -8,19 +8,16 @@ see, so there is no separate "backtest mode" to drift out of sync with
 production behaviour and no lookahead bias).
 
 Every generated signal is then walked forward on the real subsequent
-daily price action to see how it would have played out - regardless of
-which timeframe produced the signal, daily bars give the finest
-resolution available for that walk. Most strategies use simulate_forward
-(fixed profit target(s) vs. a fixed stop-loss; if a single day's range
-could have hit both, the stop-loss is assumed to trigger first -
-conservative, standard practice without intraday data). Daily Swing uses
-simulate_trailing instead: no fixed target, the stop trails up to the
-lowest low of a trailing window once the trade is running, so a winner
-gets to run as far as the trend itself carries it.
+daily price action to see whether it would have hit a target or its
+stop-loss first - regardless of which timeframe produced the signal,
+daily bars give the finest resolution available for that walk. If a
+single day's range could have hit both the stop-loss and a target, the
+stop-loss is assumed to trigger first (conservative, standard practice
+without intraday data).
 
 Some strategies (CIP) set entry above the signal candle's own close - a
-resting buy-stop order, not an immediate fill. Both simulate functions
-only start tracking stop outcomes once a later day's high actually
+resting buy-stop order, not an immediate fill. simulate_forward only
+starts tracking stop/target outcomes once a later day's high actually
 reaches that entry price; a signal whose entry is never subsequently
 reached is reported as "unfilled" rather than a real win/loss/open trade.
 """
@@ -31,9 +28,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from signals import config, data
+from signals import data
 from signals.models import Signal
-from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import cip_weekly, monthly_breakout, weekly_breakout
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -109,58 +106,6 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     )
 
 
-def simulate_trailing(
-    strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame, trail_lookback: int
-) -> TradeResult:
-    """Like simulate_forward, but instead of a fixed profit target the
-    stop-loss trails up to the lowest low of the trailing `trail_lookback`
-    days once the trade is running - a classic trend-following exit (Turtle
-    Traders' N-day-low exit; Darvas trailed his own boxes the same way):
-    cut losers fast at the tight initial stop, let winners run as far as
-    the trend itself carries them instead of capping them at an arbitrary
-    fixed level."""
-    future = daily_df[daily_df.index > signal_date]
-
-    as_of = daily_df[daily_df.index <= signal_date]
-    signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
-    if signal.entry > signal_close:
-        filled = future[future["high"] >= signal.entry]
-        if filled.empty:
-            return TradeResult(
-                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-                outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
-                return_pct=0.0, holding_days=0,
-            )
-        future = future[future.index >= filled.index[0]]
-
-    trailing_stop = signal.stop_loss
-    recent_lows: list[float] = []
-    for dt, row in future.iterrows():
-        if row["low"] <= trailing_stop:
-            return TradeResult(
-                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-                outcome="trailing_stop", exit_date=dt, exit_price=trailing_stop,
-                return_pct=(trailing_stop / signal.entry - 1) * 100,
-                holding_days=(dt - signal_date).days,
-            )
-        recent_lows.append(float(row["low"]))
-        trailing_stop = max(trailing_stop, min(recent_lows[-trail_lookback:]))
-
-    # Neither hit yet - still open as of the last available price.
-    if not future.empty:
-        last_date = future.index[-1]
-        last_close = float(future["close"].iloc[-1])
-    else:
-        last_date = signal_date
-        last_close = signal.entry
-    return TradeResult(
-        strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-        outcome="open", exit_date=last_date, exit_price=last_close,
-        return_pct=(last_close / signal.entry - 1) * 100,
-        holding_days=(last_date - signal_date).days,
-    )
-
-
 def _dates_in_window(datasets: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     all_dates: set[pd.Timestamp] = set()
     for df in datasets.values():
@@ -186,17 +131,10 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
     monthly_data = data.to_monthly(daily_data)
 
     results: dict[str, list[TradeResult]] = {
-        "daily_swing": [],
         "cip_weekly": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
-
-    for asof in _dates_in_window(daily_data, start, end):
-        for signal in daily_swing.scan(_scan_as_of(daily_data, asof)):
-            results["daily_swing"].append(
-                simulate_trailing("daily_swing", signal, asof, daily_data[signal.symbol], config.DAILY_SWING_TRAIL_LOOKBACK)
-            )
 
     for asof in _dates_in_window(weekly_data, start, end):
         sliced = _scan_as_of(weekly_data, asof)
