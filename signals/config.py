@@ -30,7 +30,7 @@ MONTHLY_VOLUME_MULTIPLIER = 1.3
 # different lookback windows below.
 CIP_ZONE_TOLERANCE = 0.02        # how close a touch/retest must come to the resistance level
 CIP_MIN_TOUCHES = 2              # resistance must be tested at least this many times before breaking
-CIP_VOLUME_MULTIPLIER = 1.3      # breakout candle's volume vs its trailing average
+CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average - raised from 1.3x to filter out fake breakouts
 CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
 CIP_WEEKLY_TOUCH_LOOKBACK = 12    # weeks scanned for resistance touches before a candidate breakout
