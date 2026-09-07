@@ -1,22 +1,18 @@
-"""Daily Swing strategy: Darvas Box breakout + technical CANSLIM (runs
-every trading day after close).
+"""Daily Swing strategy: Darvas Box breakout (runs every trading day
+after close).
 
 A stock qualifies when, on the daily timeframe:
-  - the overall market isn't weak: at least DAILY_SWING_MIN_MARKET_BREADTH
-    of the scanned universe is trading above its own 200 SMA ("M" - don't
-    fight the tape; checked once per scan, not per symbol)
-  - the stock ranks in the top DAILY_SWING_RS_TOP_PERCENTILE of the
-    scanned universe by trailing DAILY_SWING_RS_LOOKBACK_DAYS return
-    ("L" - only trade leaders, not laggards with an otherwise-decent chart)
   - it is above its own 200 SMA (long-term uptrend)
   - the DARVAS_BOX_MIN_DAYS-DARVAS_BOX_MAX_DAYS candles right before today
     formed a tight (DARVAS_BOX_TIGHTNESS) box whose top is itself a fresh
-    DARVAS_NEW_HIGH_LOOKBACK-day high ("N" - new high)
-  - today's candle closed above the box top on volume ("S" - the breakout
-    itself is the supply/demand signal), with a proper close
+    DARVAS_NEW_HIGH_LOOKBACK-day high - Darvas only ever bought stocks
+    making new highs, so a box that isn't sitting at one isn't a genuine
+    Darvas box
+  - today's candle closed above the box top on volume, with a proper close
 
-See signals/config.py for the full rationale, including why CANSLIM's
-fundamentals-only legs (C, A, I) are left out.
+Entry is the breakout candle's close; stop-loss sits below the box
+bottom, per Darvas's own rule - the stop lives below the whole
+consolidation, not just the breakout level.
 """
 from __future__ import annotations
 
@@ -27,45 +23,6 @@ from signals.indicators import add_avg_volume, add_sma, is_above_sma, is_proper_
 from signals.models import Signal
 
 VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
-
-
-def _market_breadth(daily_data: dict[str, pd.DataFrame]) -> float:
-    """Fraction of the scanned universe trading above its own 200 SMA - a
-    simple proxy for O'Neil's "M" (overall market direction)."""
-    above = 0
-    total = 0
-    for df in daily_data.values():
-        if len(df) < config.SMA_LONG:
-            continue
-        sma = df["close"].rolling(config.SMA_LONG).mean().iloc[-1]
-        if pd.isna(sma):
-            continue
-        total += 1
-        if df["close"].iloc[-1] > sma:
-            above += 1
-    return above / total if total else 0.0
-
-
-def _leading_symbols(daily_data: dict[str, pd.DataFrame]) -> set[str]:
-    """The top DAILY_SWING_RS_TOP_PERCENTILE of the scanned universe by
-    trailing DAILY_SWING_RS_LOOKBACK_DAYS return - O'Neil's "L", only
-    trade market leaders."""
-    lookback = config.DAILY_SWING_RS_LOOKBACK_DAYS
-    returns: dict[str, float] = {}
-    for symbol, df in daily_data.items():
-        if len(df) <= lookback:
-            continue
-        past = float(df["close"].iloc[-1 - lookback])
-        if past <= 0:
-            continue
-        returns[symbol] = df["close"].iloc[-1] / past - 1
-
-    if not returns:
-        return set()
-
-    cutoff = max(1, int(len(returns) * config.DAILY_SWING_RS_TOP_PERCENTILE))
-    ranked = sorted(returns.items(), key=lambda kv: kv[1], reverse=True)
-    return {symbol for symbol, _ in ranked[:cutoff]}
 
 
 def _find_darvas_box(df: pd.DataFrame) -> tuple[float, float] | None:
@@ -99,14 +56,10 @@ def _find_darvas_box(df: pd.DataFrame) -> tuple[float, float] | None:
 
 def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
     signals: list[Signal] = []
-
-    if _market_breadth(daily_data) < config.DAILY_SWING_MIN_MARKET_BREADTH:
-        return signals  # M: don't fight a weak overall market
-
     min_len = config.SMA_LONG + config.DARVAS_NEW_HIGH_LOOKBACK + config.DARVAS_BOX_MAX_DAYS + 2
 
-    for symbol in _leading_symbols(daily_data):  # L: only the strongest stocks
-        df = daily_data[symbol].copy()
+    for symbol, raw_df in daily_data.items():
+        df = raw_df.copy()
         if len(df) < min_len:
             continue
 
@@ -147,7 +100,7 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
                 sort_key=vol_ratio,
-                note=f"Darvas box {box_bottom:.2f}-{box_top:.2f} | Vol {vol_ratio:.1f}x avg | RS leader",
+                note=f"Darvas box {box_bottom:.2f}-{box_top:.2f} | Vol {vol_ratio:.1f}x avg",
             )
         )
 

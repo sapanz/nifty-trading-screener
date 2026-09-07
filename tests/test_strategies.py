@@ -63,9 +63,8 @@ class TestWeeklyBreakout:
 def _cip_setup_df(
     freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 400, gap_periods: int = 3
 ) -> pd.DataFrame:
-    """Ramp up towards `resistance` (which, since nothing in the ramp ever
-    exceeds it, becomes this stock's all-time high), then alternate
-    peak/pullback candles at that level for `touch_lookback` periods - each
+    """Ramp up towards `resistance`, then alternate peak/pullback candles
+    at that level for `touch_lookback` periods - each
     peak a confirmed, distinct swing-high test of the resistance *zone*
     (a flat run has no local maxima at all, so this has to actually
     oscillate to produce real touches) - break out above it on high
@@ -156,16 +155,6 @@ class TestCipWeekly:
         signals = cip_weekly.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_local_high_isnt_the_all_time_high(self):
-        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
-        # An early spike well above the local "resistance" zone (300 vs the
-        # ~209 breakout close) - the local zone is no longer this stock's
-        # real all-time high, so breaking it shouldn't count as a CIP setup.
-        spike_idx = df.index[50]
-        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
-        signals = cip_weekly.scan({"TESTCO": df})
-        assert signals == []
-
 
 def _darvas_setup_df(
     ramp_periods: int = 500, box_days: int = 3, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
@@ -191,25 +180,11 @@ def _darvas_setup_df(
 
 
 class TestDailySwing:
-    def _universe(self, **testco_kwargs) -> dict[str, pd.DataFrame]:
-        """TESTCO (valid Darvas box + breakout, strongest recent performer)
-        plus three peers: PEER_SLOW (a slower uptrend, still above its own
-        200 SMA) and two PEER_WEAK symbols in a long decline (below their
-        own 200 SMA) - together giving a 4-symbol universe with market
-        breadth at exactly the 50% pass threshold and TESTCO as the clear
-        relative-strength leader."""
-        return {
-            "TESTCO": _darvas_setup_df(**testco_kwargs),
-            "PEER_SLOW": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=50, plateau=100),
-            "PEER_WEAK1": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50),
-            "PEER_WEAK2": _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50),
-        }
-
-    def test_detects_darvas_breakout_for_the_rs_leader(self):
-        signals = daily_swing.scan(self._universe())
+    def test_detects_darvas_box_breakout(self):
+        df = _darvas_setup_df()
+        signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.symbol == "TESTCO"
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
         # Entry is the breakout candle's close; stop-loss sits just below
@@ -217,27 +192,19 @@ class TestDailySwing:
         assert sig.entry == 210.0
         assert sig.stop_loss == round(197.0 * (1 - config.SL_BUFFER), 2)
 
-    def test_no_signal_when_market_breadth_weak(self):
-        universe = self._universe()
-        # Flip PEER_SLOW into a decline too - only TESTCO is left above its
-        # own 200 SMA (1 of 4 = 25%, below the 50% breadth threshold).
-        universe["PEER_SLOW"] = _ramp_then_flat_df("B", ramp_weeks=500, flat_weeks=0, start=200, plateau=50)
-        signals = daily_swing.scan(universe)
+    def test_no_signal_when_box_too_wide(self):
+        df = _darvas_setup_df(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
+        signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_not_the_rs_leader(self):
-        universe = self._universe()
-        # A stronger peer with an even bigger breakout outranks TESTCO,
-        # pushing it out of the top 30% RS cutoff (which is just the single
-        # top symbol in a 5-name universe) - PEER_STRONGER still qualifies
-        # on its own merits, TESTCO no longer does.
-        universe["PEER_STRONGER"] = _darvas_setup_df(breakout_close=260.0)
-        signals = daily_swing.scan(universe)
-        assert [s.symbol for s in signals] == ["PEER_STRONGER"]
-
-    def test_no_signal_when_box_too_wide(self):
-        universe = self._universe(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
-        signals = daily_swing.scan(universe)
+    def test_no_signal_when_box_top_not_a_fresh_high(self):
+        df = _darvas_setup_df()
+        # A spike well above the box top (300 vs 201), placed within the
+        # 252-day new-high lookback before the box - the box didn't
+        # actually form at a genuine new high.
+        spike_idx = df.index[350]
+        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
+        signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
 

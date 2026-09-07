@@ -4,12 +4,11 @@ A stock qualifies when, on the weekly timeframe:
   - it is above its 200-period SMA (long-term uptrend)
   - price formed at least CIP_WEEKLY_MIN_ZONE_POINTS distinct swing highs
     (confirmed local peaks, not just any candle sitting near the top of a
-    flat run) within CIP_ZONE_TOLERANCE of its own all-time high, in the
+    flat run) within CIP_ZONE_TOLERANCE of each other, in the
     CIP_WEEKLY_TOUCH_LOOKBACK weeks before a candidate breakout candle -
     i.e. a genuine resistance *zone*, not a single exact price line
   - that candle finally closed above the top of the zone on strong volume
-  - price later pulled back and retested that former zone - now the
-    strongest support level available, since it's the stock's own ATH -
+  - price later pulled back and retested that former zone - now support -
     with a bullish, properly-closed candle that held above it: the
     "change in polarity" from resistance to support
 """
@@ -32,14 +31,13 @@ def _swing_high_mask(df: pd.DataFrame) -> pd.Series:
     return (high > high.shift(1)) & (high > high.shift(-1))
 
 
-def _find_prior_ath_breakout(df: pd.DataFrame, signal_iloc: int) -> tuple[int, float, float] | None:
+def _find_prior_breakout(df: pd.DataFrame, signal_iloc: int) -> tuple[int, float, float] | None:
     """Search backward from just before `signal_iloc` for the most recent
-    candle that broke out above a resistance *zone* sitting at the stock's
-    all-time high (as of that candle) - a zone validated by at least
+    candle that broke out above a resistance *zone* validated by at least
     CIP_WEEKLY_MIN_ZONE_POINTS distinct swing-high peaks within
-    CIP_ZONE_TOLERANCE of it, in the CIP_WEEKLY_TOUCH_LOOKBACK weeks
-    immediately preceding it. Returns (breakout_iloc, zone_low, zone_high),
-    or None if no qualifying breakout is found within
+    CIP_ZONE_TOLERANCE of each other, in the CIP_WEEKLY_TOUCH_LOOKBACK
+    weeks immediately preceding it. Returns (breakout_iloc, zone_low,
+    zone_high), or None if no qualifying breakout is found within
     CIP_WEEKLY_BREAKOUT_SEARCH weeks."""
     touch_lookback = config.CIP_WEEKLY_TOUCH_LOOKBACK
     earliest = max(touch_lookback, signal_iloc - config.CIP_WEEKLY_BREAKOUT_SEARCH)
@@ -55,12 +53,12 @@ def _find_prior_ath_breakout(df: pd.DataFrame, signal_iloc: int) -> tuple[int, f
         if touches_start < 0:
             continue
 
-        zone_high = float(df.iloc[:i]["high"].max())  # the all-time high up to (not including) this candle
+        touches_window = df.iloc[touches_start:i]
+        zone_high = float(touches_window["high"].max())
         if zone_high <= 0:
             continue
         zone_low = zone_high * (1 - config.CIP_ZONE_TOLERANCE)
 
-        touches_window = df.iloc[touches_start:i]
         peaks_in_zone = is_swing_high.loc[touches_window.index] & (touches_window["high"] >= zone_low)
         if int(peaks_in_zone.sum()) < config.CIP_WEEKLY_MIN_ZONE_POINTS:
             continue
@@ -99,7 +97,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if not is_proper_close(row):
             continue
 
-        found = _find_prior_ath_breakout(df, len(df) - 1)
+        found = _find_prior_breakout(df, len(df) - 1)
         if found is None:
             continue
         breakout_iloc, zone_low, zone_high = found
@@ -131,7 +129,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
                 sort_key=vol_ratio,
-                note=f"CIP (weekly, ATH zone): {zone_low:.2f}-{zone_high:.2f} broke {breakout_date.date()}, now retested as support",
+                note=f"CIP (weekly): {zone_low:.2f}-{zone_high:.2f} broke {breakout_date.date()}, now retested as support",
             )
         )
 

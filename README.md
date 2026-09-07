@@ -5,8 +5,8 @@ levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Darvas Box breakout (tight, fresh-new-high consolidation broken on volume) layered with technical CANSLIM: market breadth healthy, stock ranks in the top 30% of the universe by relative strength |
-| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a stock's own all-time-high zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support (the strongest support there is) by a bullish candle |
+| **Daily Swing** | Every trading day, 5pm IST | Darvas Box breakout: a tight consolidation whose top is itself a fresh ~52-week high, broken on volume |
+| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
@@ -156,53 +156,40 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
-- **Daily Swing (Darvas Box + technical CANSLIM)**:
-  `signals/strategies/daily_swing.py`. Two cross-sectional gates run once
-  per scan, across the whole scanned universe, before any single stock is
-  considered:
-  - **M (market direction)**: at least `DAILY_SWING_MIN_MARKET_BREADTH`
-    (50%) of the universe must be trading above its own 200 SMA, or the
-    entire strategy stands down for the day - never fight a weak tape.
-  - **L (leadership)**: only the top `DAILY_SWING_RS_TOP_PERCENTILE`
-    (30%) of the universe by trailing `DAILY_SWING_RS_LOOKBACK_DAYS`
-    (~3 month) return are even considered - a decent chart on a laggard
-    doesn't qualify.
-
-  For each of those leaders, `signals/strategies/daily_swing.py` looks
-  for a **Darvas Box**: `DARVAS_BOX_MIN_DAYS`-`DARVAS_BOX_MAX_DAYS`
-  consecutive candles right before today holding inside a tight range
+- **Daily Swing (Darvas Box)**: `signals/strategies/daily_swing.py`.
+  Looks for `DARVAS_BOX_MIN_DAYS`-`DARVAS_BOX_MAX_DAYS` consecutive
+  candles right before today holding inside a tight range
   (`DARVAS_BOX_TIGHTNESS`, box_top to box_bottom) whose top is itself a
-  fresh `DARVAS_NEW_HIGH_LOOKBACK`-day (~52-week) high ("N" - new high) -
-  and today's candle must close above that box top on volume ("S" -
-  supply/demand, the breakout itself). CANSLIM's fundamentals-only legs
-  (C, A, I - quarterly/annual earnings growth, institutional ownership)
-  aren't available from the OHLCV-only Upstox feed this screener uses, so
-  they're intentionally left out rather than approximated.
+  fresh `DARVAS_NEW_HIGH_LOOKBACK`-day (~52-week) high - Darvas only ever
+  bought stocks making new highs, so a box that isn't sitting at one
+  isn't a genuine Darvas box. Today's candle must then close above that
+  box top on volume, with a proper close. (A technical-CANSLIM overlay -
+  ranking stocks by relative strength and gating on overall market
+  breadth - was tried and dropped in favor of pure Darvas Box, keeping
+  this a straightforward per-stock breakout screener.)
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
-  the stock's own all-time high (as of the candidate breakout candle,
-  within the fetched history - not necessarily since IPO), and its bottom
-  sits `CIP_ZONE_TOLERANCE` below that. Scanning backward from today, it
-  looks for the most recent candle that broke out above the top of a zone
-  which was validated by at least `CIP_WEEKLY_MIN_ZONE_POINTS` distinct
+  the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
+  before a candidate breakout candle, and its bottom sits
+  `CIP_ZONE_TOLERANCE` below that. Scanning backward from today, it looks
+  for the most recent candle that broke out above the top of a zone which
+  was validated by at least `CIP_WEEKLY_MIN_ZONE_POINTS` distinct
   **swing-high peaks** within it (a confirmed local high - strictly
   higher than the candle immediately before and after it, not just any
-  candle sitting near the top of a flat run) in the
-  `CIP_WEEKLY_TOUCH_LOOKBACK` weeks right before it, on volume >=
+  candle sitting near the top of a flat run), on volume >=
   `CIP_VOLUME_MULTIPLIER`x average, with a proper close. Requiring
   multiple distinct peaks (rather than any candle merely sitting near the
-  high) and anchoring to the true all-time high (rather than just any
-  locally-tested resistance) are both deliberate: a zone tested by
-  several separate rejection attempts is a much stronger signal than one
-  long flat run, and an old ATH, once broken, is about the strongest
-  support level a stock can have, since it's a level virtually every
-  holder remembers. If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks
-  of today), today's candle must then be bullish, closed properly, dip
-  back down within `CIP_ZONE_TOLERANCE` of the zone's top, and close back
-  above it - the "change in polarity" from resistance to support. (A
-  daily-timeframe version was tried and dropped after backtesting showed
-  a genuinely negative edge over 12 months, even after tightening its
-  resistance-zone criteria hard.)
+  high) is deliberate: a zone tested by several separate rejection
+  attempts is a much stronger signal than one long flat run. (An earlier
+  version required the zone to be the stock's own all-time high
+  specifically - reverted, since it made signals extremely rare, too few
+  to even evaluate in backtesting. A daily-timeframe version of CIP was
+  also tried and dropped after backtesting showed a genuinely negative
+  edge over 12 months, even after tightening its resistance-zone criteria
+  hard.) If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks of today),
+  today's candle must then be bullish, closed properly, dip back down
+  within `CIP_ZONE_TOLERANCE` of the zone's top, and close back above it -
+  the "change in polarity" from resistance to support.
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.
@@ -261,13 +248,6 @@ for the "day" interval, no matter how many strategies fire that day.
   uses. A stock whose real all-time high was set further back than that
   won't be recognized as still being below it. Increase
   `DAILY_HISTORY_YEARS` in `signals/config.py` for a deeper look-back.
-- **Daily Swing's CANSLIM is technical-only.** It only implements the
-  legs of O'Neil's CANSLIM derivable from price/volume (N, S, L, M) -
-  the earnings-growth and institutional-ownership legs (C, A, I) are
-  skipped entirely rather than approximated, since Upstox's OHLCV feed
-  doesn't carry fundamentals data. Its relative-strength ranking is also
-  a simplification: a single trailing-return lookback, not O'Neil's full
-  weighted 12-month RS Rating formula.
 - **NSE holiday calendar**: the "last trading day of the month" check is
   pure calendar math (last weekday of the month). If the real last
   trading day happens to be an NSE holiday, the run fires one weekday
@@ -340,8 +320,8 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      Darvas Box + technical CANSLIM
-    cip_weekly.py       CIP (Change In Polarity, all-time-high based)
+    daily_swing.py      Darvas Box breakout
+    cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

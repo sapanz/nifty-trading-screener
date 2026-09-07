@@ -23,16 +23,20 @@ MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
 
 # --- CIP (Change In Polarity), weekly only --------------------------------
-# An old all-time-high *zone* - validated by multiple distinct swing-high
-# peaks near it, not just a single exact price - approached repeatedly
-# without breaking and then finally broken on strong volume, later gets
-# retested from above; if a bullish candle holds that old-zone-turned-
-# support level, that's the "change in polarity" - and since it's the
-# stock's own all-time high, it's the strongest support level available.
-# (A daily-timeframe version was tried and dropped: even after tightening
-# its resistance-zone criteria hard, backtesting over 12 months showed a
-# genuinely negative edge, not just noise.)
-CIP_ZONE_TOLERANCE = 0.02        # how wide the resistance zone is below its own all-time high
+# An old resistance *zone* - validated by multiple distinct swing-high
+# peaks near each other, not just a single exact price - approached
+# repeatedly without breaking and then finally broken on strong volume,
+# later gets retested from above; if a bullish candle holds that
+# old-zone-turned-support level, that's the "change in polarity". (An
+# earlier version required the zone to be the stock's own all-time high
+# specifically, on the theory that it's the strongest possible support -
+# reverted: it made signals extremely rare (18 in 12 months, too few to
+# even evaluate), so the zone is back to being any well-tested recent
+# resistance, not necessarily the ATH. A daily-timeframe version was also
+# tried and dropped: even after tightening its resistance-zone criteria
+# hard, backtesting over 12 months showed a genuinely negative edge, not
+# just noise.)
+CIP_ZONE_TOLERANCE = 0.02        # how wide the resistance zone is below its own top
 CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average
 CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
@@ -40,19 +44,13 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# --- Daily Swing: Darvas Box + technical CANSLIM --------------------------
-# Darvas Box: buy a stock making a fresh new high once it consolidates
-# into a tight box, then breaks out above the TOP of that box on volume;
-# the stop sits below the box bottom, per Darvas's own rule. Layered with
-# the price/volume-derivable legs of O'Neil's CANSLIM: N (new high, built
-# into the box top itself), S (volume-confirmed breakout - the box
-# breakout already requires this), L (leadership - only the strongest
-# stocks in the scanned universe by trailing relative return qualify),
-# and M (a weak overall market, measured by breadth, stands the whole
-# strategy down for the day). The fundamentals-only legs of CANSLIM (C, A,
-# I - quarterly/annual earnings growth, institutional ownership) aren't
-# available from the OHLCV-only Upstox feed this screener uses, so
-# they're intentionally left out rather than faked.
+# --- Daily Swing: Darvas Box -----------------------------------------------
+# Buy a stock making a fresh new high once it consolidates into a tight
+# box, then breaks out above the TOP of that box on volume; the stop sits
+# below the box bottom, per Darvas's own rule. (A technical-CANSLIM
+# overlay - leadership ranking + market-breadth gate - was tried and
+# dropped in favor of pure Darvas Box, keeping this a straightforward
+# per-stock breakout screener rather than a cross-sectional one.)
 #
 # Note: this is a single point-in-time EOD scan, not Darvas's original
 # stateful trailing-stop system (he raised the stop as new boxes formed
@@ -65,12 +63,8 @@ DARVAS_BOX_MIN_DAYS = 3            # minimum consecutive days price must hold in
 DARVAS_BOX_MAX_DAYS = 15           # give up looking for a box for a given peak after this many days
 DARVAS_BOX_TIGHTNESS = 0.12        # (box_top - box_bottom) / box_bottom must be <= 12%
 
-DAILY_SWING_VOLUME_MULTIPLIER = 1.5    # breakout candle's volume vs its trailing average
+DAILY_SWING_VOLUME_MULTIPLIER = 1.5       # breakout candle's volume vs its trailing average
 DAILY_SWING_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
-
-DAILY_SWING_RS_LOOKBACK_DAYS = 63      # ~3 months: relative-strength ranking window
-DAILY_SWING_RS_TOP_PERCENTILE = 0.30   # only the top 30% of the scanned universe by trailing return count as "leaders"
-DAILY_SWING_MIN_MARKET_BREADTH = 0.50  # fraction of the universe that must sit above its own 200 SMA, else the whole run stands down
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
