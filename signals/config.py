@@ -15,31 +15,12 @@ SMA_LONG = 200          # "above 200 SMA" trend filter used by every strategy
 MAX_UPPER_WICK_RATIO = 0.25  # (high - close) / (high - low) must be <= this
 
 # --- Volume candle ---------------------------------------------------------
-# Only weekly breakout and monthly ATH breakout gate on volume; weekly SMA
-# support and daily swing dropped it as a condition.
+# Both remaining strategies (weekly breakout, monthly ATH breakout) gate on
+# volume.
 VOLUME_LOOKBACK = 20
 WEEKLY_VOLUME_MULTIPLIER = 1.3
 MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
-
-# --- Support tests (price testing a moving average from above) ----------
-# The candle's low is allowed to dip this much *above* the MA and still
-# count as "taking support" (it does not need to touch the MA exactly).
-SMA_SUPPORT_WEEKLY = 30
-WEEKLY_SUPPORT_TOLERANCE = 0.02   # 2% for weekly 30-SMA support
-DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
-
-# The 30/44 SMA being tested for support must itself be rising (trending
-# up), not flat or falling - compares its current value against this many
-# periods back. The 200 SMA has no such requirement: price just needs to
-# be above it, trend can be sideways or rising.
-SMA_SLOPE_LOOKBACK = 3
-
-# --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
-SMA_SWING = 44
-BOLLINGER_PERIOD = 20
-BOLLINGER_STD = 2
-CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
@@ -47,8 +28,11 @@ BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be 
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
-RISK_REWARD_TARGETS = (2, 3)          # for support/confluence style entries -> T1, T2
-BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
+# Breakout SL is anchored to the breakout level itself (old resistance ->
+# new support), not the bottom of the consolidation range, to keep risk
+# tight; targets are measured-move multiples of the range height, sized
+# generously so winners are allowed to run.
+BREAKOUT_RANGE_MULTIPLES = (1, 3)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- NSE Nifty 500 constituent list --------------------------------------

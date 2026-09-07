@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-off historical backtest of all four strategies over a lookback window.
+"""One-off historical backtest of both active strategies over a lookback window.
 
 For each historical date, reconstructs what each strategy would have
 signalled using only data available up to that date (the live scan()
@@ -33,8 +33,6 @@ FETCH_TITLE = "Backtest (data fetch)"
 FETCH_EMOJI = "🧪"
 
 STRATEGY_LABELS = {
-    "daily_swing": ("Daily Swing", "📈"),
-    "weekly_sma_support": ("Weekly SMA-30 Support", "🟢"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
 }

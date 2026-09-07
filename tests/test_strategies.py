@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_sma_support
+from signals.strategies import monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -20,58 +20,6 @@ def _ramp_then_flat_df(
     df["low"] = df["close"] * 0.995
     df["volume"] = 100_000.0
     return df
-
-
-def _append_support_row(df: pd.DataFrame, sma_period: int, freq_offset, low_mult=0.995, close_mult=1.008, high_mult=1.01) -> pd.DataFrame:
-    """Append a support-test candle anchored to the trailing SMA rather than
-    the last close - with a drifting series the two diverge, and a support
-    test is defined relative to the SMA, not the most recent price."""
-    anchor = df["close"].tail(sma_period - 1).mean()
-    support_row = pd.DataFrame(
-        {
-            "open": [anchor],
-            "high": [anchor * high_mult],
-            "low": [anchor * low_mult],
-            "close": [anchor * close_mult],
-            "volume": [100_000.0],
-        },
-        index=[df.index[-1] + freq_offset],
-    )
-    return pd.concat([df, support_row])
-
-
-class TestWeeklySmaSupport:
-    def test_detects_support_bounce(self):
-        # gentle continued drift (not dead-flat) so the 30 SMA is clearly rising
-        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200, plateau_drift=0.5)
-        df = _append_support_row(df, 30, pd.Timedelta(weeks=1))
-
-        signals = weekly_sma_support.scan({"TESTCO": df})
-        assert len(signals) == 1
-        sig = signals[0]
-        assert sig.symbol == "TESTCO"
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
-
-        # Entry is the signal candle's high; stop-loss is the lower of the
-        # signal candle's own low and the previous candle's low.
-        row, prev_row = df.iloc[-1], df.iloc[-2]
-        assert sig.entry == round(float(row["high"]), 2)
-        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
-
-    def test_no_signal_without_a_real_support_test(self):
-        # flat close == sma exactly -> is_support_test requires close > sma
-        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=30, start=50, plateau=200)
-        signals = weekly_sma_support.scan({"TESTCO": df})
-        assert signals == []
-
-    def test_no_signal_when_sma_declining(self):
-        # same support-test candle shape as test_detects_support_bounce, but
-        # the weeks feeding the 30 SMA are declining -> not rising, even
-        # though this one bounce candle nudges the average up slightly
-        df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=29, start=50, plateau=200, plateau_drift=-1.0)
-        df = _append_support_row(df, 30, pd.Timedelta(weeks=1))
-        signals = weekly_sma_support.scan({"TESTCO": df})
-        assert signals == []
 
 
 class TestWeeklyBreakout:
@@ -94,6 +42,10 @@ class TestWeeklyBreakout:
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
+        # Stop-loss is anchored to the breakout level itself (range_high),
+        # not the bottom of the consolidation range.
+        assert sig.stop_loss == round(202.0 * (1 - config.SL_BUFFER), 2)
+
     def test_no_signal_when_range_too_wide(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
         for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
@@ -105,37 +57,6 @@ class TestWeeklyBreakout:
         )
         df = pd.concat([df, breakout_row])
         signals = weekly_breakout.scan({"TESTCO": df})
-        assert signals == []
-
-
-class TestDailySwing:
-    def test_detects_confluence_support(self):
-        # gentle continued drift (not dead-flat) so the 44 SMA is clearly
-        # rising; small enough not to blow out the SMA44/lower-BB confluence
-        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
-        df = _append_support_row(df, 44, pd.Timedelta(days=1))
-
-        signals = daily_swing.scan({"TESTCO": df})
-        assert len(signals) == 1
-        sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
-
-        # Entry is the signal candle's high; stop-loss is the lower of the
-        # signal candle's own low and the previous candle's low.
-        row, prev_row = df.iloc[-1], df.iloc[-2]
-        assert sig.entry == round(float(row["high"]), 2)
-        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
-
-    def test_no_signal_below_long_term_trend(self):
-        # downtrend -> close is below its own 200 SMA, should never qualify
-        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
-        signals = daily_swing.scan({"TESTCO": df})
-        assert signals == []
-
-    def test_no_signal_when_sma44_declining(self):
-        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
-        df = _append_support_row(df, 44, pd.Timedelta(days=1))
-        signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
 

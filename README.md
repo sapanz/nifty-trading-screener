@@ -1,13 +1,11 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for four strategies:
+levels to Telegram, on a schedule, for two strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Weekly SMA-30 Support** | Fridays, 5pm IST | Above 200 SMA, 30 SMA itself rising, weekly low tests the 30 SMA and closes back above it, proper close |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
-| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, 44 SMA itself rising, price tests the 44 SMA *and* the lower Bollinger Band together (confluence), proper close |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
 No manual judgement calls at run time — every "properly closed candle" /
@@ -19,13 +17,16 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
-  first logs into Upstox automatically (`scripts/login_upstox.py`, via
-  TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
-  always runs the daily swing screener, additionally runs both weekly
-  strategies on Fridays, and additionally runs the monthly ATH breakout
-  on the last trading day of the month — one Upstox pass serves every
-  strategy that fires that day, whatever the day.
+- `.github/workflows/signals.yml` — scheduled Mon-Fri, 11:30 UTC (5:00pm
+  IST), but only actually does anything on a Friday or the last trading
+  day of the month — the only two days either strategy can fire. A cheap
+  pre-check step decides this before touching Upstox at all; on every
+  other day the job exits immediately without installing Playwright or
+  spending a TOTP login. When it does run, it first logs into Upstox
+  automatically (`scripts/login_upstox.py`, via TOTP), then
+  `scripts/run_signals.py` fetches daily OHLCV **once** and runs the
+  weekly breakout screener on Fridays and/or the monthly ATH breakout on
+  month-end — one Upstox pass serves every strategy that fires that day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
@@ -153,39 +154,25 @@ them there rather than in the strategy code.
 - **"Properly closed candle"**: `(high - close) / (high - low) <= 0.25`
   — the close sits in the top 75% of the candle's range (small upper wick).
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
-  Only the weekly breakout and monthly ATH breakout strategies require
-  this — weekly SMA support and daily swing dropped it as a condition.
-- **"Taking support at an SMA"**: the candle's low comes within 2% above
-  the SMA (doesn't need to touch it exactly) and the close is back above it.
-- **"SMA is rising"**: its current value is higher than it was 3 periods
-  ago. Required for the 30 SMA (weekly support) and 44 SMA (daily swing) -
-  a stock testing a *falling* average isn't taking support, it's just
-  pausing mid-decline. The 200 SMA has no such requirement in any
-  strategy: it can be flat or rising, price only needs to close above it.
+  Both strategies require this.
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.
-- **Daily swing confluence**: the 44 SMA and the lower Bollinger Band
-  (20, 2σ) must sit within 2% of each other, and the candle's low must
-  reach both — two independent support levels lining up, not one.
 - **Monthly ATH**: all-time high is the max monthly close within the
   trailing history the screener fetches (see caveat below), not
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **Weekly SMA-30 Support and Daily Swing** (the two SMA-support setups):
-  entry is the signal candle's **high**; stop-loss is the **lower of the
-  signal candle's own low and the previous candle's low** — a candle-based
-  stop rather than one anchored to the SMA/Bollinger Band level itself,
-  to avoid placing it uncomfortably tight against price.
-- **Weekly Range Breakout and Monthly ATH Breakout**: entry is the candle's
-  close, stop-loss sits just under the structural level that broke (the
-  range low, or the prior all-time high respectively) with a 2% buffer.
-
-Targets are either risk-multiple based (2R/3R) for the SMA-support
-setups, a measured-move projection of the range height for breakouts, or
-open percentage targets for fresh all-time-high breakouts (which by
-definition have no prior resistance to aim at).
+- **Weekly Range Breakout**: entry is the breakout candle's close;
+  stop-loss sits just under the breakout level itself (the top of the
+  consolidation range — "old resistance becomes new support"), not the
+  bottom of the range, so risk stays tight instead of scaling with however
+  wide the whole consolidation was. Targets are measured-move projections
+  of the range height (1x and 3x), sized generously to let winners run.
+- **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
+  just under the prior all-time high with a 2% buffer, and targets are
+  open percentage-based (15%/25%) since a fresh all-time high by
+  definition has no prior resistance to aim at.
 
 Weekly and monthly OHLCV are both *derived* from the same daily fetch by
 resampling (`signals/data.py`) — Upstox only gets called once per symbol,
@@ -260,8 +247,8 @@ pytest -q                      # runs against synthetic OHLCV data, no network n
 export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
-python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
-FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
+python scripts/run_signals.py                              # no-op unless today is Friday or month-end
+FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise both strategies
 
 # To test the TOTP login automation itself (install chromium first with
 # `playwright install chromium`; HEADLESS=false opens a real, visible
@@ -282,9 +269,9 @@ signals/
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
   data.py            daily fetch orchestration + weekly/monthly resampling + circuit breaker
-  indicators.py      SMA, Bollinger Bands, volume avg, candle-quality checks
+  indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
-  strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
+  strategies/        one module per strategy (weekly_breakout, monthly_breakout), each exposing scan(data) -> list[Signal]
   formatting.py       Signal list -> Telegram HTML message
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram
@@ -292,7 +279,7 @@ signals/
   backtest.py         historical replay of scan() over a lookback window + forward simulation
 scripts/
   login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
-  run_signals.py     the single daily entry point for the strategies
+  run_signals.py     entry point for the strategies (no-op unless Friday or month-end)
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
 .github/workflows/            the cron schedule, backtest workflow, and a test workflow
