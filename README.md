@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a stock's own all-time high approached multiple times then broken on volume, later retested and held as support (the strongest support there is) by a bullish candle |
+| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a stock's own all-time-high zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support (the strongest support there is) by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
@@ -159,20 +159,27 @@ them there rather than in the strategy code.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
-  Scanning backward from today, it looks for the most recent candle that
-  broke out above the stock's own **all-time high** (as of that candle,
-  within the fetched history - not necessarily since IPO) after that
-  level was approached at least `CIP_WEEKLY_MIN_TOUCHES` times (a high
-  coming within `CIP_ZONE_TOLERANCE` of it) in the
+  The resistance is a **zone**, not a single exact price line: its top is
+  the stock's own all-time high (as of the candidate breakout candle,
+  within the fetched history - not necessarily since IPO), and its bottom
+  sits `CIP_ZONE_TOLERANCE` below that. Scanning backward from today, it
+  looks for the most recent candle that broke out above the top of a zone
+  which was validated by at least `CIP_WEEKLY_MIN_ZONE_POINTS` distinct
+  **swing-high peaks** within it (a confirmed local high - strictly
+  higher than the candle immediately before and after it, not just any
+  candle sitting near the top of a flat run) in the
   `CIP_WEEKLY_TOUCH_LOOKBACK` weeks right before it, on volume >=
-  `CIP_VOLUME_MULTIPLIER`x average, with a proper close. Anchoring to the
-  true all-time high (rather than just any locally-tested resistance) is
-  deliberate: an old ATH, once broken, is about the strongest support
-  level a stock can have, since it's a level virtually every holder
-  remembers. If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks of
-  today), today's candle must then be bullish, closed properly, dip back
-  down within `CIP_ZONE_TOLERANCE` of that old high, and close back above
-  it - the "change in polarity" from resistance to support. (A
+  `CIP_VOLUME_MULTIPLIER`x average, with a proper close. Requiring
+  multiple distinct peaks (rather than any candle merely sitting near the
+  high) and anchoring to the true all-time high (rather than just any
+  locally-tested resistance) are both deliberate: a zone tested by
+  several separate rejection attempts is a much stronger signal than one
+  long flat run, and an old ATH, once broken, is about the strongest
+  support level a stock can have, since it's a level virtually every
+  holder remembers. If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks
+  of today), today's candle must then be bullish, closed properly, dip
+  back down within `CIP_ZONE_TOLERANCE` of the zone's top, and close back
+  above it - the "change in polarity" from resistance to support. (A
   daily-timeframe version was tried and dropped after backtesting showed
   a genuinely negative edge over 12 months, even after tightening its
   resistance-zone criteria hard.)

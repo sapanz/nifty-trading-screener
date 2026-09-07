@@ -23,21 +23,22 @@ MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
 
 # --- CIP (Change In Polarity), weekly only --------------------------------
-# An old all-time-high, approached multiple times without breaking and
-# then finally broken on strong volume, later gets retested from above;
-# if a bullish candle holds that old-ATH-turned-support level, that's the
-# "change in polarity" - and since it's the stock's own all-time high,
-# it's the strongest support level available. (A daily-timeframe version
-# was tried and dropped: even after tightening its resistance-zone
-# criteria hard, backtesting over 12 months showed a genuinely negative
-# edge, not just noise.)
-CIP_ZONE_TOLERANCE = 0.02        # how close a touch/retest must come to the resistance level
+# An old all-time-high *zone* - validated by multiple distinct swing-high
+# peaks near it, not just a single exact price - approached repeatedly
+# without breaking and then finally broken on strong volume, later gets
+# retested from above; if a bullish candle holds that old-zone-turned-
+# support level, that's the "change in polarity" - and since it's the
+# stock's own all-time high, it's the strongest support level available.
+# (A daily-timeframe version was tried and dropped: even after tightening
+# its resistance-zone criteria hard, backtesting over 12 months showed a
+# genuinely negative edge, not just noise.)
+CIP_ZONE_TOLERANCE = 0.02        # how wide the resistance zone is below its own all-time high
 CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average
 CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
-CIP_WEEKLY_TOUCH_LOOKBACK = 12    # weeks scanned for resistance touches before a candidate breakout
-CIP_WEEKLY_BREAKOUT_SEARCH = 26   # how many weeks back a qualifying breakout can still count
-CIP_WEEKLY_MIN_TOUCHES = 3        # the all-time high must be approached at least this many times before breaking
+CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a candidate breakout
+CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
+CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

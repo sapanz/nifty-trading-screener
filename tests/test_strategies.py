@@ -64,12 +64,23 @@ def _cip_setup_df(
     freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 400, gap_periods: int = 3
 ) -> pd.DataFrame:
     """Ramp up towards `resistance` (which, since nothing in the ramp ever
-    exceeds it, becomes this stock's all-time high), hold flat there for
-    `touch_lookback` periods (repeated ATH touches), break out above it on
-    high volume, drift for a few periods, then close with a bullish candle
-    that dips back to the old ATH and holds it as new support (the "change
-    in polarity")."""
-    df = _ramp_then_flat_df(freq, ramp_weeks=ramp_periods, flat_weeks=touch_lookback, start=50, plateau=resistance)
+    exceeds it, becomes this stock's all-time high), then alternate
+    peak/pullback candles at that level for `touch_lookback` periods - each
+    peak a confirmed, distinct swing-high test of the resistance *zone*
+    (a flat run has no local maxima at all, so this has to actually
+    oscillate to produce real touches) - break out above it on high
+    volume, drift for a few periods, then close with a bullish candle that
+    dips back to the old zone and holds it as new support (the "change in
+    polarity")."""
+    df = _ramp_then_flat_df(freq, ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=resistance)
+
+    for i in range(touch_lookback):
+        level = resistance if i % 2 == 0 else resistance * 0.95
+        touch_row = pd.DataFrame(
+            {"open": [level], "high": [level * 1.005], "low": [level * 0.995], "close": [level], "volume": [100_000.0]},
+            index=[df.index[-1] + step],
+        )
+        df = pd.concat([df, touch_row])
 
     breakout_close = resistance * 1.045
     breakout_row = pd.DataFrame(
@@ -95,9 +106,11 @@ def _cip_setup_df(
 
 
 def _scramble_touch_block(df: pd.DataFrame, touch_lookback: int, gap_periods: int = 3) -> pd.DataFrame:
-    """Spread the resistance "touch" block's levels >5% apart so no two
-    highs ever cluster within CIP_ZONE_TOLERANCE of each other - i.e. no
-    genuine, repeatedly-tested resistance zone ever forms."""
+    """Spread the resistance "touch" block's levels >5% apart, strictly
+    increasing, so none of them are confirmed swing-high peaks (each is
+    immediately topped by the next) and none cluster within
+    CIP_ZONE_TOLERANCE of each other either - i.e. no genuine,
+    repeatedly-tested resistance zone ever forms."""
     tail_len = gap_periods + 2  # breakout + gap rows + retest
     flat_idx = df.index[-(tail_len + touch_lookback) : -tail_len]
     level = 100.0
@@ -121,9 +134,25 @@ class TestCipWeekly:
         assert sig.entry == round(float(row["high"]), 2)
         assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
 
-    def test_no_signal_without_repeated_touches(self):
+    def test_no_signal_with_zero_zone_points(self):
         df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
         df = _scramble_touch_block(df, config.CIP_WEEKLY_TOUCH_LOOKBACK)
+        signals = cip_weekly.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_with_only_one_zone_point(self):
+        touch_lookback = config.CIP_WEEKLY_TOUCH_LOOKBACK
+        gap_periods = 3
+        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), touch_lookback, gap_periods=gap_periods)
+        tail_len = gap_periods + 2
+        touch_idx = df.index[-(tail_len + touch_lookback) : -tail_len]
+        # Collapse every touch to a pullback level except one lone peak in
+        # the middle - a single confirmed swing-high isn't a "zone" on its
+        # own; CIP_WEEKLY_MIN_ZONE_POINTS=2 needs at least one more.
+        peak_pos = len(touch_idx) // 2
+        for pos, idx in enumerate(touch_idx):
+            level = 200.0 if pos == peak_pos else 190.0
+            df.loc[idx, ["open", "high", "low", "close"]] = [level, level * 1.005, level * 0.995, level]
         signals = cip_weekly.scan({"TESTCO": df})
         assert signals == []
 
