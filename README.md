@@ -216,12 +216,20 @@ them there rather than in the strategy code.
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the retest candle's **high** (a buy-stop
-  triggered the next day price trades up to it); stop-loss is the
-  **lower of the retest candle's own low and the previous candle's low**.
-  Targets are a **measured move**: the base's own height (base high -
-  base low) projected as multiples above the base high
-  (`DAILY_SWING_MEASURED_MOVE_MULTIPLES`, 1x/2x) - "cause equals effect",
-  not an arbitrary fixed risk-reward.
+  triggered the next day price trades up to it); the initial stop-loss is
+  the **lower of the retest candle's own low and the previous candle's
+  low**. There is **no fixed profit target** - a first backtest with a
+  measured-move target came back at a 15% win rate and a *negative*
+  average return, since the fixed target capped exactly the winners that
+  would have made the setup worthwhile on an inherently low-win-rate
+  breakout-continuation pattern. Instead, once the trade is running, the
+  stop **trails up to the lowest low of the trailing
+  `DAILY_SWING_TRAIL_LOOKBACK`** (10) **days** - a classic trend-following
+  exit (Turtle Traders' N-day-low exit; Darvas trailed his own boxes the
+  same way) - cutting losers fast at the tight initial stop while letting
+  winners run as far as the trend carries them. See `backtest.summarize()`
+  output for profit factor / avg win / avg loss - this strategy is judged
+  on expectancy, not hit rate.
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -285,16 +293,21 @@ screener uses, unmodified, so there's no separate backtest logic that
 could silently drift out of sync with what actually runs Monday-Friday.
 
 Every signal found is then walked forward on the real subsequent daily
-price action to see whether it would have hit a target or its stop-loss
-first (if a single day's range could have hit both, the stop-loss is
-assumed to trigger first — conservative, since there's no intraday data
-to say which happened first within the day).
+price action to see how it would have played out. Most strategies check a
+fixed target vs. a fixed stop-loss (if a single day's range could have hit
+both, the stop-loss is assumed to trigger first — conservative, since
+there's no intraday data to say which happened first within the day).
+Daily Swing instead trails its stop up to the lowest low of a trailing
+window once the trade is running, with no fixed target (see Strategies
+above) — win/loss for it, and every other strategy, is judged by the
+trade's actual return rather than which exit mechanism fired.
 
 You'll get one Telegram message per strategy — signal count, win rate,
-average return, average holding period, and the best/worst individual
-trades — plus a `backtest-trades` artifact on the workflow run containing
-every individual trade (symbol, dates, entry/SL/targets, outcome, return)
-as a CSV, if you want to dig into the detail yourself.
+average return/win/loss, profit factor, average holding period, and the
+best/worst individual trades — plus a `backtest-trades` artifact on the
+workflow run containing every individual trade (symbol, dates,
+entry/SL/targets, outcome, return) as a CSV, if you want to dig into the
+detail yourself.
 
 This takes noticeably longer than a live run (order of 10-20 minutes for
 3 months, more for a longer window) since it's re-scanning the whole

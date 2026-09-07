@@ -8,16 +8,19 @@ see, so there is no separate "backtest mode" to drift out of sync with
 production behaviour and no lookahead bias).
 
 Every generated signal is then walked forward on the real subsequent
-daily price action to see whether it would have hit a target or its
-stop-loss first - regardless of which timeframe produced the signal,
-daily bars give the finest resolution available for that walk. If a
-single day's range could have hit both the stop-loss and a target, the
-stop-loss is assumed to trigger first (conservative, standard practice
-without intraday data).
+daily price action to see how it would have played out - regardless of
+which timeframe produced the signal, daily bars give the finest
+resolution available for that walk. Most strategies use simulate_forward
+(fixed profit target(s) vs. a fixed stop-loss; if a single day's range
+could have hit both, the stop-loss is assumed to trigger first -
+conservative, standard practice without intraday data). Daily Swing uses
+simulate_trailing instead: no fixed target, the stop trails up to the
+lowest low of a trailing window once the trade is running, so a winner
+gets to run as far as the trend itself carries it.
 
 Some strategies (CIP) set entry above the signal candle's own close - a
-resting buy-stop order, not an immediate fill. simulate_forward only
-starts tracking stop/target outcomes once a later day's high actually
+resting buy-stop order, not an immediate fill. Both simulate functions
+only start tracking stop outcomes once a later day's high actually
 reaches that entry price; a signal whose entry is never subsequently
 reached is reported as "unfilled" rather than a real win/loss/open trade.
 """
@@ -28,7 +31,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from signals import data
+from signals import config, data
 from signals.models import Signal
 from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
 
@@ -106,6 +109,58 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     )
 
 
+def simulate_trailing(
+    strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame, trail_lookback: int
+) -> TradeResult:
+    """Like simulate_forward, but instead of a fixed profit target the
+    stop-loss trails up to the lowest low of the trailing `trail_lookback`
+    days once the trade is running - a classic trend-following exit (Turtle
+    Traders' N-day-low exit; Darvas trailed his own boxes the same way):
+    cut losers fast at the tight initial stop, let winners run as far as
+    the trend itself carries them instead of capping them at an arbitrary
+    fixed level."""
+    future = daily_df[daily_df.index > signal_date]
+
+    as_of = daily_df[daily_df.index <= signal_date]
+    signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
+    if signal.entry > signal_close:
+        filled = future[future["high"] >= signal.entry]
+        if filled.empty:
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
+                return_pct=0.0, holding_days=0,
+            )
+        future = future[future.index >= filled.index[0]]
+
+    trailing_stop = signal.stop_loss
+    recent_lows: list[float] = []
+    for dt, row in future.iterrows():
+        if row["low"] <= trailing_stop:
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="trailing_stop", exit_date=dt, exit_price=trailing_stop,
+                return_pct=(trailing_stop / signal.entry - 1) * 100,
+                holding_days=(dt - signal_date).days,
+            )
+        recent_lows.append(float(row["low"]))
+        trailing_stop = max(trailing_stop, min(recent_lows[-trail_lookback:]))
+
+    # Neither hit yet - still open as of the last available price.
+    if not future.empty:
+        last_date = future.index[-1]
+        last_close = float(future["close"].iloc[-1])
+    else:
+        last_date = signal_date
+        last_close = signal.entry
+    return TradeResult(
+        strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+        outcome="open", exit_date=last_date, exit_price=last_close,
+        return_pct=(last_close / signal.entry - 1) * 100,
+        holding_days=(last_date - signal_date).days,
+    )
+
+
 def _dates_in_window(datasets: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     all_dates: set[pd.Timestamp] = set()
     for df in datasets.values():
@@ -139,7 +194,9 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
 
     for asof in _dates_in_window(daily_data, start, end):
         for signal in daily_swing.scan(_scan_as_of(daily_data, asof)):
-            results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
+            results["daily_swing"].append(
+                simulate_trailing("daily_swing", signal, asof, daily_data[signal.symbol], config.DAILY_SWING_TRAIL_LOOKBACK)
+            )
 
     for asof in _dates_in_window(weekly_data, start, end):
         sliced = _scan_as_of(weekly_data, asof)
@@ -162,30 +219,48 @@ def summarize(trades: list[TradeResult]) -> str:
         return "No signals in this window."
 
     total = len(trades)
-    wins = [t for t in trades if t.outcome.startswith("target")]
-    losses = [t for t in trades if t.outcome == "stop_loss"]
     opens = [t for t in trades if t.outcome == "open"]
     unfilled = [t for t in trades if t.outcome == "unfilled"]
-    decided = len(wins) + len(losses)
+    decided = [t for t in trades if t.outcome not in ("open", "unfilled")]
+    # Win/loss is judged by the trade's actual return, not by which exit
+    # mechanism fired - a trailing stop that ratchets above entry before
+    # giving the trade back is still a win, even though its outcome label
+    # says "trailing_stop" rather than "target1".
+    wins = [t for t in decided if t.return_pct > 0]
+    losses = [t for t in decided if t.return_pct <= 0]
     # Win rate is only meaningful over decided (closed) trades - diluting it
     # with still-open positions understates performance whenever a strategy
     # has a lot of recent, unresolved signals.
-    win_rate = (len(wins) / decided * 100) if decided else 0.0
+    win_rate = (len(wins) / len(decided) * 100) if decided else 0.0
     # Unfilled signals never actually entered a trade - excluded from
     # return/holding-period stats and from the best/worst ranking too.
     entered = [t for t in trades if t.outcome != "unfilled"]
     avg_return = sum(t.return_pct for t in entered) / len(entered) if entered else 0.0
     avg_days = sum(t.holding_days for t in entered) / len(entered) if entered else 0.0
 
+    # Expectancy view: a strategy can be profitable on a low win rate if
+    # winners are enough bigger than losers - profit factor (gross wins /
+    # gross losses) and the average win/loss size make that visible
+    # directly, rather than judging the strategy by hit rate alone.
+    gross_win = sum(t.return_pct for t in wins)
+    gross_loss = sum(-t.return_pct for t in losses)
+    avg_win = gross_win / len(wins) if wins else 0.0
+    avg_loss = -gross_loss / len(losses) if losses else 0.0
+    if gross_loss > 0:
+        profit_factor_str = f"{gross_win / gross_loss:.2f}"
+    else:
+        profit_factor_str = "inf" if gross_win > 0 else "n/a"
+
     ranked = sorted(entered, key=lambda t: t.return_pct, reverse=True)
     top = ranked[:3]
     bottom = ranked[-3:][::-1] if len(entered) > 3 else []
 
-    win_rate_str = f"{win_rate:.0f}% win rate of {decided} decided" if decided else "no decided trades yet"
+    win_rate_str = f"{win_rate:.0f}% win rate of {len(decided)} decided" if decided else "no decided trades yet"
     unfilled_str = f"-{len(unfilled)}Unfilled" if unfilled else ""
     lines = [
         f"{total} signals | {len(wins)}W-{len(losses)}L-{len(opens)}Open{unfilled_str} ({win_rate_str})",
-        f"Avg return: {avg_return:+.1f}% | Avg holding: {avg_days:.0f}d",
+        f"Avg return: {avg_return:+.1f}% | Avg win: {avg_win:+.1f}% | Avg loss: {avg_loss:+.1f}% | Profit factor: {profit_factor_str}",
+        f"Avg holding: {avg_days:.0f}d",
     ]
     if top:
         lines.append("Best: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in top))

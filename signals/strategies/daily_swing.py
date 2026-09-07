@@ -30,8 +30,12 @@ A stock qualifies when, on the daily timeframe:
 
 Entry is today's high (a buy-stop triggered the next day price trades up
 to it); stop-loss is the lower of today's own low and the previous
-candle's low; targets are measured-move multiples of the base's own
-height, projected above the base high ("cause equals effect").
+candle's low. There is no fixed profit target: this is inherently a
+low-win-rate breakout-continuation pattern, so instead of capping the
+winners that make it worthwhile, the stop trails up to the lowest low of
+the trailing DAILY_SWING_TRAIL_LOOKBACK days once the trade is running -
+cut losers fast at the tight initial stop, let winners run as far as the
+trend itself carries them.
 
 No moving averages or oscillators anywhere in this - every condition is a
 direct read of price and volume.
@@ -153,12 +157,6 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if risk <= 0:
             continue
 
-        base_height = base_high - base_low
-        targets = [round(base_high + base_height * mult, 2) for mult in config.DAILY_SWING_MEASURED_MOVE_MULTIPLES]
-        targets = [t for t in targets if t > entry]
-        if not targets:
-            continue
-
         breakout_date = df.index[breakout_iloc]
         days_since_breakout = signal_iloc - breakout_iloc
 
@@ -167,9 +165,12 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 symbol=symbol,
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
-                targets=targets,
+                targets=[],  # no fixed target - trailing stop lets winners run (see backtest.simulate_trailing)
                 sort_key=float(-days_since_breakout),  # freshest retest (soonest after breakout) sorts first
-                note=f"Accumulation Spring: base {base_low:.2f}-{base_high:.2f} broke {breakout_date.date()}, low-vol retest",
+                note=(
+                    f"Accumulation Spring: base {base_low:.2f}-{base_high:.2f} broke {breakout_date.date()}, "
+                    f"low-vol retest | trail stop to last {config.DAILY_SWING_TRAIL_LOOKBACK}-day low, no fixed target"
+                ),
             )
         )
 

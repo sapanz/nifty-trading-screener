@@ -235,7 +235,8 @@ class TestDailySwing:
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert sig.stop_loss < sig.entry
+        assert sig.targets == []  # no fixed target - exit is a trailing stop (see backtest.simulate_trailing)
 
         # Entry is the retest candle's high; stop-loss is the lower of the
         # retest candle's own low and the previous candle's low.
@@ -244,13 +245,6 @@ class TestDailySwing:
         raw_stop = float(min(row["low"], prev_row["low"]))
         assert sig.entry == round(raw_entry, 2)
         assert sig.stop_loss == round(raw_stop, 2)
-
-        # Targets are measured-move multiples of the base's own height,
-        # projected above the base high.
-        base_height = base_high - base_low
-        assert sig.targets == [
-            round(base_high + base_height * mult, 2) for mult in config.DAILY_SWING_MEASURED_MOVE_MULTIPLES
-        ]
 
     def test_no_signal_when_base_too_wide(self):
         # (205 - 140) / 140 = 46% range - not a genuine tight accumulation.

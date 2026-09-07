@@ -24,7 +24,8 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
         risk_pct = (sig.risk_per_share / sig.entry * 100) if sig.entry else 0
         lines.append(f"{i}. <b>{symbol}</b>")
         lines.append(f"   Entry: {sig.entry:.2f} | SL: {sig.stop_loss:.2f} ({risk_pct:.1f}% risk)")
-        lines.append(f"   {_fmt_targets(sig.targets)}")
+        if sig.targets:  # some strategies (e.g. Daily Swing) use a trailing stop instead of a fixed target
+            lines.append(f"   {_fmt_targets(sig.targets)}")
         if sig.note:
             lines.append(f"   <i>{html.escape(sig.note)}</i>")
     return "\n".join(lines)

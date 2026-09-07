@@ -55,12 +55,23 @@ CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many dist
 # breakout level on LOW volume: the "Last Point of Support" in Wyckoff
 # terms, where the last unconvinced sellers get absorbed with essentially
 # no real supply left. That low-volume retest, not the breakout candle
-# itself, is the actual entry trigger. The target is a measured move
-# projected from the base's own height ("cause equals effect"), not an
-# arbitrary fixed risk-reward. Everything here reads price/volume
+# itself, is the actual entry trigger. Everything here reads price/volume
 # directly - no moving averages, no oscillators. (Replaces the SMA-30-
 # support version, which plateaued at 24-30% win rate after two rounds of
 # threshold-tightening - see git history for that tuning trail.)
+#
+# Exit is a trailing stop, not a fixed target - a first backtest of this
+# entry with a measured-move target (base height x1/x2) came back at a
+# 15% win rate and a NEGATIVE average return, worse than the SMA version
+# it replaced. The fixed target was capping exactly the winners that
+# would have made the setup worthwhile, on an entry that's inherently a
+# low win-rate breakout-continuation pattern. Per explicit direction,
+# this strategy no longer optimizes for win rate at all - a low hit rate
+# is fine as long as winners run far further than losers get cut. So the
+# stop trails up to the lowest low of the trailing DAILY_SWING_TRAIL_LOOKBACK
+# days once the trade is running (a classic trend-following exit - Turtle
+# Traders' N-day-low exit, and how Darvas himself trailed his own boxes
+# upward) instead of taking profit at an arbitrary fixed level.
 DAILY_SWING_BASE_LENGTH = 50                    # trading days spanning the accumulation base
 DAILY_SWING_BASE_TIGHTNESS = 0.25               # (base_high - base_low) / base_low must be <= this
 DAILY_SWING_VOLUME_DRYUP_RATIO = 0.75           # 2nd-half base volume must be <= this x 1st-half base volume
@@ -68,7 +79,7 @@ DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER = 2.0    # breakout candle's volume vs th
 DAILY_SWING_BREAKOUT_SEARCH = 20                # how many days back a qualifying breakout can still count as "recent" for today's retest
 DAILY_SWING_RETEST_TOLERANCE = 0.02             # retest candle's low may sit this far below the base high and still count as a touch
 DAILY_SWING_RETEST_MAX_VOLUME_RATIO = 1.0       # retest candle's volume must be below this x the base's own average - real absence of supply
-DAILY_SWING_MEASURED_MOVE_MULTIPLES = (1, 2)    # targets as multiples of the base's own height, projected above the breakout level
+DAILY_SWING_TRAIL_LOOKBACK = 10                 # once in the trade, the stop trails up to the lowest low of this many trading days - no fixed target
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
