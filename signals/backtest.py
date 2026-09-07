@@ -144,7 +144,11 @@ def summarize(trades: list[TradeResult]) -> str:
     wins = [t for t in trades if t.outcome.startswith("target")]
     losses = [t for t in trades if t.outcome == "stop_loss"]
     opens = [t for t in trades if t.outcome == "open"]
-    win_rate = len(wins) / total * 100
+    decided = len(wins) + len(losses)
+    # Win rate is only meaningful over decided (closed) trades - diluting it
+    # with still-open positions understates performance whenever a strategy
+    # has a lot of recent, unresolved signals.
+    win_rate = (len(wins) / decided * 100) if decided else 0.0
     avg_return = sum(t.return_pct for t in trades) / total
     avg_days = sum(t.holding_days for t in trades) / total
 
@@ -152,8 +156,9 @@ def summarize(trades: list[TradeResult]) -> str:
     top = ranked[:3]
     bottom = ranked[-3:][::-1] if total > 3 else []
 
+    win_rate_str = f"{win_rate:.0f}% win rate of {decided} decided" if decided else "no decided trades yet"
     lines = [
-        f"{total} signals | {len(wins)}W-{len(losses)}L-{len(opens)}Open ({win_rate:.0f}% win rate)",
+        f"{total} signals | {len(wins)}W-{len(losses)}L-{len(opens)}Open ({win_rate_str})",
         f"Avg return: {avg_return:+.1f}% | Avg holding: {avg_days:.0f}d",
     ]
     if top:

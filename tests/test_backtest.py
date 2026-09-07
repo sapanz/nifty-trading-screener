@@ -85,3 +85,25 @@ class TestSummarize:
         assert "2 signals" in text
         assert "1W-1L-0Open" in text
         assert "50% win rate" in text
+
+    def test_win_rate_ignores_open_trades(self):
+        # 1 win, 1 loss, 2 open -> win rate should be 50% of the 2 DECIDED
+        # trades, not 25% of all 4 (open positions haven't resolved yet,
+        # they shouldn't silently drag the headline win rate down)
+        trades = [
+            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+            backtest.TradeResult("daily_swing", "B", pd.Timestamp("2024-01-01"), 100, 95, [110], "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2),
+            backtest.TradeResult("daily_swing", "C", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
+            backtest.TradeResult("daily_swing", "D", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 103, 3.0, 9),
+        ]
+        text = backtest.summarize(trades)
+        assert "4 signals" in text
+        assert "1W-1L-2Open" in text
+        assert "50% win rate of 2 decided" in text
+
+    def test_win_rate_all_open(self):
+        trades = [
+            backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),
+        ]
+        text = backtest.summarize(trades)
+        assert "no decided trades yet" in text
