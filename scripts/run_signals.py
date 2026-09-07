@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Entry point for the two active strategies (Fridays + month-end, 5pm IST).
+"""Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
 Fetches daily OHLCV via Upstox once, then:
-  - runs the weekly range-breakout screener on Fridays (or FORCE_WEEKLY=true)
-  - runs the monthly ATH breakout on the last trading day of the month
-    (or FORCE_MONTHLY=true)
+  - always runs the daily CIP screener
+  - also runs the weekly breakout and weekly CIP screeners on Fridays (or
+    FORCE_WEEKLY=true)
+  - also runs the monthly ATH breakout on the last trading day of the
+    month (or FORCE_MONTHLY=true)
 
-One shared fetch keeps Upstox calls to a single pass per run even when both
-strategies fire on the same day (last Friday of the month). Requires
+One shared fetch keeps Upstox calls to a single pass per day even when
+several strategies fire on the same run (e.g. every Friday). Requires
 UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
 """
 import os
@@ -23,9 +25,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signals import data, runtime, universe  # noqa: E402
 from signals.calendar_utils import is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.strategies import monthly_breakout, weekly_breakout
+from signals.strategies import cip_daily, cip_weekly, monthly_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
+CIP_DAILY_TITLE = "CIP Daily"
+CIP_DAILY_EMOJI = "🔁"
+CIP_WEEKLY_TITLE = "CIP Weekly"
+CIP_WEEKLY_EMOJI = "🔄"
 WEEKLY_BREAKOUT_TITLE = "Weekly Range Breakout"
 WEEKLY_BREAKOUT_EMOJI = "🚀"
 MONTHLY_TITLE = "Monthly ATH Breakout"
@@ -37,12 +43,6 @@ FETCH_EMOJI = "⚠️"
 def main() -> None:
     runtime.setup_logging()
     today = date.today()
-
-    is_friday = today.weekday() == 4 or os.environ.get("FORCE_WEEKLY") == "true"
-    is_month_end = is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true"
-    if not is_friday and not is_month_end:
-        print("Neither Friday nor month-end - nothing to run.")
-        return
 
     try:
         client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
@@ -61,15 +61,22 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - isolate strategies from each other
             failures.append((title, exc))
 
-    if is_friday:
+    run(CIP_DAILY_TITLE, CIP_DAILY_EMOJI, lambda: format_strategy_message(CIP_DAILY_TITLE, CIP_DAILY_EMOJI, cip_daily.scan(daily), today))
+
+    if today.weekday() == 4 or os.environ.get("FORCE_WEEKLY") == "true":
         weekly = data.to_weekly(daily)
         run(
             WEEKLY_BREAKOUT_TITLE,
             WEEKLY_BREAKOUT_EMOJI,
             lambda: format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today),
         )
+        run(
+            CIP_WEEKLY_TITLE,
+            CIP_WEEKLY_EMOJI,
+            lambda: format_strategy_message(CIP_WEEKLY_TITLE, CIP_WEEKLY_EMOJI, cip_weekly.scan(weekly), today),
+        )
 
-    if is_month_end:
+    if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
         monthly = data.to_monthly(daily)
         run(
             MONTHLY_TITLE,

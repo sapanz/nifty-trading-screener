@@ -1,4 +1,4 @@
-"""Historical backtest of both active strategies over a lookback window.
+"""Historical backtest of all active strategies over a lookback window.
 
 For each historical date in the window, reconstructs what a strategy
 would have signalled using *only* data available up to that date (the
@@ -24,7 +24,7 @@ import pandas as pd
 
 from signals import data
 from signals.models import Signal
-from signals.strategies import monthly_breakout, weekly_breakout
+from signals.strategies import cip_daily, cip_weekly, monthly_breakout, weekly_breakout
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -102,7 +102,7 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 
 
 def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, list[TradeResult]]:
-    """Backtest both active strategies over the trailing `months` months."""
+    """Backtest all active strategies over the trailing `months` months."""
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
 
@@ -110,14 +110,24 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
     monthly_data = data.to_monthly(daily_data)
 
     results: dict[str, list[TradeResult]] = {
+        "cip_daily": [],
+        "cip_weekly": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
 
+    for asof in _dates_in_window(daily_data, start, end):
+        for signal in cip_daily.scan(_scan_as_of(daily_data, asof)):
+            results["cip_daily"].append(simulate_forward("cip_daily", signal, asof, daily_data[signal.symbol]))
+
     for asof in _dates_in_window(weekly_data, start, end):
         sliced = _scan_as_of(weekly_data, asof)
-        for signal in weekly_breakout.scan(sliced):
-            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+        for strategy, scan_fn in (
+            ("weekly_breakout", weekly_breakout.scan),
+            ("cip_weekly", cip_weekly.scan),
+        ):
+            for signal in scan_fn(sliced):
+                results[strategy].append(simulate_forward(strategy, signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):

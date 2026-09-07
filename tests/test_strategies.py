@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import monthly_breakout, weekly_breakout
+from signals.strategies import cip_daily, cip_weekly, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -57,6 +57,92 @@ class TestWeeklyBreakout:
         )
         df = pd.concat([df, breakout_row])
         signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+
+def _cip_setup_df(
+    freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 300, gap_periods: int = 3
+) -> pd.DataFrame:
+    """Ramp up towards `resistance`, hold flat there for `touch_lookback`
+    periods (repeated resistance touches), break out above it on high
+    volume, drift for a few periods, then close with a bullish candle that
+    dips back to the old resistance and holds it as new support (the
+    "change in polarity")."""
+    df = _ramp_then_flat_df(freq, ramp_weeks=ramp_periods, flat_weeks=touch_lookback, start=50, plateau=resistance)
+
+    breakout_close = resistance * 1.045
+    breakout_row = pd.DataFrame(
+        {"open": [resistance * 1.005], "high": [resistance * 1.05], "low": [resistance], "close": [breakout_close], "volume": [500_000.0]},
+        index=[df.index[-1] + step],
+    )
+    df = pd.concat([df, breakout_row])
+
+    for i in range(1, gap_periods + 1):
+        gap_close = breakout_close - i * (resistance * 0.01)
+        gap_row = pd.DataFrame(
+            {"open": [gap_close * 1.005], "high": [gap_close * 1.01], "low": [gap_close * 0.995], "close": [gap_close], "volume": [100_000.0]},
+            index=[df.index[-1] + step],
+        )
+        df = pd.concat([df, gap_row])
+
+    retest_row = pd.DataFrame(
+        {"open": [resistance * 1.005], "high": [resistance * 1.025], "low": [resistance * 0.998], "close": [resistance * 1.02], "volume": [100_000.0]},
+        index=[df.index[-1] + step],
+    )
+    df = pd.concat([df, retest_row])
+    return df
+
+
+def _scramble_touch_block(df: pd.DataFrame, touch_lookback: int, gap_periods: int = 3) -> pd.DataFrame:
+    """Spread the resistance "touch" block's levels >5% apart so no two
+    highs ever cluster within CIP_ZONE_TOLERANCE of each other - i.e. no
+    genuine, repeatedly-tested resistance zone ever forms."""
+    tail_len = gap_periods + 2  # breakout + gap rows + retest
+    flat_idx = df.index[-(tail_len + touch_lookback) : -tail_len]
+    level = 100.0
+    for idx in flat_idx:
+        level *= 1.05
+        df.loc[idx, ["open", "high", "low", "close"]] = [level, level * 1.005, level * 0.995, level]
+    return df
+
+
+class TestCipWeekly:
+    def test_detects_polarity_flip(self):
+        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
+        signals = cip_weekly.scan({"TESTCO": df})
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+
+        # Entry is the retest candle's high; stop-loss is the lower of the
+        # retest candle's own low and the previous candle's low.
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+
+    def test_no_signal_without_repeated_touches(self):
+        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
+        df = _scramble_touch_block(df, config.CIP_WEEKLY_TOUCH_LOOKBACK)
+        signals = cip_weekly.scan({"TESTCO": df})
+        assert signals == []
+
+
+class TestCipDaily:
+    def test_detects_polarity_flip(self):
+        df = _cip_setup_df("B", pd.Timedelta(days=1), config.CIP_DAILY_TOUCH_LOOKBACK)
+        signals = cip_daily.scan({"TESTCO": df})
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+
+    def test_no_signal_without_repeated_touches(self):
+        df = _cip_setup_df("B", pd.Timedelta(days=1), config.CIP_DAILY_TOUCH_LOOKBACK)
+        df = _scramble_touch_block(df, config.CIP_DAILY_TOUCH_LOOKBACK)
+        signals = cip_daily.scan({"TESTCO": df})
         assert signals == []
 
 

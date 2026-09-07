@@ -2,11 +2,10 @@ name: Nifty500 Signals
 
 on:
   schedule:
-    # 11:30 UTC = 5:00pm IST, Monday-Friday. Only Fridays (weekly breakout)
-    # and month-end (monthly ATH breakout) actually have a strategy to run,
-    # so the "Decide whether..." step below skips the Playwright/Upstox
-    # login and fetch entirely on the other days rather than burning a
-    # TOTP login for nothing.
+    # 11:30 UTC = 5:00pm IST, Monday-Friday.
+    # scripts/run_signals.py decides internally whether to also run the
+    # weekly strategies (Fridays) and/or the monthly ATH breakout (last
+    # trading day of the month) - one workflow, one Upstox fetch per day.
     - cron: "30 11 * * 1-5"
   workflow_dispatch:
     inputs:
@@ -35,25 +34,10 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Decide whether either strategy can fire today
-        id: checkday
-        run: |
-          python -c "
-          import sys
-          sys.path.insert(0, '.')
-          from datetime import date
-          from signals.calendar_utils import is_last_trading_day_of_month
-          today = date.today()
-          should_run = today.weekday() == 4 or is_last_trading_day_of_month(today)
-          print(f'should_run={str(should_run).lower()}')
-          " >> "$GITHUB_OUTPUT"
-
       - name: Install Playwright's Chromium (for automated Upstox login)
-        if: steps.checkday.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         run: playwright install --with-deps chromium
 
       - name: Log in to Upstox (TOTP)
-        if: steps.checkday.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         env:
           UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
           UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
@@ -76,7 +60,6 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run Nifty500 signal screeners
-        if: steps.checkday.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         env:
           # UPSTOX_ACCESS_TOKEN is already in the job environment here,
           # written by the login step above via $GITHUB_ENV.

@@ -22,6 +22,23 @@ WEEKLY_VOLUME_MULTIPLIER = 1.3
 MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
 
+# --- CIP (Change In Polarity) --------------------------------------------
+# An old resistance level, tested multiple times and then broken on strong
+# volume, later gets retested from above; if a bullish candle holds that
+# old-resistance-turned-support level, that's the "change in polarity".
+# Same rule set on two timeframes (cip_daily.py, cip_weekly.py), just with
+# different lookback windows below.
+CIP_ZONE_TOLERANCE = 0.02        # how close a touch/retest must come to the resistance level
+CIP_MIN_TOUCHES = 2              # resistance must be tested at least this many times before breaking
+CIP_VOLUME_MULTIPLIER = 1.3      # breakout candle's volume vs its trailing average
+CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
+
+CIP_WEEKLY_TOUCH_LOOKBACK = 12    # weeks scanned for resistance touches before a candidate breakout
+CIP_WEEKLY_BREAKOUT_SEARCH = 26   # how many weeks back a qualifying breakout can still count
+
+CIP_DAILY_TOUCH_LOOKBACK = 20     # trading days scanned for resistance touches before a candidate breakout
+CIP_DAILY_BREAKOUT_SEARCH = 60    # how many trading days back a qualifying breakout can still count
+
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
 BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be <= 15%
