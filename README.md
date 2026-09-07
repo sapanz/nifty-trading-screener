@@ -180,12 +180,10 @@ them there rather than in the strategy code.
   stop-loss is the **lower of the retest candle's own low and the
   previous candle's low**. Targets are risk-multiples of that entry-to-SL
   distance (`CIP_RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Weekly Range Breakout**: entry is the breakout candle's close;
-  stop-loss sits just under the breakout level itself (the top of the
-  consolidation range — "old resistance becomes new support"), not the
-  bottom of the range, so risk stays tight instead of scaling with however
-  wide the whole consolidation was. Targets are measured-move projections
-  of the range height (1x and 3x), sized generously to let winners run.
+- **Weekly Range Breakout**: entry is the breakout candle's close,
+  stop-loss sits just under the bottom of the consolidation range with a
+  2% buffer, and targets are measured-move projections of the range
+  height (1x and 2x).
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by

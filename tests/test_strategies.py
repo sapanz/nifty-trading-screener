@@ -42,9 +42,8 @@ class TestWeeklyBreakout:
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Stop-loss is anchored to the breakout level itself (range_high),
-        # not the bottom of the consolidation range.
-        assert sig.stop_loss == round(202.0 * (1 - config.SL_BUFFER), 2)
+        # Stop-loss is anchored to the bottom of the consolidation range.
+        assert sig.stop_loss == round(198.0 * (1 - config.SL_BUFFER), 2)
 
     def test_no_signal_when_range_too_wide(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)

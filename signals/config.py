@@ -45,11 +45,7 @@ BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be 
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
-# Breakout SL is anchored to the breakout level itself (old resistance ->
-# new support), not the bottom of the consolidation range, to keep risk
-# tight; targets are measured-move multiples of the range height, sized
-# generously so winners are allowed to run.
-BREAKOUT_RANGE_MULTIPLES = (1, 3)      # measured-move multiples of the range height
+BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- NSE Nifty 500 constituent list --------------------------------------

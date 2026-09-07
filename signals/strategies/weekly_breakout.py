@@ -51,11 +51,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
 
         entry = float(row["close"])
-        # Anchor SL to the breakout level itself (old resistance becomes new
-        # support), not the bottom of the consolidation range - the latter
-        # let risk balloon to the full range height plus however far the
-        # breakout candle ran past range_high.
-        stop_loss = float(range_high * (1 - config.SL_BUFFER))
+        stop_loss = float(range_low * (1 - config.SL_BUFFER))
         risk = entry - stop_loss
         if risk <= 0:
             continue
