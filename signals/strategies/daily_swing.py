@@ -8,6 +8,9 @@ A stock qualifies when, on the daily timeframe:
   - the 44 SMA and the lower Bollinger Band sit right on top of each other
     (a confluence of two independent support levels, not just one)
   - the candle closed properly (small upper wick, bullish)
+
+Entry is the signal candle's high; stop-loss is the lower of the signal
+candle's own low and the previous candle's low.
 """
 from __future__ import annotations
 
@@ -61,8 +64,9 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if not row["low"] <= bb_lower_val * (1 + config.DAILY_SUPPORT_TOLERANCE):
             continue  # candle didn't actually reach down to the lower band too
 
-        entry = float(row["close"])
-        stop_loss = float(min(row["low"], sma_swing_val, bb_lower_val) * (1 - config.SL_BUFFER))
+        prev_row = df.iloc[-2]
+        entry = float(row["high"])
+        stop_loss = float(min(row["low"], prev_row["low"]))
         risk = entry - stop_loss
         if risk <= 0:
             continue

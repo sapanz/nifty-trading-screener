@@ -52,6 +52,12 @@ class TestWeeklySmaSupport:
         assert sig.symbol == "TESTCO"
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
+        # Entry is the signal candle's high; stop-loss is the lower of the
+        # signal candle's own low and the previous candle's low.
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+
     def test_no_signal_without_a_real_support_test(self):
         # flat close == sma exactly -> is_support_test requires close > sma
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=180, flat_weeks=30, start=50, plateau=200)
@@ -113,6 +119,12 @@ class TestDailySwing:
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+
+        # Entry is the signal candle's high; stop-loss is the lower of the
+        # signal candle's own low and the previous candle's low.
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
 
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify

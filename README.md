@@ -172,12 +172,20 @@ them there rather than in the strategy code.
   trailing history the screener fetches (see caveat below), not
   necessarily since IPO for very old listings.
 
-Entry is always the candle's close. Stop-loss sits just under the
-structural support level that was tested (with a 2% buffer). Targets are
-either risk-multiple based (2R/3R) for support/confluence setups, a
-measured-move projection of the range height for breakouts, or open
-percentage targets for fresh all-time-high breakouts (which by definition
-have no prior resistance to aim at).
+**Entry/stop-loss differ by strategy:**
+- **Weekly SMA-30 Support and Daily Swing** (the two SMA-support setups):
+  entry is the signal candle's **high**; stop-loss is the **lower of the
+  signal candle's own low and the previous candle's low** — a candle-based
+  stop rather than one anchored to the SMA/Bollinger Band level itself,
+  to avoid placing it uncomfortably tight against price.
+- **Weekly Range Breakout and Monthly ATH Breakout**: entry is the candle's
+  close, stop-loss sits just under the structural level that broke (the
+  range low, or the prior all-time high respectively) with a 2% buffer.
+
+Targets are either risk-multiple based (2R/3R) for the SMA-support
+setups, a measured-move projection of the range height for breakouts, or
+open percentage targets for fresh all-time-high breakouts (which by
+definition have no prior resistance to aim at).
 
 Weekly and monthly OHLCV are both *derived* from the same daily fetch by
 resampling (`signals/data.py`) — Upstox only gets called once per symbol,

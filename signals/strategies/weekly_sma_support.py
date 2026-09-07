@@ -6,6 +6,9 @@ A stock qualifies when, on the weekly timeframe:
   - the 30 SMA is itself rising (not flat or falling)
   - the week's low tested the 30 SMA and closed back above it (support held)
   - the candle closed properly (small upper wick, bullish)
+
+Entry is the signal candle's high; stop-loss is the lower of the signal
+candle's own low and the previous candle's low.
 """
 from __future__ import annotations
 
@@ -49,8 +52,9 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
 
         sma_support_val = float(row[f"sma{SMA_SUPPORT}"])
-        entry = float(row["close"])
-        stop_loss = float(min(row["low"], sma_support_val) * (1 - config.SL_BUFFER))
+        prev_row = df.iloc[-2]
+        entry = float(row["high"])
+        stop_loss = float(min(row["low"], prev_row["low"]))
         risk = entry - stop_loss
         if risk <= 0:
             continue
