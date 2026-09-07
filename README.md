@@ -1,12 +1,11 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for four strategies:
+levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **CIP Daily** | Every trading day, 5pm IST | Above 200 SMA, an old daily resistance tested multiple times then broken on volume, later retested and held as support by a bullish candle |
-| **CIP Weekly** | Fridays, 5pm IST | Same "change in polarity" rule as CIP Daily, applied to weekly candles |
+| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a stock's own all-time high approached multiple times then broken on volume, later retested and held as support (the strongest support there is) by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
@@ -19,14 +18,17 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
-  first logs into Upstox automatically (`scripts/login_upstox.py`, via
-  TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
-  always runs the daily CIP screener, additionally runs both weekly
-  strategies (Weekly Range Breakout and CIP Weekly) on Fridays, and
-  additionally runs the monthly ATH breakout on the last trading day of
-  the month — one Upstox pass serves every strategy that fires that day,
-  whatever the day.
+- `.github/workflows/signals.yml` — scheduled Mon-Fri, 11:30 UTC (5:00pm
+  IST), but only actually does anything on a Friday or the last trading
+  day of the month — the only two days any strategy can fire. A cheap
+  pre-check step decides this before touching Upstox at all; on every
+  other day the job exits immediately without installing Playwright or
+  spending a TOTP login. When it does run, it first logs into Upstox
+  automatically (`scripts/login_upstox.py`, via TOTP), then
+  `scripts/run_signals.py` fetches daily OHLCV **once** and runs both
+  weekly strategies (Weekly Range Breakout and CIP Weekly) on Fridays
+  and/or the monthly ATH breakout on month-end — one Upstox pass serves
+  every strategy that fires that day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
@@ -154,23 +156,26 @@ them there rather than in the strategy code.
 - **"Properly closed candle"**: `(high - close) / (high - low) <= 0.25`
   — the close sits in the top 75% of the candle's range (small upper wick).
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
-  Every strategy except CIP's retest candle requires this (CIP only gates
-  volume on the original breakout candle, not the retest).
-- **CIP (Change In Polarity)**: `signals/strategies/cip.py` holds the
-  shared detection logic used by both `cip_daily.py` and `cip_weekly.py`.
+  Every strategy except CIP Weekly's retest candle requires this (CIP
+  only gates volume on the original breakout candle, not the retest).
+- **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   Scanning backward from today, it looks for the most recent candle that
-  broke out above a resistance level which was tested at least
-  `CIP_WEEKLY_MIN_TOUCHES`/`CIP_DAILY_MIN_TOUCHES` times (a high coming
-  within `CIP_ZONE_TOLERANCE` of the level, without any close in that
-  window breaking decisively above it) in the `CIP_*_TOUCH_LOOKBACK`
-  candles right before it, on volume >= `CIP_VOLUME_MULTIPLIER`x average,
-  with a proper close. Daily requires a much more established zone (20
-  touches over a 90-day window) than weekly (3 touches over 12 weeks) -
-  the looser daily criteria fired far too often in backtesting. If found
-  (within `CIP_*_BREAKOUT_SEARCH` candles of today), today's candle must
-  then be bullish, closed properly, dip back down within
-  `CIP_ZONE_TOLERANCE` of that old resistance, and close back above it -
-  the "change in polarity" from resistance to support.
+  broke out above the stock's own **all-time high** (as of that candle,
+  within the fetched history - not necessarily since IPO) after that
+  level was approached at least `CIP_WEEKLY_MIN_TOUCHES` times (a high
+  coming within `CIP_ZONE_TOLERANCE` of it) in the
+  `CIP_WEEKLY_TOUCH_LOOKBACK` weeks right before it, on volume >=
+  `CIP_VOLUME_MULTIPLIER`x average, with a proper close. Anchoring to the
+  true all-time high (rather than just any locally-tested resistance) is
+  deliberate: an old ATH, once broken, is about the strongest support
+  level a stock can have, since it's a level virtually every holder
+  remembers. If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks of
+  today), today's candle must then be bullish, closed properly, dip back
+  down within `CIP_ZONE_TOLERANCE` of that old high, and close back above
+  it - the "change in polarity" from resistance to support. (A
+  daily-timeframe version was tried and dropped after backtesting showed
+  a genuinely negative edge over 12 months, even after tightening its
+  resistance-zone criteria hard.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.
@@ -179,14 +184,16 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **CIP Daily and CIP Weekly**: entry is the retest candle's **high**;
-  stop-loss is the **lower of the retest candle's own low and the
-  previous candle's low**. Targets are risk-multiples of that entry-to-SL
-  distance (`CIP_RISK_REWARD_TARGETS`, 2R/3R by default).
+- **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
+  **lower of the retest candle's own low and the previous candle's low**.
+  Targets are risk-multiples of that entry-to-SL distance
+  (`CIP_RISK_REWARD_TARGETS`, 2R/3R by default).
 - **Weekly Range Breakout**: entry is the breakout candle's close,
-  stop-loss sits just under the bottom of the consolidation range with a
-  2% buffer, and targets are measured-move projections of the range
-  height (1x and 2x).
+  stop-loss sits just under the breakout level itself (the top of the
+  consolidation range — "old resistance becomes new support"), not the
+  bottom of the range, so risk stays tight instead of scaling with
+  however wide the whole consolidation was. Targets are measured-move
+  projections of the range height (1x and 2x).
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by
@@ -265,7 +272,7 @@ pytest -q                      # runs against synthetic OHLCV data, no network n
 export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
-python scripts/run_signals.py                              # CIP daily only, on a non-Friday/month-end day
+python scripts/run_signals.py                              # no-op unless today is Friday or month-end
 FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
 
 # To test the TOTP login automation itself (install chromium first with
@@ -290,9 +297,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    cip.py             shared Change-In-Polarity detection logic
-    cip_daily.py        CIP on daily candles
-    cip_weekly.py        CIP on weekly candles
+    cip_weekly.py       CIP (Change In Polarity, all-time-high based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message
@@ -302,7 +307,7 @@ signals/
   backtest.py         historical replay of scan() over a lookback window + forward simulation
 scripts/
   login_upstox.py    CI step: TOTP login, writes UPSTOX_ACCESS_TOKEN to $GITHUB_ENV
-  run_signals.py     the single daily entry point for the strategies
+  run_signals.py     entry point for the strategies (no-op unless Friday or month-end)
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
 .github/workflows/            the cron schedule, backtest workflow, and a test workflow

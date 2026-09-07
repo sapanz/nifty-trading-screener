@@ -22,27 +22,22 @@ WEEKLY_VOLUME_MULTIPLIER = 1.3
 MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
 
-# --- CIP (Change In Polarity) --------------------------------------------
-# An old resistance level, tested multiple times and then broken on strong
-# volume, later gets retested from above; if a bullish candle holds that
-# old-resistance-turned-support level, that's the "change in polarity".
-# Same rule set on two timeframes (cip_daily.py, cip_weekly.py), just with
-# different lookback windows below.
+# --- CIP (Change In Polarity), weekly only --------------------------------
+# An old all-time-high, approached multiple times without breaking and
+# then finally broken on strong volume, later gets retested from above;
+# if a bullish candle holds that old-ATH-turned-support level, that's the
+# "change in polarity" - and since it's the stock's own all-time high,
+# it's the strongest support level available. (A daily-timeframe version
+# was tried and dropped: even after tightening its resistance-zone
+# criteria hard, backtesting over 12 months showed a genuinely negative
+# edge, not just noise.)
 CIP_ZONE_TOLERANCE = 0.02        # how close a touch/retest must come to the resistance level
-CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average - raised from 1.3x to filter out fake breakouts
+CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average
 CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
 CIP_WEEKLY_TOUCH_LOOKBACK = 12    # weeks scanned for resistance touches before a candidate breakout
 CIP_WEEKLY_BREAKOUT_SEARCH = 26   # how many weeks back a qualifying breakout can still count
-CIP_WEEKLY_MIN_TOUCHES = 3        # resistance must be tested at least this many times before breaking
-
-# Widened from 20 to 90 trading days (and min touches from 2 to 20) so a
-# daily resistance zone has to be genuinely well-established - the old,
-# looser criteria fired far too often (fake/noise breakouts) and produced
-# a very low win rate in backtesting.
-CIP_DAILY_TOUCH_LOOKBACK = 90     # trading days scanned for resistance touches before a candidate breakout
-CIP_DAILY_BREAKOUT_SEARCH = 120   # how many trading days back a qualifying breakout can still count
-CIP_DAILY_MIN_TOUCHES = 20        # resistance must be tested at least this many times before breaking
+CIP_WEEKLY_MIN_TOUCHES = 3        # the all-time high must be approached at least this many times before breaking
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
@@ -50,6 +45,10 @@ BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be 
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
+# Breakout SL is anchored to the breakout level itself (old resistance ->
+# new support), not the bottom of the consolidation range - the 12-month
+# backtest showed the wider range_low anchor produces a high win rate but
+# a handful of large tail losses that drag average return negative.
 BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 

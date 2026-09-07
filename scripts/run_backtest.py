@@ -33,7 +33,6 @@ FETCH_TITLE = "Backtest (data fetch)"
 FETCH_EMOJI = "🧪"
 
 STRATEGY_LABELS = {
-    "cip_daily": ("CIP Daily", "🔁"),
     "cip_weekly": ("CIP Weekly", "🔄"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),

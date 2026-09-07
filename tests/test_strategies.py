@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import cip_daily, cip_weekly, monthly_breakout, weekly_breakout
+from signals.strategies import cip_weekly, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -42,8 +42,9 @@ class TestWeeklyBreakout:
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Stop-loss is anchored to the bottom of the consolidation range.
-        assert sig.stop_loss == round(198.0 * (1 - config.SL_BUFFER), 2)
+        # Stop-loss is anchored to the breakout level itself (range_high),
+        # not the bottom of the consolidation range.
+        assert sig.stop_loss == round(202.0 * (1 - config.SL_BUFFER), 2)
 
     def test_no_signal_when_range_too_wide(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
@@ -62,11 +63,12 @@ class TestWeeklyBreakout:
 def _cip_setup_df(
     freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 400, gap_periods: int = 3
 ) -> pd.DataFrame:
-    """Ramp up towards `resistance`, hold flat there for `touch_lookback`
-    periods (repeated resistance touches), break out above it on high
-    volume, drift for a few periods, then close with a bullish candle that
-    dips back to the old resistance and holds it as new support (the
-    "change in polarity")."""
+    """Ramp up towards `resistance` (which, since nothing in the ramp ever
+    exceeds it, becomes this stock's all-time high), hold flat there for
+    `touch_lookback` periods (repeated ATH touches), break out above it on
+    high volume, drift for a few periods, then close with a bullish candle
+    that dips back to the old ATH and holds it as new support (the "change
+    in polarity")."""
     df = _ramp_then_flat_df(freq, ramp_weeks=ramp_periods, flat_weeks=touch_lookback, start=50, plateau=resistance)
 
     breakout_close = resistance * 1.045
@@ -125,23 +127,14 @@ class TestCipWeekly:
         signals = cip_weekly.scan({"TESTCO": df})
         assert signals == []
 
-
-class TestCipDaily:
-    def test_detects_polarity_flip(self):
-        df = _cip_setup_df("B", pd.Timedelta(days=1), config.CIP_DAILY_TOUCH_LOOKBACK)
-        signals = cip_daily.scan({"TESTCO": df})
-        assert len(signals) == 1
-        sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
-
-        row, prev_row = df.iloc[-1], df.iloc[-2]
-        assert sig.entry == round(float(row["high"]), 2)
-        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
-
-    def test_no_signal_without_repeated_touches(self):
-        df = _cip_setup_df("B", pd.Timedelta(days=1), config.CIP_DAILY_TOUCH_LOOKBACK)
-        df = _scramble_touch_block(df, config.CIP_DAILY_TOUCH_LOOKBACK)
-        signals = cip_daily.scan({"TESTCO": df})
+    def test_no_signal_when_local_high_isnt_the_all_time_high(self):
+        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
+        # An early spike well above the local "resistance" zone (300 vs the
+        # ~209 breakout close) - the local zone is no longer this stock's
+        # real all-time high, so breaking it shouldn't count as a CIP setup.
+        spike_idx = df.index[50]
+        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
+        signals = cip_weekly.scan({"TESTCO": df})
         assert signals == []
 
 
