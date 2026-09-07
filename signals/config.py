@@ -44,42 +44,36 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# --- Daily Swing: Accumulation Spring (Wyckoff-style base/breakout/retest) -
-# Modeled on how a real institutional buyer has to behave: they can't
-# accumulate a full position in one session without moving price against
-# themselves, so genuine accumulation shows up as a quiet, tight, sideways
-# base where volume actually dries up as the base matures (fewer willing
-# sellers left as the position fills) - followed by a breakout candle
-# whose volume surges far above that base's own (already low) average,
-# the "effort" finally showing in price - and finally a retest of the
-# breakout level on LOW volume: the "Last Point of Support" in Wyckoff
-# terms, where the last unconvinced sellers get absorbed with essentially
-# no real supply left. That low-volume retest, not the breakout candle
-# itself, is the actual entry trigger. Everything here reads price/volume
-# directly - no moving averages, no oscillators. (Replaces the SMA-30-
-# support version, which plateaued at 24-30% win rate after two rounds of
-# threshold-tightening - see git history for that tuning trail.)
+# --- Daily Swing: Pocket Pivot -------------------------------------------
+# A different mechanism from the base/breakout/retest structures tried
+# before in this slot (Darvas Box, SMA-30 support, Accumulation Spring -
+# none showed a real edge; see git history). This looks for a single
+# day's volume anomaly that's a well-known footprint of stealth
+# institutional buying (Gil Morales & Chris Kacher's "pocket pivot"): a
+# day where buying volume actually exceeds the heaviest SELLING day of
+# the past couple of weeks, while the stock is still trading close to its
+# last pullback low - not already an obvious breakout everyone can see. A
+# buyer forceful enough to outmuscle the worst recent selling day, before
+# the crowd notices, is about as direct a read of "why would an
+# institution be buying right now" as raw price/volume data allows.
+# Everything here reads price/volume directly - no moving averages, no
+# oscillators; "uptrend" is defined structurally (a higher swing low),
+# not via any moving average.
 #
-# Exit is a trailing stop, not a fixed target - a first backtest of this
-# entry with a measured-move target (base height x1/x2) came back at a
-# 15% win rate and a NEGATIVE average return, worse than the SMA version
-# it replaced. The fixed target was capping exactly the winners that
-# would have made the setup worthwhile, on an entry that's inherently a
-# low win-rate breakout-continuation pattern. Per explicit direction,
-# this strategy no longer optimizes for win rate at all - a low hit rate
-# is fine as long as winners run far further than losers get cut. So the
-# stop trails up to the lowest low of the trailing DAILY_SWING_TRAIL_LOOKBACK
-# days once the trade is running (a classic trend-following exit - Turtle
-# Traders' N-day-low exit, and how Darvas himself trailed his own boxes
-# upward) instead of taking profit at an arbitrary fixed level.
-DAILY_SWING_BASE_LENGTH = 50                    # trading days spanning the accumulation base
-DAILY_SWING_BASE_TIGHTNESS = 0.25               # (base_high - base_low) / base_low must be <= this
-DAILY_SWING_VOLUME_DRYUP_RATIO = 0.75           # 2nd-half base volume must be <= this x 1st-half base volume
-DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER = 2.0    # breakout candle's volume vs the base's own (quiet) average
-DAILY_SWING_BREAKOUT_SEARCH = 20                # how many days back a qualifying breakout can still count as "recent" for today's retest
-DAILY_SWING_RETEST_TOLERANCE = 0.02             # retest candle's low may sit this far below the base high and still count as a touch
-DAILY_SWING_RETEST_MAX_VOLUME_RATIO = 1.0       # retest candle's volume must be below this x the base's own average - real absence of supply
-DAILY_SWING_TRAIL_LOOKBACK = 10                 # once in the trade, the stop trails up to the lowest low of this many trading days - no fixed target
+# Exit is unchanged from the version before it: no fixed target, the
+# stop trails up to the lowest low of the trailing
+# DAILY_SWING_TRAIL_LOOKBACK days once the trade is running (a classic
+# trend-following exit - Turtle Traders' N-day-low exit) - a fixed target
+# on the prior (structurally different) entry logic came back with a
+# NEGATIVE average return twice in a row (once with a measured-move
+# target, once with this same trailing stop), so this slot no longer
+# optimizes for win rate - a low hit rate is fine as long as winners run
+# far further than losers get cut.
+DAILY_SWING_SWING_LOOKBACK = 60          # days searched for the two most recent confirmed swing lows (uptrend structure)
+DAILY_SWING_MAX_EXTENSION = 0.18         # today's close may not sit more than this far above the most recent swing low - an early entry, not a chase
+DAILY_SWING_MIN_VOLUME_RATIO = 1.0       # today's volume must be at least this x its own trailing average - rules out illiquid false positives
+DAILY_SWING_DOWN_VOLUME_LOOKBACK = 10    # today's volume must beat the heaviest down-day volume in this many trailing days - the actual pocket-pivot test
+DAILY_SWING_TRAIL_LOOKBACK = 10          # once in the trade, the stop trails up to the lowest low of this many trading days - no fixed target
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

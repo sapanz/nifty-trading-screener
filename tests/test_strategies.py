@@ -156,136 +156,126 @@ class TestCipWeekly:
         assert signals == []
 
 
-def _accumulation_spring_df(
-    base_low: float = 195.0,
-    base_high: float = 205.0,
-    first_half_volume: float = 150_000.0,
-    second_half_volume: float = 80_000.0,
-    breakout_volume: float = 300_000.0,
-    retest_low_mult: float = 1.015,
-    retest_bullish: bool = True,
-    retest_volume: float = 90_000.0,
-    filler_dip: bool = False,
+def _pocket_pivot_df(
+    l1_low: float = 90.0,
+    l2_low: float = 100.0,
+    pivot_close: float | None = None,
+    pivot_bullish: bool = True,
+    pivot_volume: float = 300_000.0,
+    down_day_volume: float = 200_000.0,
+    base_volume: float = 50_000.0,
 ) -> pd.DataFrame:
-    """Ramp up to `base_low`, then a DAILY_SWING_BASE_LENGTH-day tight base
-    between `base_low`/`base_high` whose second half trades on lower
-    volume than its first half (accumulation: real supply drying up) -
-    then a breakout candle closing above the base on a volume surge, a
-    few quiet filler days holding above the base, and finally a bullish,
-    low-volume retest candle dipping back down near the base high (now
-    support). All the breakout/filler/retest prices are expressed as
-    multiples of `base_high` so the geometry holds regardless of the
-    base's own absolute level."""
-    base_length = config.DAILY_SWING_BASE_LENGTH
-    half = base_length // 2
-    df = _ramp_then_flat_df("B", ramp_weeks=150, flat_weeks=0, start=50, plateau=base_low)
+    """A long quiet padding history, then an explicit 26-day tail: an
+    early confirmed swing low at `l1_low`, a flat rally plateau, a more
+    recent confirmed swing low at `l2_low` (a genuine higher low when
+    l2_low > l1_low), a heavier-volume "down day" (`down_day_volume`)
+    planted a few days later, and finally a pivot candle whose volume
+    (`pivot_volume`) is the actual signal under test. Every level between
+    the two swing lows is derived from `l1_low`/`l2_low` (rather than
+    hardcoded), so overriding either still produces a clean, unambiguous
+    two-swing-low structure with no accidental extra local minima."""
+    if pivot_close is None:
+        pivot_close = l2_low * 1.10  # a modest, in-bounds pivot by default
 
-    mid = (base_high + base_low) / 2
-    base_rows = pd.DataFrame(
+    padding = _ramp_then_flat_df("B", ramp_weeks=70, flat_weeks=0, start=50, plateau=50)
+    padding["volume"] = base_volume
+
+    lead_low = l1_low + 4
+    rows = [{"open": lead_low + 1, "high": lead_low + 2, "low": lead_low, "close": lead_low + 1, "volume": base_volume} for _ in range(3)]
+    rows.append({"open": lead_low + 1, "high": lead_low + 3, "low": lead_low + 1, "close": lead_low + 2, "volume": base_volume})  # day4: confirms day5
+
+    rows.append({"open": l1_low + 1, "high": l1_low + 2, "low": l1_low, "close": l1_low + 1, "volume": base_volume})  # day5: L1
+    rows.append({"open": l1_low + 5, "high": l1_low + 7, "low": l1_low + 5, "close": l1_low + 6, "volume": base_volume})  # day6: confirms day5
+
+    # days 7-13: a flat plateau safely above both swing lows - flat means
+    # no interior local minima, regardless of how l1_low/l2_low compare.
+    plateau = max(l1_low, l2_low) + 15
+    for _ in range(7):
+        rows.append({"open": plateau + 1, "high": plateau + 3, "low": plateau, "close": plateau + 2, "volume": base_volume})
+
+    rows.append({"open": l2_low + 5, "high": l2_low + 7, "low": l2_low + 5, "close": l2_low + 6, "volume": base_volume})  # day14: confirms day15
+    rows.append({"open": l2_low + 1, "high": l2_low + 2, "low": l2_low, "close": l2_low + 1, "volume": base_volume})  # day15: L2
+    rows.append({"open": l2_low + 5, "high": l2_low + 7, "low": l2_low + 5, "close": l2_low + 6, "volume": base_volume})  # day16: confirms day15
+
+    # days 17-25: strictly-rising lows (no interior local minima) with one
+    # heavier-volume down day (day20, by closing price) planted inside -
+    # the level the pivot has to beat.
+    offsets = [7, 8, 9, 10, 11, 12, 13, 14, 15]
+    down_day_pos = 3  # day20 is the 4th of these 9 days
+    prior_close = l2_low + 6
+    for pos, off in enumerate(offsets):
+        low = l2_low + off
+        if pos == down_day_pos:
+            close = min(prior_close - 1, low + 1)  # a down day, but its low still sits above the prior day's low
+        else:
+            close = max(prior_close + 1, low + 2)
+        rows.append({"open": low + 1, "high": close + 2, "low": low, "close": close, "volume": down_day_volume if pos == down_day_pos else base_volume})
+        prior_close = close
+
+    # day26: the pivot candle itself
+    pivot_open = pivot_close - 4 if pivot_bullish else pivot_close + 4
+    rows.append(
         {
-            "open": [mid] * base_length,
-            "high": [base_high] * base_length,
-            "low": [base_low] * base_length,
-            "close": [mid] * base_length,
-            "volume": [first_half_volume] * half + [second_half_volume] * (base_length - half),
-        },
-        index=[df.index[-1] + pd.Timedelta(days=i + 1) for i in range(base_length)],
+            "open": pivot_open,
+            "high": max(pivot_open, pivot_close) + 1,
+            "low": min(pivot_open, pivot_close) - 1,
+            "close": pivot_close,
+            "volume": pivot_volume,
+        }
     )
-    df = pd.concat([df, base_rows])
 
-    breakout_row = pd.DataFrame(
-        {
-            "open": [base_high * 1.005],
-            "high": [base_high * 1.073],
-            "low": [base_high * 1.010],
-            "close": [base_high * 1.063],
-            "volume": [breakout_volume],
-        },
-        index=[df.index[-1] + pd.Timedelta(days=1)],
-    )
-    df = pd.concat([df, breakout_row])
-
-    for i in range(4):
-        filler_low = base_high * (0.9 if filler_dip and i == 0 else 1.005)
-        filler_row = pd.DataFrame(
-            {"open": [base_high * 1.025], "high": [base_high * 1.030], "low": [filler_low], "close": [base_high * 1.025], "volume": [100_000.0]},
-            index=[df.index[-1] + pd.Timedelta(days=1)],
-        )
-        df = pd.concat([df, filler_row])
-
-    retest_open = base_high * 1.010
-    retest_close = base_high * (1.024 if retest_bullish else 1.005)
-    retest_row = pd.DataFrame(
-        {
-            "open": [retest_open],
-            "high": [base_high * 1.024],
-            "low": [base_high * retest_low_mult],
-            "close": [retest_close],
-            "volume": [retest_volume],
-        },
-        index=[df.index[-1] + pd.Timedelta(days=1)],
-    )
-    return pd.concat([df, retest_row])
+    tail = pd.DataFrame(rows, index=[padding.index[-1] + pd.Timedelta(days=i + 1) for i in range(len(rows))])
+    return pd.concat([padding, tail])
 
 
 class TestDailySwing:
-    def test_detects_accumulation_spring(self):
-        base_low, base_high = 195.0, 205.0
-        df = _accumulation_spring_df(base_low=base_low, base_high=base_high)
+    def test_detects_pocket_pivot(self):
+        df = _pocket_pivot_df()
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry
         assert sig.targets == []  # no fixed target - exit is a trailing stop (see backtest.simulate_trailing)
 
-        # Entry is the retest candle's high; stop-loss is the lower of the
-        # retest candle's own low and the previous candle's low.
+        # Entry is the pivot candle's high; stop-loss is the lower of the
+        # pivot candle's own low and the previous candle's low.
         row, prev_row = df.iloc[-1], df.iloc[-2]
         raw_entry = float(row["high"])
         raw_stop = float(min(row["low"], prev_row["low"]))
         assert sig.entry == round(raw_entry, 2)
         assert sig.stop_loss == round(raw_stop, 2)
 
-    def test_no_signal_when_base_too_wide(self):
-        # (205 - 140) / 140 = 46% range - not a genuine tight accumulation.
-        df = _accumulation_spring_df(base_low=140.0, base_high=205.0)
+    def test_no_signal_without_a_higher_low(self):
+        # the more recent swing low (95) sits BELOW the earlier one (100) -
+        # not a genuine uptrend structure.
+        df = _pocket_pivot_df(l1_low=100.0, l2_low=95.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_without_volume_dryup(self):
-        # second half (90,000) isn't meaningfully below first half (100,000)
-        df = _accumulation_spring_df(first_half_volume=100_000.0, second_half_volume=90_000.0)
+    def test_no_signal_when_too_extended_from_the_last_higher_low(self):
+        # last higher low is 100; a close of 130 is 30% above it - well
+        # past DAILY_SWING_MAX_EXTENSION (18%), no longer an early entry.
+        df = _pocket_pivot_df(pivot_close=130.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_breakout_volume_is_weak(self):
-        # base's own average volume is 115,000; 150,000 isn't the
-        # multi-x surge a real breakout needs.
-        df = _accumulation_spring_df(breakout_volume=150_000.0)
+    def test_no_signal_when_pivot_candle_is_red(self):
+        df = _pocket_pivot_df(pivot_bullish=False)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_breakout_fails_and_reenters_base(self):
-        # A filler day dips back below the base low - a failed breakout,
-        # not a real accumulation spring.
-        df = _accumulation_spring_df(filler_dip=True)
+    def test_no_signal_when_volume_is_below_its_own_average(self):
+        # base rate is 50,000/day; a below-average pivot day isn't the
+        # volume anomaly this setup needs, whatever the down-day
+        # comparison says.
+        df = _pocket_pivot_df(pivot_volume=40_000.0, down_day_volume=30_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_retest_is_too_far_from_base_high(self):
-        df = _accumulation_spring_df(retest_low_mult=1.05)  # never comes back down to retest support
-        signals = daily_swing.scan({"TESTCO": df})
-        assert signals == []
-
-    def test_no_signal_when_retest_candle_is_red(self):
-        df = _accumulation_spring_df(retest_bullish=False)
-        signals = daily_swing.scan({"TESTCO": df})
-        assert signals == []
-
-    def test_no_signal_when_retest_volume_is_heavy(self):
-        # base's own average volume is 115,000 - a retest at or above that
-        # shows real supply, not the absence of sellers a spring needs.
-        df = _accumulation_spring_df(retest_volume=120_000.0)
+    def test_no_signal_when_pivot_volume_is_below_the_worst_down_day(self):
+        # the heaviest down-day in the trailing window (250,000) beats the
+        # pivot's own volume (200,000) - no real buying-vs-selling edge.
+        df = _pocket_pivot_df(pivot_volume=200_000.0, down_day_volume=250_000.0)
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 

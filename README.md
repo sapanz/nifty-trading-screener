@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing (Accumulation Spring)** | Every trading day, 5pm IST | Tight base with volume drying up, breakout on a volume surge, then a bullish LOW-volume retest of the breakout level ("Last Point of Support") |
+| **Daily Swing (Pocket Pivot)** | Every trading day, 5pm IST | Uptrend (higher swing low) + a bullish day whose volume beats the worst down-day of the last 2 weeks, still near the last pullback low |
 | **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
@@ -156,34 +156,34 @@ them there rather than in the strategy code.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Every strategy except CIP Weekly's retest candle requires this (CIP
   only gates volume on the original breakout candle, not the retest).
-- **Daily Swing (Accumulation Spring)**: `signals/strategies/daily_swing.py`.
-  Modeled on how a real institutional buyer has to behave - they can't
-  accumulate a full position in one session without moving price against
-  themselves, so genuine accumulation shows up as a quiet, tight,
-  sideways **base**: a `DAILY_SWING_BASE_LENGTH`-day (50) window whose
-  high-low range stays within `DAILY_SWING_BASE_TIGHTNESS` (25%) of its
-  own low, and whose second half trades on meaningfully lower volume
-  (`DAILY_SWING_VOLUME_DRYUP_RATIO`, 75%) than its first half - real
-  supply drying up, not drift. Scanning backward from today (within
-  `DAILY_SWING_BREAKOUT_SEARCH`, 20 days), it looks for a **breakout**
-  candle that closed above that base, properly closed, on volume at
-  least `DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER` (2x) the base's own
-  (already quiet) average - the "effort" finally showing in price - with
-  price having held above the base ever since (no failed breakout
-  round-tripping back into the range). If found, today's candle must
-  then be bullish, closed properly, dip back to within
-  `DAILY_SWING_RETEST_TOLERANCE` (2%) of the base high (now support)
-  without closing back below it, and - critically - do so on volume
-  below `DAILY_SWING_RETEST_MAX_VOLUME_RATIO` (1x) the base's own
-  average: a genuine absence of selling pressure, not just a quiet day by
-  coincidence. In Wyckoff terms this low-volume retest is the "Last Point
-  of Support" - the lower-risk entry a real accumulator would use, not
-  the breakout candle itself. No moving averages or oscillators anywhere
-  in this - every condition reads price/volume directly. (Three earlier
-  versions of this strategy slot - Darvas Box, Darvas Box + technical
-  CANSLIM, and SMA-30 support in all-time-high stocks - were tried and
-  replaced; the SMA-30 version plateaued at 24-30% win rate after two
-  rounds of threshold-tightening.)
+- **Daily Swing (Pocket Pivot)**: `signals/strategies/daily_swing.py`. Not
+  a chart-pattern strategy at all - it looks for a single day's volume
+  anomaly that's a well-known footprint of stealth institutional buying
+  (Gil Morales & Chris Kacher's "pocket pivot", used by O'Neil-style
+  growth investors). First, price must be in a genuine uptrend
+  *structure*: the two most recent confirmed swing lows (a low that's
+  lower than the day before AND after it - a real pullback low, not just
+  any dip) within `DAILY_SWING_SWING_LOOKBACK` (60) days must show a
+  **higher low**, not a lower one - the raw-price definition of "uptrend"
+  used here, no moving average involved. Today's candle must then be
+  bullish, closed properly, and close no more than
+  `DAILY_SWING_MAX_EXTENSION` (18%) above that most recent swing low - an
+  entry still near support, not a chase after the move is obvious. The
+  actual pocket-pivot test: today's volume must be at least
+  `DAILY_SWING_MIN_VOLUME_RATIO` (1x) its own trailing average (rules out
+  illiquid false positives) **and** exceed the heaviest single down-day's
+  volume (a day that closed lower than the day before) in the trailing
+  `DAILY_SWING_DOWN_VOLUME_LOOKBACK` (10) days - i.e. today's buying
+  actually overwhelms the worst recent selling, before the stock has even
+  broken out to a new high and the crowd notices. No moving averages or
+  oscillators anywhere in this - every condition reads price/volume
+  directly. (Three earlier versions of this strategy slot - Darvas Box,
+  Darvas Box + technical CANSLIM, SMA-30 support in all-time-high stocks,
+  and Accumulation Spring, a Wyckoff base/breakout/retest sequence - were
+  tried and replaced; none showed a real edge in backtesting, including
+  Accumulation Spring under both a fixed target and this same trailing
+  stop, which is what prompted trying a structurally different mechanism
+  instead of tuning the old one further.)
 - **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
   The resistance is a **zone**, not a single exact price line: its top is
   the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
@@ -215,21 +215,20 @@ them there rather than in the strategy code.
   necessarily since IPO for very old listings.
 
 **Entry/stop-loss differ by strategy:**
-- **Daily Swing**: entry is the retest candle's **high** (a buy-stop
+- **Daily Swing**: entry is the pivot candle's **high** (a buy-stop
   triggered the next day price trades up to it); the initial stop-loss is
-  the **lower of the retest candle's own low and the previous candle's
-  low**. There is **no fixed profit target** - a first backtest with a
-  measured-move target came back at a 15% win rate and a *negative*
-  average return, since the fixed target capped exactly the winners that
-  would have made the setup worthwhile on an inherently low-win-rate
-  breakout-continuation pattern. Instead, once the trade is running, the
-  stop **trails up to the lowest low of the trailing
-  `DAILY_SWING_TRAIL_LOOKBACK`** (10) **days** - a classic trend-following
-  exit (Turtle Traders' N-day-low exit; Darvas trailed his own boxes the
-  same way) - cutting losers fast at the tight initial stop while letting
-  winners run as far as the trend carries them. See `backtest.summarize()`
-  output for profit factor / avg win / avg loss - this strategy is judged
-  on expectancy, not hit rate.
+  the **lower of the pivot candle's own low and the previous candle's
+  low**. There is **no fixed profit target** - two prior backtests on the
+  strategy slot's previous (structurally different) entry logic both came
+  back with a *negative* average return, once with a measured-move target
+  and once with this same trailing stop, so a fixed target isn't assumed
+  to be the fix. Instead, once the trade is running, the stop **trails up
+  to the lowest low of the trailing `DAILY_SWING_TRAIL_LOOKBACK`** (10)
+  **days** - a classic trend-following exit (Turtle Traders' N-day-low
+  exit; Darvas trailed his own boxes the same way) - cutting losers fast
+  at the tight initial stop while letting winners run as far as the trend
+  carries them. See `backtest.summarize()` output for profit factor / avg
+  win / avg loss - this strategy is judged on expectancy, not hit rate.
 - **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
   **lower of the retest candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
@@ -348,7 +347,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      Accumulation Spring (Wyckoff base/breakout/retest)
+    daily_swing.py      Pocket Pivot (volume-vs-worst-down-day)
     cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout

@@ -2,7 +2,7 @@
 """Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
 Fetches daily OHLCV via Upstox once, then:
-  - always runs the daily swing (Accumulation Spring) screener
+  - always runs the daily swing (Pocket Pivot) screener
   - also runs both weekly strategies (Weekly Range Breakout, CIP Weekly)
     on Fridays (or FORCE_WEEKLY=true)
   - also runs the monthly ATH breakout on the last trading day of the
@@ -28,7 +28,7 @@ from signals.formatting import format_strategy_message
 from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
-DAILY_SWING_TITLE = "Daily Swing (Accumulation Spring)"
+DAILY_SWING_TITLE = "Daily Swing (Pocket Pivot)"
 DAILY_SWING_EMOJI = "📈"
 WEEKLY_BREAKOUT_TITLE = "Weekly Range Breakout"
 WEEKLY_BREAKOUT_EMOJI = "🚀"

@@ -1,41 +1,41 @@
-"""Daily Swing strategy: Accumulation Spring, a Wyckoff-style base /
-breakout / low-volume-retest sequence (runs every trading day after close).
+"""Daily Swing strategy: Pocket Pivot (runs every trading day after close).
 
-The logic models how a real institutional buyer has to behave: they can't
-accumulate a full position in a single session without moving price against
-themselves, so genuine accumulation shows up as a quiet, tight, sideways
-base where volume actually dries up as the base matures (fewer willing
-sellers left as the position fills) - followed by a breakout candle whose
-volume surges far above that base's own (already low) average, the
-"effort" finally showing in price - and finally a retest of the breakout
-level on LOW volume: the "Last Point of Support" in Wyckoff terms, where
-the last unconvinced sellers get absorbed with essentially no real supply
-left. That low-volume retest, not the breakout candle itself, is the
-actual entry trigger here.
+A different mechanism from the base/breakout/retest sequence this slot
+used before (Accumulation Spring): instead of waiting for a multi-week
+structure to resolve, this looks for a single day's volume anomaly that
+is a well-known footprint of stealth institutional buying (Gil Morales &
+Chris Kacher's "pocket pivot", used by O'Neil-style growth investors) -
+a day where buying volume actually exceeds the heaviest SELLING day of
+the past couple of weeks, while the stock is still trading close to its
+last pullback low, not already extended into an obvious breakout. A large
+buyer stepping in hard enough to outmuscle the worst recent selling day,
+before the stock even breaks out to a new high and the crowd notices, is
+a much more direct read of "why would an institution be buying right
+now" than waiting for a chart pattern to complete.
 
 A stock qualifies when, on the daily timeframe:
-  - a DAILY_SWING_BASE_LENGTH-day window forms a tight base (high-low
-    range within DAILY_SWING_BASE_TIGHTNESS of its own low) whose second
-    half trades on meaningfully lower volume than its first half
-    (DAILY_SWING_VOLUME_DRYUP_RATIO) - real supply drying up, not drift
-  - within DAILY_SWING_BREAKOUT_SEARCH days after that base, a candle
-    closes above the base's high, properly closed, on volume at least
-    DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER x the base's own average -
-    and price has held above the base ever since (no failed breakout)
-  - today's candle is bullish, closed properly, dips back to within
-    DAILY_SWING_RETEST_TOLERANCE of the base's high (now support) without
-    closing back below it, on volume below DAILY_SWING_RETEST_MAX_VOLUME_RATIO
-    x the base's own average - a real absence of selling pressure, not
-    just a quiet day by coincidence
+  - price is in a genuine uptrend structure: the two most recent confirmed
+    swing lows (a low that's lower than the day before and after it, a
+    real pullback low - not just any low candle) within
+    DAILY_SWING_SWING_LOOKBACK days show a higher low, not a lower one -
+    the raw-price definition of "uptrend" used here, no moving average
+  - today's candle is bullish, closed properly, and its close sits no
+    more than DAILY_SWING_MAX_EXTENSION above that most recent swing low
+    - an entry still near support, not a chase after the move is obvious
+  - today's volume is at least DAILY_SWING_MIN_VOLUME_RATIO x its own
+    trailing average (rules out illiquid/dead-stock false positives) AND
+    exceeds the heaviest single down-day's volume (a day that closed
+    lower than the day before) in the trailing DAILY_SWING_DOWN_VOLUME_LOOKBACK
+    days - the actual pocket-pivot test: today's buying overwhelms the
+    worst recent selling
 
 Entry is today's high (a buy-stop triggered the next day price trades up
 to it); stop-loss is the lower of today's own low and the previous
-candle's low. There is no fixed profit target: this is inherently a
-low-win-rate breakout-continuation pattern, so instead of capping the
-winners that make it worthwhile, the stop trails up to the lowest low of
-the trailing DAILY_SWING_TRAIL_LOOKBACK days once the trade is running -
-cut losers fast at the tight initial stop, let winners run as far as the
-trend itself carries them.
+candle's low. As with the version before it, there's no fixed profit
+target - the stop trails up to the lowest low of the trailing
+DAILY_SWING_TRAIL_LOOKBACK days once the trade is running, cutting losers
+fast at the tight initial stop while letting winners run as far as the
+trend carries them.
 
 No moving averages or oscillators anywhere in this - every condition is a
 direct read of price and volume.
@@ -45,111 +45,80 @@ from __future__ import annotations
 import pandas as pd
 
 from signals import config
-from signals.indicators import is_proper_close
+from signals.indicators import add_avg_volume, is_proper_close
 from signals.models import Signal
 
+VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
 
-def _base_window(df: pd.DataFrame, breakout_iloc: int) -> pd.DataFrame | None:
-    start = breakout_iloc - config.DAILY_SWING_BASE_LENGTH
-    if start < 0:
+
+def _swing_low_mask(df: pd.DataFrame) -> pd.Series:
+    """True for bars whose low is a confirmed local trough (lower than the
+    bar immediately before and after) - a genuine pullback low, not just
+    any candle that happens to dip."""
+    low = df["low"]
+    return (low < low.shift(1)) & (low < low.shift(-1))
+
+
+def _recent_higher_low(df: pd.DataFrame, signal_iloc: int, lookback: int) -> float | None:
+    """Look back over the `lookback` days before today's candle for the two
+    most recent confirmed swing lows. Returns the more recent one's price
+    if it sits above the one before it (a genuine higher low - the
+    raw-price definition of an uptrend used here), or None if that
+    structure isn't there."""
+    window = df.iloc[max(0, signal_iloc - lookback) : signal_iloc]
+    swing_lows = window.loc[_swing_low_mask(window), "low"]
+    if len(swing_lows) < 2:
         return None
-    return df.iloc[start:breakout_iloc]
-
-
-def _base_bounds(base: pd.DataFrame) -> tuple[float, float] | None:
-    base_high = float(base["high"].max())
-    base_low = float(base["low"].min())
-    if base_low <= 0:
+    recent, earlier = float(swing_lows.iloc[-1]), float(swing_lows.iloc[-2])
+    if recent <= earlier:
         return None
-    if (base_high - base_low) / base_low > config.DAILY_SWING_BASE_TIGHTNESS:
-        return None
-    return base_high, base_low
+    return recent
 
 
-def _has_volume_dryup(base: pd.DataFrame) -> bool:
-    half = len(base) // 2
-    first_half_vol = float(base["volume"].iloc[:half].mean())
-    second_half_vol = float(base["volume"].iloc[half:].mean())
-    if first_half_vol <= 0:
-        return False
-    return second_half_vol <= first_half_vol * config.DAILY_SWING_VOLUME_DRYUP_RATIO
-
-
-def _find_breakout(df: pd.DataFrame, signal_iloc: int) -> tuple[int, float, float, float] | None:
-    """Search backward from just before `signal_iloc` for the most recent
-    candle that broke out above a tight, volume-dried-up base on a volume
-    surge relative to that base's own (quiet) average, with price having
-    held above the base ever since. Returns
-    (breakout_iloc, base_high, base_low, base_avg_vol), or None if no
-    qualifying breakout is found within DAILY_SWING_BREAKOUT_SEARCH days."""
-    earliest = max(config.DAILY_SWING_BASE_LENGTH, signal_iloc - config.DAILY_SWING_BREAKOUT_SEARCH)
-
-    for i in range(signal_iloc - 1, earliest - 1, -1):
-        base = _base_window(df, i)
-        if base is None:
-            continue
-
-        bounds = _base_bounds(base)
-        if bounds is None:
-            continue
-        base_high, base_low = bounds
-
-        if not _has_volume_dryup(base):
-            continue
-
-        base_avg_vol = float(base["volume"].mean())
-        if base_avg_vol <= 0:
-            continue
-
-        row = df.iloc[i]
-        if not row["close"] > base_high:
-            continue
-        if not is_proper_close(row):
-            continue
-        if not row["volume"] >= base_avg_vol * config.DAILY_SWING_BREAKOUT_VOLUME_MULTIPLIER:
-            continue
-
-        # price must have held above the base ever since - no failed
-        # breakout round-tripping back into the accumulation range
-        span_low = float(df["low"].iloc[i + 1 : signal_iloc + 1].min())
-        if span_low < base_low:
-            continue
-
-        return i, base_high, base_low, base_avg_vol
-    return None
+def _worst_down_day_volume(df: pd.DataFrame, signal_iloc: int, lookback: int) -> float:
+    """The heaviest volume traded on any down day (close < prior close) in
+    the `lookback` days before today - the volume a pocket pivot has to
+    beat."""
+    window = df.iloc[max(0, signal_iloc - lookback) : signal_iloc]
+    is_down_day = window["close"] < window["close"].shift(1)
+    down_volumes = window.loc[is_down_day, "volume"]
+    return float(down_volumes.max()) if not down_volumes.empty else 0.0
 
 
 def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
     signals: list[Signal] = []
-    min_len = config.DAILY_SWING_BASE_LENGTH + config.DAILY_SWING_BREAKOUT_SEARCH + 2
+    min_len = max(config.DAILY_SWING_SWING_LOOKBACK, config.DAILY_SWING_DOWN_VOLUME_LOOKBACK) + config.VOLUME_LOOKBACK + 2
 
     for symbol, raw_df in daily_data.items():
         df = raw_df.copy()
         if len(df) < min_len:
             continue
 
+        add_avg_volume(df, config.VOLUME_LOOKBACK)
         signal_iloc = len(df) - 1
         row = df.iloc[signal_iloc]
         prev_row = df.iloc[signal_iloc - 1]
 
-        if not row["close"] > row["open"]:  # retest candle must be bullish
+        if not row["close"] > row["open"]:  # pivot day must be a buying day
             continue
         if not is_proper_close(row):
             continue
 
-        found = _find_breakout(df, signal_iloc)
-        if found is None:
+        recent_swing_low = _recent_higher_low(df, signal_iloc, config.DAILY_SWING_SWING_LOOKBACK)
+        if recent_swing_low is None:
             continue
-        breakout_iloc, base_high, base_low, base_avg_vol = found
+        if row["close"] > recent_swing_low * (1 + config.DAILY_SWING_MAX_EXTENSION):
+            continue  # already run too far from the last pullback low to be an early entry
 
-        # retest: today's low comes back down near the base high (now
-        # support) without closing back below it
-        if not row["low"] <= base_high * (1 + config.DAILY_SWING_RETEST_TOLERANCE):
+        avg_vol = row.get(VOL_COL)
+        if avg_vol is None or pd.isna(avg_vol) or avg_vol <= 0:
             continue
-        if not row["close"] > base_high:
+        if row["volume"] < avg_vol * config.DAILY_SWING_MIN_VOLUME_RATIO:
             continue
-        if row["volume"] >= base_avg_vol * config.DAILY_SWING_RETEST_MAX_VOLUME_RATIO:
-            continue  # real supply would show up as volume - a spring shouldn't have any
+
+        worst_down_volume = _worst_down_day_volume(df, signal_iloc, config.DAILY_SWING_DOWN_VOLUME_LOOKBACK)
+        if worst_down_volume <= 0 or row["volume"] < worst_down_volume:
+            continue  # the actual pocket-pivot test: buying must beat the worst recent selling day
 
         entry = float(row["high"])
         stop_loss = float(min(row["low"], prev_row["low"]))
@@ -157,8 +126,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if risk <= 0:
             continue
 
-        breakout_date = df.index[breakout_iloc]
-        days_since_breakout = signal_iloc - breakout_iloc
+        vol_ratio = float(row["volume"] / worst_down_volume)
+        extension_pct = (row["close"] / recent_swing_low - 1) * 100
 
         signals.append(
             Signal(
@@ -166,10 +135,11 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
                 targets=[],  # no fixed target - trailing stop lets winners run (see backtest.simulate_trailing)
-                sort_key=float(-days_since_breakout),  # freshest retest (soonest after breakout) sorts first
+                sort_key=vol_ratio,  # the biggest buying-vs-selling imbalance sorts first
                 note=(
-                    f"Accumulation Spring: base {base_low:.2f}-{base_high:.2f} broke {breakout_date.date()}, "
-                    f"low-vol retest | trail stop to last {config.DAILY_SWING_TRAIL_LOOKBACK}-day low, no fixed target"
+                    f"Pocket Pivot: volume {vol_ratio:.1f}x the worst down-day in "
+                    f"{config.DAILY_SWING_DOWN_VOLUME_LOOKBACK}d, {extension_pct:.0f}% above last higher low | "
+                    f"trail stop to last {config.DAILY_SWING_TRAIL_LOOKBACK}-day low, no fixed target"
                 ),
             )
         )
