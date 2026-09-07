@@ -130,6 +130,21 @@ class TestSummarize:
         assert "1W-1L-2Open" in text
         assert "50% win rate of 2 decided" in text
 
+    def test_best_worst_show_full_trade_detail(self):
+        trades = [
+            backtest.TradeResult(
+                "daily_swing", "A", pd.Timestamp("2024-01-01"), 100.0, 95.0, [110.0, 120.0],
+                "target1", pd.Timestamp("2024-01-05"), 110.0, 10.0, 4,
+            ),
+            backtest.TradeResult(
+                "daily_swing", "B", pd.Timestamp("2024-01-01"), 100.0, 95.0, [110.0, 120.0],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95.0, -5.0, 2,
+            ),
+        ]
+        text = backtest.summarize(trades)
+        assert "A: Entry 100.00 | SL 95.00 | T1 110.00/T2 120.00 | 01 Jan 2024 → 05 Jan 2024 (4d) | +10.0%" in text
+        assert "B: Entry 100.00 | SL 95.00 | T1 110.00/T2 120.00 | 01 Jan 2024 → 03 Jan 2024 (2d) | -5.0%" in text
+
     def test_win_rate_all_open(self):
         trades = [
             backtest.TradeResult("daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "open", pd.Timestamp("2024-01-10"), 102, 2.0, 9),

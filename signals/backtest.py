@@ -157,6 +157,16 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
     return results
 
 
+def _fmt_trade(t: TradeResult) -> str:
+    targets_str = "/".join(f"T{i + 1} {tg:.2f}" for i, tg in enumerate(t.targets))
+    entry_str = t.signal_date.strftime("%d %b %Y")
+    exit_str = t.exit_date.strftime("%d %b %Y")
+    return (
+        f"{t.symbol}: Entry {t.entry:.2f} | SL {t.stop_loss:.2f} | {targets_str} | "
+        f"{entry_str} → {exit_str} ({t.holding_days}d) | {t.return_pct:+.1f}%"
+    )
+
+
 def summarize(trades: list[TradeResult]) -> str:
     if not trades:
         return "No signals in this window."
@@ -188,9 +198,11 @@ def summarize(trades: list[TradeResult]) -> str:
         f"Avg return: {avg_return:+.1f}% | Avg holding: {avg_days:.0f}d",
     ]
     if top:
-        lines.append("Best: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in top))
+        lines.append("Best:")
+        lines.extend(f"  {_fmt_trade(t)}" for t in top)
     if bottom:
-        lines.append("Worst: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in bottom))
+        lines.append("Worst:")
+        lines.extend(f"  {_fmt_trade(t)}" for t in bottom)
     return "\n".join(lines)
 
 

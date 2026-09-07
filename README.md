@@ -277,9 +277,10 @@ to say which happened first within the day).
 
 You'll get one Telegram message per strategy — signal count, win rate,
 average return, average holding period, and the best/worst individual
-trades — plus a `backtest-trades` artifact on the workflow run containing
-every individual trade (symbol, dates, entry/SL/targets, outcome, return)
-as a CSV, if you want to dig into the detail yourself.
+trades, each shown with its full detail (symbol, entry, stop-loss,
+targets, entry date, exit date, and holding duration) — plus a
+`backtest-trades` artifact on the workflow run containing every
+individual trade as a CSV, if you want to dig into the detail yourself.
 
 This takes noticeably longer than a live run (order of 10-20 minutes for
 3 months, more for a longer window) since it's re-scanning the whole
