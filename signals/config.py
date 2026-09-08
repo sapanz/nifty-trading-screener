@@ -67,15 +67,18 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # backtest showed the wider range_low anchor produces a high win rate but
 # a handful of large tail losses that drag average return negative.
 #
-# Targets were widened to (1, 3) from (1, 2): a 12-month backtest at (1, 2)
-# came back at exactly breakeven (PF 1.00, avg return -0.1%) with an avg
-# win (+5.1%) much smaller than Daily Swing's or Monthly ATH Breakout's -
-# the fixed target was likely capping winners before the trend paid off.
-# (An earlier (1, 3) attempt was reverted for a win-rate drop, but that
-# change was bundled with a simultaneous SL-anchor change too, so targets
-# alone were never isolated - this tries just the target widening on top
-# of the SL anchor that's already proven to work.)
-BREAKOUT_RANGE_MULTIPLES = (1, 3)      # measured-move multiples of the range height
+# Widening the targets from (1, 2) to (1, 3) was tried and reverted: it
+# changed nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause
+# turned out to be architectural, not a threshold: simulate_forward exits
+# a trade the first day ANY target is touched (using the highest one
+# reached that same day), so it never keeps walking forward to see if a
+# farther target would eventually be hit too - in practice nearly every
+# winning trade exits at T1, and a farther T2/T3 only matters on the rare
+# day price gaps past both at once. A fixed multi-tier target list can't
+# "let winners run" past the nearest one; that needs a genuinely
+# different exit (a trailing stop, as tried for Daily Swing at one point)
+# not a bigger number here.
+BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- NSE Nifty 500 constituent list --------------------------------------

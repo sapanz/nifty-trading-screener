@@ -190,10 +190,10 @@ them there rather than in the strategy code.
   consolidation range — "old resistance becomes new support"), not the
   bottom of the range, so risk stays tight instead of scaling with
   however wide the whole consolidation was. Targets are measured-move
-  projections of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 3x)
-  — widened from 1x/2x after a 12-month backtest at 1x/2x came back at
-  exactly breakeven (PF 1.00) with the smallest average win of the three
-  strategies, suggesting the fixed target was capping winners early.
+  projections of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x).
+  (Widening to 1x/3x was tried and reverted - it changed nothing, since
+  `simulate_forward` exits at the first target touched either way; see
+  the note in `signals/config.py`.)
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by
