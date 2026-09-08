@@ -21,6 +21,11 @@ only starts tracking stop/target outcomes once a later day's high
 actually reaches that entry price; a signal whose entry is never
 subsequently reached is reported as "unfilled" rather than a real
 win/loss/open trade.
+
+Every entered trade's return is net of config.ROUND_TRIP_COST_PCT (STT +
+stamp duty + exchange charges for a real Indian delivery trade) - a
+mechanical screener's reported edge is meaningless if it can't survive
+the costs a real trade actually pays.
 """
 from __future__ import annotations
 
@@ -29,9 +34,14 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from signals import data
+from signals import config, data
 from signals.models import Signal
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+
+
+def _net_return_pct(gross_return_pct: float) -> float:
+    """Deduct the round-trip transaction cost from a gross price return."""
+    return gross_return_pct - config.ROUND_TRIP_COST_PCT
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -78,7 +88,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
-                return_pct=(signal.stop_loss / signal.entry - 1) * 100,
+                return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
                 holding_days=(dt - signal_date).days,
             )
         hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
@@ -88,7 +98,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
-                return_pct=(exit_price / signal.entry - 1) * 100,
+                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
                 holding_days=(dt - signal_date).days,
             )
 
@@ -102,7 +112,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     return TradeResult(
         strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
         outcome="open", exit_date=last_date, exit_price=last_close,
-        return_pct=(last_close / signal.entry - 1) * 100,
+        return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
         holding_days=(last_date - signal_date).days,
     )
 

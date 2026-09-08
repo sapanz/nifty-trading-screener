@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from signals import backtest
+from signals import backtest, config
 from signals.models import Signal
 
 
@@ -26,6 +27,13 @@ class TestSimulateForward:
         assert result.outcome == "target1"
         assert result.exit_price == 110.0
         assert result.return_pct > 0
+
+    def test_return_is_net_of_round_trip_transaction_cost(self):
+        df = _daily_df([100, 101, 102, 111, 112])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
+        gross_return_pct = (110.0 / 100.0 - 1) * 100
+        assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
 
     def test_hits_stop_loss_first(self):
         df = _daily_df([100, 98, 94, 90])  # day index 2: low=94*0.99=93.06 <= stop 95

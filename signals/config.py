@@ -81,6 +81,25 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
+# --- Transaction costs (Indian cash-equity delivery trades) --------------
+# Every signal here is a delivery trade (held days to months, never
+# intraday), where brokerage is genuinely 0 at every major Indian discount
+# broker (Zerodha, Upstox, etc.) - the real, unavoidable cost is
+# regulatory, not the broker's cut:
+#   STT (Securities Transaction Tax): 0.1% of the buy value + 0.1% of the
+#     sell value = 0.20% round-trip (delivery equity; intraday/F&O differ)
+#   Stamp duty: 0.015% of the buy value only (uniform pan-India since 2020)
+#   Exchange transaction charges + SEBI turnover fee: ~0.003% per side,
+#     ~0.006% round-trip
+#   GST (18% on brokerage + exchange charges): negligible here since
+#     brokerage is 0 and exchange charges are already tiny
+# Backtest returns are net of this. Deliberately excluded, both pushing
+# real costs higher than this estimate rather than lower: DP (depository)
+# charges, a flat ~Rs 15-20 per scrip sold rather than a percentage (so
+# not modelable without an assumed position size), and slippage (a real
+# fill will not land exactly on the recorded entry/exit price).
+ROUND_TRIP_COST_PCT = 0.22   # % of trade value, applied once per entered trade
+
 # --- NSE Nifty 500 constituent list --------------------------------------
 NSE_INDEX_LIST_URLS = (
     "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",

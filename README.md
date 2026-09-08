@@ -252,6 +252,14 @@ fixed target vs. a fixed stop-loss (if a single day's range could have hit
 both, the stop-loss is assumed to trigger first — conservative, since
 there's no intraday data to say which happened first within the day).
 
+**Every reported return is net of `ROUND_TRIP_COST_PCT`** (0.22%) — real
+transaction costs for an Indian cash-equity delivery trade (brokerage is
+0 at every major discount broker for delivery; the unavoidable cost is
+STT + stamp duty + exchange charges). A gross edge that can't survive
+this is not a real edge; see `signals/config.py` for the full breakdown
+and what's deliberately excluded (DP charges, slippage — both push real
+costs higher still).
+
 You'll get one Telegram message per strategy — signal count, win rate,
 average return/win/loss, profit factor, average holding period, and the
 best/worst individual trades — plus a `backtest-trades` artifact on the
