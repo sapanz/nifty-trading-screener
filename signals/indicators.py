@@ -80,6 +80,16 @@ def confluence_gap(value_a: float, value_b: float) -> float:
     return abs(value_a - value_b) / min(value_a, value_b)
 
 
+def is_accumulation_range(range_df: pd.DataFrame) -> bool:
+    """True if the range's up (green) candles carried more volume than its
+    down (red) candles - i.e. buyers were more aggressive than sellers while
+    the range built, a classic accumulation signature rather than mere
+    sideways drift or distribution."""
+    up_volume = range_df.loc[range_df["close"] > range_df["open"], "volume"].sum()
+    down_volume = range_df.loc[range_df["close"] < range_df["open"], "volume"].sum()
+    return bool(up_volume > down_volume)
+
+
 def is_sma_rising(df: pd.DataFrame, sma_column: str, lookback: int = config.SMA_SLOPE_LOOKBACK) -> bool:
     """True if the SMA's latest value is higher than it was `lookback` periods ago.
 

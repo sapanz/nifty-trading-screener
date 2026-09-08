@@ -1,8 +1,12 @@
 """Weekly range-breakout strategy (runs Fridays after close).
 
 A stock qualifies when, on the weekly timeframe:
-  - it is above its 200-period SMA (long-term uptrend)
-  - the preceding N weeks formed a tight consolidation range
+  - it is above its 200-period SMA, and that SMA is itself rising (a real
+    uptrend, not just sideways drift the price happens to sit above)
+  - the preceding N weeks formed a tight consolidation range, with more
+    volume on the range's up (green) candles than its down (red) ones -
+    a classic accumulation signature: buyers stepping in harder than
+    sellers while the range builds, not just quiet drift
   - this week's close broke out above that range's high
   - the breakout candle closed properly (small upper wick) on strong volume
 """
@@ -11,7 +15,15 @@ from __future__ import annotations
 import pandas as pd
 
 from signals import config
-from signals.indicators import add_avg_volume, add_sma, is_above_sma, is_proper_close, is_volume_candle
+from signals.indicators import (
+    add_avg_volume,
+    add_sma,
+    is_above_sma,
+    is_accumulation_range,
+    is_proper_close,
+    is_sma_rising,
+    is_volume_candle,
+)
 from signals.models import Signal
 
 VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
@@ -34,6 +46,8 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
         if not is_above_sma(row, f"sma{config.SMA_LONG}"):
             continue
+        if not is_sma_rising(df, f"sma{config.SMA_LONG}"):
+            continue  # price sitting above a flat/falling 200 SMA isn't a real uptrend
 
         prior = df.iloc[-1 - window : -1]
         range_high = float(prior["high"].max())
@@ -42,6 +56,8 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
         if (range_high - range_low) / range_low > config.BREAKOUT_RANGE_TIGHTNESS:
             continue  # prior weeks weren't a tight enough consolidation
+        if not is_accumulation_range(prior):
+            continue  # sellers outweighed buyers during the range - not accumulation
 
         if not row["close"] > range_high:
             continue

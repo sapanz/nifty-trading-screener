@@ -23,13 +23,22 @@ def _ramp_then_flat_df(
 
 
 class TestWeeklyBreakout:
+    def _tight_accumulation_range(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Overwrite the trailing BREAKOUT_RANGE_WEEKS rows into a tight,
+        green-candle-dominated range (open < close throughout) so the
+        accumulation check (more volume on up candles than down ones)
+        passes trivially."""
+        for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
+            idx = -i
+            df.iloc[idx, df.columns.get_loc("open")] = 199.0
+            df.iloc[idx, df.columns.get_loc("high")] = 202.0
+            df.iloc[idx, df.columns.get_loc("low")] = 198.0
+            df.iloc[idx, df.columns.get_loc("close")] = 200.0
+        return df
+
     def test_detects_range_breakout_with_volume(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
-        # tighten the consolidation range explicitly
-        for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
-            df.iloc[-i, df.columns.get_loc("high")] = 202.0
-            df.iloc[-i, df.columns.get_loc("low")] = 198.0
-            df.iloc[-i, df.columns.get_loc("close")] = 200.0
+        df = self._tight_accumulation_range(df)
 
         breakout_row = pd.DataFrame(
             {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
@@ -53,6 +62,49 @@ class TestWeeklyBreakout:
             df.iloc[-i, df.columns.get_loc("low")] = 198.0
         breakout_row = pd.DataFrame(
             {"open": [260.0], "high": [280.0], "low": [259.0], "close": [279.0], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_200sma_not_rising(self):
+        # a long, almost-flat history (bulk of the 200-week window sits just
+        # above the eventual range) followed by the same tight range and
+        # breakout as the passing test - price ends up above its 200 SMA,
+        # but the SMA itself is essentially flat/declining into the
+        # breakout, not a real uptrend.
+        margin = config.SMA_SLOPE_LOOKBACK + 20
+        n_bulk = config.SMA_LONG + config.BREAKOUT_RANGE_WEEKS + margin
+        dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_bulk, freq="W-FRI")
+        df = pd.DataFrame({"close": [202.0] * n_bulk}, index=dates)
+        df["open"] = df["close"]
+        df["high"] = df["close"] * 1.005
+        df["low"] = df["close"] * 0.995
+        df["volume"] = 100_000.0
+        df = self._tight_accumulation_range(df)
+        breakout_row = pd.DataFrame(
+            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_range_is_distribution_not_accumulation(self):
+        # same tight range as the passing test, but every range candle is
+        # red (open > close) with real volume behind it - sellers, not
+        # buyers, were in control while the range built.
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
+        for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
+            idx = -i
+            df.iloc[idx, df.columns.get_loc("open")] = 201.0
+            df.iloc[idx, df.columns.get_loc("high")] = 202.0
+            df.iloc[idx, df.columns.get_loc("low")] = 198.0
+            df.iloc[idx, df.columns.get_loc("close")] = 199.0
+            df.iloc[idx, df.columns.get_loc("volume")] = 150_000.0
+        breakout_row = pd.DataFrame(
+            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
             index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
         df = pd.concat([df, breakout_row])
