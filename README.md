@@ -174,14 +174,17 @@ them there rather than in the strategy code.
   itself sitting at a fresh new high, then breaking out of that box on
   volume. The box is variable-length, not a single fixed window: the
   strategy searches backward for the shortest qualifying box between
-  `DARVAS_WEEKLY_BOX_MIN_WEEKS` (3) and `DARVAS_WEEKLY_BOX_MAX_WEEKS` (15)
+  `DARVAS_WEEKLY_BOX_MIN_WEEKS` (6) and `DARVAS_WEEKLY_BOX_MAX_WEEKS` (20)
   immediately before today whose range is within
-  `DARVAS_WEEKLY_BOX_TIGHTNESS` (12%) and whose top is itself a fresh
+  `DARVAS_WEEKLY_BOX_TIGHTNESS` (8%) and whose top is itself a fresh
   `DARVAS_WEEKLY_NEW_HIGH_LOOKBACK` (52-week) high (within
   `DARVAS_WEEKLY_NEW_HIGH_TOLERANCE`) - a box that isn't sitting at a new
   high isn't a genuine Darvas box. Today's candle must then close above
   the box top on volume, with a proper close. (Replaces CIP, a
-  resistance-zone/retest strategy that ran here before; see git history.)
+  resistance-zone/retest strategy that ran here before; see git history. A
+  first backtest at looser settings - 3-15 week boxes, 12% tightness -
+  came out at CIP's old parity on a thin sample; the box was widened and
+  tightened per the reasoning in `signals/config.py`.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.

@@ -50,11 +50,21 @@ RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 # backward for the shortest qualifying box between
 # DARVAS_WEEKLY_BOX_MIN_WEEKS and DARVAS_WEEKLY_BOX_MAX_WEEKS immediately
 # before today, rather than assuming a single fixed window.
+#
+# A first backtest (3-15 week boxes, 12% tightness) came out roughly at
+# CIP's old parity (32% win rate, PF 0.89) on a thin, mostly-still-open
+# sample (41 of 76 decided, 77d avg hold). Per explicit direction, widened
+# the search range (MIN_WEEKS 3->6, so a box has to prove itself over at
+# least as long as Weekly Range Breakout's own 6-week window, and MAX_WEEKS
+# 15->20 to let genuinely longer consolidations still qualify) while
+# tightening the box itself (TIGHTNESS 12%->8%) - fewer, better-formed
+# boxes, on the theory that a longer proof period plus a tighter range
+# should mean a higher-conviction breakout.
 DARVAS_WEEKLY_NEW_HIGH_LOOKBACK = 52        # ~52 weeks: the box's top must be a new high over this many weekly candles
 DARVAS_WEEKLY_NEW_HIGH_TOLERANCE = 0.02     # how much the box top may sit below the actual 52-week high and still count as "new"
-DARVAS_WEEKLY_BOX_MIN_WEEKS = 3             # minimum consecutive weeks price must hold inside the box to confirm it
-DARVAS_WEEKLY_BOX_MAX_WEEKS = 15            # give up looking for a box for a given peak after this many weeks
-DARVAS_WEEKLY_BOX_TIGHTNESS = 0.12          # (box_top - box_bottom) / box_bottom must be <= 12%
+DARVAS_WEEKLY_BOX_MIN_WEEKS = 6             # minimum consecutive weeks price must hold inside the box to confirm it
+DARVAS_WEEKLY_BOX_MAX_WEEKS = 20            # give up looking for a box for a given peak after this many weeks
+DARVAS_WEEKLY_BOX_TIGHTNESS = 0.08          # (box_top - box_bottom) / box_bottom must be <= 8%
 DARVAS_WEEKLY_VOLUME_MULTIPLIER = 1.5       # breakout candle's volume vs its trailing average
 DARVAS_WEEKLY_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 

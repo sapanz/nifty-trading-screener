@@ -61,7 +61,7 @@ class TestWeeklyBreakout:
 
 
 def _darvas_weekly_setup_df(
-    ramp_periods: int = 400, box_weeks: int = 3, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
+    ramp_periods: int = 400, box_weeks: int = 6, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
 ) -> pd.DataFrame:
     """Ramp up towards 200 (never quite reaching it, so it stays this
     stock's 52-week high), hold a tight box for `box_weeks`, then break out
