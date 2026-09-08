@@ -8,6 +8,9 @@ A stock qualifies when, on the monthly timeframe:
 Each result also reports how long (in months) the stock spent below its
 old high before finally breaking out, and the list is sorted with the
 longest-dormant breakouts first - those tend to be the most explosive.
+A breakout within MONTHLY_MIN_GAP_MONTHS of the prior all-time high is
+excluded entirely - too soon after the old high to be a genuine breakout
+out of a real base, not just short-term noise.
 """
 from __future__ import annotations
 
@@ -55,6 +58,8 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         current_date = df.index[-1]
         months_gap = (current_date.year - ath_date.year) * 12 + (current_date.month - ath_date.month)
+        if months_gap <= config.MONTHLY_MIN_GAP_MONTHS:
+            continue  # too soon after the old high - noise, not a genuine breakout
 
         entry = float(row["close"])
         stop_loss = float(ath_prior * (1 - config.SL_BUFFER))

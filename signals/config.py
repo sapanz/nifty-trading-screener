@@ -100,6 +100,15 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
+# Minimum months a stock must have spent below its old all-time high before
+# a fresh breakout counts as a signal. Found by inspecting a 5-year
+# backtest's trade CSV directly: months_gap correlates positively and
+# almost monotonically with performance - a breakout only 1-2 months after
+# the last ATH is still noisy/choppy, not a genuine fresh breakout out of a
+# real base. Requiring months_gap > 3 moved a 5-year backtest from
+# PF 1.42 (1510 trades) to PF 1.66 (530 trades).
+MONTHLY_MIN_GAP_MONTHS = 3
+
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

@@ -273,3 +273,19 @@ class TestMonthlyBreakout:
         df = self._monthly_df()
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
+
+    def test_no_signal_when_breakout_too_soon_after_ath(self):
+        # the prior ATH is set just one month before the breakout - too
+        # soon to be a genuine breakout out of a real base (noise, per
+        # MONTHLY_MIN_GAP_MONTHS).
+        df = self._monthly_df(months=20)
+        old_ath = df["close"].iloc[:-2].max()
+        new_ath = old_ath * 1.05
+        df.iloc[-2, df.columns.get_loc("close")] = new_ath
+        df.iloc[-2, df.columns.get_loc("high")] = new_ath * 1.01
+        df.iloc[-1, df.columns.get_loc("close")] = new_ath * 1.10
+        df.iloc[-1, df.columns.get_loc("high")] = new_ath * 1.11
+        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
+
+        signals = monthly_breakout.scan({"TESTCO": df})
+        assert signals == []
