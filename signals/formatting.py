@@ -28,6 +28,12 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
             lines.append(f"   {_fmt_targets(sig.targets)}")
         if sig.note:
             lines.append(f"   <i>{html.escape(sig.note)}</i>")
+        # The candle that actually qualified this signal isn't always the
+        # same calendar day the screener ran on (a stale/delayed fetch, or
+        # a run landing very late) - flag it explicitly rather than let
+        # that gap hide behind the header's run date.
+        if sig.candle_date is not None and sig.candle_date != run_date:
+            lines.append(f"   ⚠️ Candle date: {sig.candle_date.strftime('%d %b %Y')} (not today)")
     return "\n".join(lines)
 
 

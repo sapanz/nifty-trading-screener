@@ -81,6 +81,7 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 targets=targets,
                 sort_key=-gap,  # tightest SMA44/lower-BB confluence first
                 note=f"SMA44 {sma_swing_val:.2f} / LowerBB {bb_lower_val:.2f}",
+                candle_date=row.name.date(),
             )
         )
 

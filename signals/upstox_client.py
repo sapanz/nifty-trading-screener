@@ -38,12 +38,13 @@ import gzip
 import io
 import logging
 import time
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 import requests
 
 from signals import config
+from signals.calendar_utils import ist_today
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class UpstoxClient:
         return self._get_history_v3(instrument_key, "months", 1, years)
 
     def _get_history(self, instrument_key: str, interval: str, years: int) -> pd.DataFrame:
-        today = date.today()
+        today = ist_today()
         from_date = today - timedelta(days=365 * years)
         url = (
             f"{config.UPSTOX_BASE_URL}/historical-candle/"
@@ -168,7 +169,7 @@ class UpstoxClient:
         which addresses interval as a separate {unit}/{interval} pair
         (e.g. weeks/1, months/1) rather than v2's single day-only segment.
         """
-        today = date.today()
+        today = ist_today()
         from_date = today - timedelta(days=365 * years)
         url = (
             f"{config.UPSTOX_BASE_URL_V3}/historical-candle/"

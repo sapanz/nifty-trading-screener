@@ -57,6 +57,7 @@ class TestWeeklyBreakout:
         # Stop-loss is anchored to the breakout level itself (range_high),
         # not the bottom of the consolidation range.
         assert sig.stop_loss == round(200.0 * (1 - config.SL_BUFFER), 2)
+        assert sig.candle_date == df.index[-1].date()
 
     def test_no_signal_when_breakout_extension_too_small(self):
         # closes barely above the range (well under BREAKOUT_MIN_EXTENSION)
@@ -218,6 +219,10 @@ class TestDailySwing:
         row, prev_row = df.iloc[-1], df.iloc[-2]
         assert sig.entry == round(float(row["high"]), 2)
         assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+        # candle_date is the actual date of the signal candle, not "today" -
+        # scan() has no notion of "today" at all, only whatever the caller
+        # handed it as the last row.
+        assert sig.candle_date == row.name.date()
 
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify
@@ -256,6 +261,7 @@ class TestMonthlyBreakout:
         sig = signals[0]
         assert sig.extra["months_gap"] == len(df) - 1 - ath_month_idx
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert sig.candle_date == df.index[-1].date()
 
     def test_sorted_biggest_gap_first(self):
         df_a = self._monthly_df(months=36)

@@ -18,7 +18,6 @@ UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
 """
 import os
 import sys
-from datetime import date
 
 # Allow running as `python scripts/run_signals.py` from anywhere (CI or
 # local) without needing PYTHONPATH set - Python only searches this
@@ -27,7 +26,7 @@ from datetime import date
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from signals import data, runtime, universe  # noqa: E402
-from signals.calendar_utils import is_last_trading_day_of_month
+from signals.calendar_utils import ist_today, is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
@@ -44,7 +43,9 @@ FETCH_EMOJI = "⚠️"
 
 def main() -> None:
     runtime.setup_logging()
-    today = date.today()
+    # IST, not the runner's local time (UTC on GitHub Actions) - see
+    # calendar_utils.ist_today's docstring for why this matters here.
+    today = ist_today()
 
     try:
         client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
