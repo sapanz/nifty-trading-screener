@@ -15,12 +15,30 @@ SMA_LONG = 200          # "above 200 SMA" trend filter used by every strategy
 MAX_UPPER_WICK_RATIO = 0.25  # (high - close) / (high - low) must be <= this
 
 # --- Volume candle ---------------------------------------------------------
-# Both remaining strategies (weekly breakout, monthly ATH breakout) gate on
-# volume.
+# Weekly breakout and monthly ATH breakout gate on volume; daily swing
+# doesn't (it gates on the SMA44/lower-BB confluence instead).
 VOLUME_LOOKBACK = 20
 WEEKLY_VOLUME_MULTIPLIER = 1.3
 MONTHLY_VOLUME_LOOKBACK = 12
 MONTHLY_VOLUME_MULTIPLIER = 1.3
+
+# --- Support tests (price testing a moving average from above) ----------
+# The candle's low is allowed to dip this much *above* the MA and still
+# count as "taking support" (it does not need to touch the MA exactly).
+DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
+
+# The 44 SMA being tested for support must itself be rising (trending up),
+# not flat or falling - compares its current value against this many
+# periods back. The 200 SMA has no such requirement: price just needs to
+# be above it, trend can be sideways or rising.
+SMA_SLOPE_LOOKBACK = 3
+
+# --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
+SMA_SWING = 44
+BOLLINGER_PERIOD = 20
+BOLLINGER_STD = 2
+CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
+RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
 # --- CIP (Change In Polarity), weekly only --------------------------------
 # An old resistance *zone* - validated by multiple distinct swing-high
@@ -44,12 +62,13 @@ CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a ca
 CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
 CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
 
-# A daily-timeframe "Daily Swing" strategy used to run here (Darvas Box,
-# then Darvas + CANSLIM, then SMA-30 support, then Accumulation Spring's
-# Wyckoff base/breakout/retest, then a "pocket pivot" volume-anomaly
-# entry). None of the five variants showed positive expectancy over a
-# 12-month backtest - the slot was retired rather than tuned further; see
-# git history if reviving daily-timeframe signals is worth trying again.
+# Five other "Daily Swing" variants were tried and dropped in this slot
+# before landing back on the original SMA44/lower-BB confluence version
+# above (Darvas Box, Darvas + CANSLIM, SMA-30 support in ATH stocks,
+# Accumulation Spring's Wyckoff base/breakout/retest under both a fixed
+# target and a trailing stop, and a "pocket pivot" volume-anomaly entry)
+# - none showed positive expectancy over a 12-month backtest; see git
+# history for that tuning trail.
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle

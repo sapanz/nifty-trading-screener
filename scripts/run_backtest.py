@@ -33,6 +33,7 @@ FETCH_TITLE = "Backtest (data fetch)"
 FETCH_EMOJI = "🧪"
 
 STRATEGY_LABELS = {
+    "daily_swing": ("Daily Swing (SMA44/BB Confluence)", "📈"),
     "cip_weekly": ("CIP Weekly", "🔄"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),

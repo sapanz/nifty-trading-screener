@@ -2,12 +2,10 @@ name: Nifty500 Signals
 
 on:
   schedule:
-    # 11:30 UTC = 5:00pm IST, Monday-Friday. There's no daily-timeframe
-    # strategy anymore (see signals/config.py), so most weekday runs have
-    # nothing to do - the "Check if today needs a run" step below skips
-    # the expensive login/fetch steps on every day that isn't Friday
-    # (weekly strategies) or month-end (monthly), rather than trying to
-    # encode "last trading day of the month" in cron itself.
+    # 11:30 UTC = 5:00pm IST, Monday-Friday.
+    # scripts/run_signals.py decides internally whether to also run the
+    # weekly strategies (Fridays) and/or the monthly ATH breakout (last
+    # trading day of the month) - one workflow, one Upstox fetch per day.
     - cron: "30 11 * * 1-5"
   workflow_dispatch:
     inputs:
@@ -36,25 +34,10 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Check if today needs a run (Friday or month-end)
-        id: gate
-        run: |
-          python -c "
-          import os
-          from datetime import date
-          from signals.calendar_utils import is_last_trading_day_of_month
-          today = date.today()
-          should_run = today.weekday() == 4 or is_last_trading_day_of_month(today)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              print(f'should_run={str(should_run).lower()}', file=f)
-          "
-
       - name: Install Playwright's Chromium (for automated Upstox login)
-        if: steps.gate.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         run: playwright install --with-deps chromium
 
       - name: Log in to Upstox (TOTP)
-        if: steps.gate.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         env:
           UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
           UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
@@ -77,7 +60,6 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run Nifty500 signal screeners
-        if: steps.gate.outputs.should_run == 'true' || inputs.force_weekly || inputs.force_monthly
         env:
           # UPSTOX_ACCESS_TOKEN is already in the job environment here,
           # written by the login step above via $GITHUB_ENV.

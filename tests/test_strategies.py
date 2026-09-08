@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import cip_weekly, monthly_breakout, weekly_breakout
+from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -153,6 +153,55 @@ class TestCipWeekly:
             level = 200.0 if pos == peak_pos else 190.0
             df.loc[idx, ["open", "high", "low", "close"]] = [level, level * 1.005, level * 0.995, level]
         signals = cip_weekly.scan({"TESTCO": df})
+        assert signals == []
+
+
+def _append_support_row(df: pd.DataFrame, sma_period: int, freq_offset, low_mult=0.995, close_mult=1.008, high_mult=1.01) -> pd.DataFrame:
+    """Append a support-test candle anchored to the trailing SMA rather than
+    the last close - with a drifting series the two diverge, and a support
+    test is defined relative to the SMA, not the most recent price."""
+    anchor = df["close"].tail(sma_period - 1).mean()
+    support_row = pd.DataFrame(
+        {
+            "open": [anchor],
+            "high": [anchor * high_mult],
+            "low": [anchor * low_mult],
+            "close": [anchor * close_mult],
+            "volume": [100_000.0],
+        },
+        index=[df.index[-1] + freq_offset],
+    )
+    return pd.concat([df, support_row])
+
+
+class TestDailySwing:
+    def test_detects_confluence_support(self):
+        # gentle continued drift (not dead-flat) so the 44 SMA is clearly
+        # rising; small enough not to blow out the SMA44/lower-BB confluence
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+
+        signals = daily_swing.scan({"TESTCO": df})
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+
+        # Entry is the signal candle's high; stop-loss is the lower of the
+        # signal candle's own low and the previous candle's low.
+        row, prev_row = df.iloc[-1], df.iloc[-2]
+        assert sig.entry == round(float(row["high"]), 2)
+        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+
+    def test_no_signal_below_long_term_trend(self):
+        # downtrend -> close is below its own 200 SMA, should never qualify
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_sma44_declining(self):
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+        signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
 
 

@@ -30,7 +30,7 @@ import pandas as pd
 
 from signals import data
 from signals.models import Signal
-from signals.strategies import cip_weekly, monthly_breakout, weekly_breakout
+from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -131,10 +131,15 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
     monthly_data = data.to_monthly(daily_data)
 
     results: dict[str, list[TradeResult]] = {
+        "daily_swing": [],
         "cip_weekly": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
+
+    for asof in _dates_in_window(daily_data, start, end):
+        for signal in daily_swing.scan(_scan_as_of(daily_data, asof)):
+            results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(weekly_data, start, end):
         sliced = _scan_as_of(weekly_data, asof)
