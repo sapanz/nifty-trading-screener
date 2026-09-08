@@ -6,7 +6,7 @@ levels to Telegram, on a schedule, for three strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA, price tests support at the 44 SMA, and the 44 SMA sits right on top of the lower Bollinger Band |
-| **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 50 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range, proper close, volume candle |
+| **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
 No manual judgement calls at run time — every "properly closed candle" /

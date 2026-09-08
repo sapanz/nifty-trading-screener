@@ -62,8 +62,10 @@ BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be 
 # 200 SMA is a pure "above it" long-term filter (no slope requirement - a
 # 200-week SMA moves too slowly for a rising check to mean much and just
 # shrinks the candidate pool for no real signal). The actual trend check is
-# this faster 50-week SMA, which must itself be rising.
-BREAKOUT_TREND_SMA = 50
+# this faster 30-week SMA, which must itself be rising. (50-week was tried
+# and came back worse than no trend filter at all - PF 0.87 vs 0.91 - see
+# git history; 30-week at least matched baseline while cutting more noise.)
+BREAKOUT_TREND_SMA = 30
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
