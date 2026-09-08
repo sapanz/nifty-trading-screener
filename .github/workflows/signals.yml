@@ -2,11 +2,21 @@ name: Nifty500 Signals
 
 on:
   schedule:
-    # 11:30 UTC = 5:00pm IST, Monday-Friday.
+    # 11:37 UTC = 5:07pm IST, Monday-Friday. Deliberately an odd minute
+    # rather than the round 11:30 this used to be - GitHub Actions runs
+    # scheduled (cron) triggers on a best-effort basis, and a popular
+    # on-the-hour/half-hour minute (like :30) gets queued behind every
+    # other repo's cron jobs targeting the same instant, which showed up
+    # live as 3-5 hour delivery delays (5pm IST scheduled, signals arriving
+    # 8-10pm IST). An off-peak minute doesn't guarantee on-time delivery -
+    # GitHub gives no SLA on scheduled triggers - but empirically clears
+    # much of that queue contention. Either way this is always safely
+    # after 4pm IST even with zero delay, since delay only ever pushes a
+    # run later, never earlier.
     # scripts/run_signals.py decides internally whether to also run the
     # weekly strategies (Fridays) and/or the monthly ATH breakout (last
     # trading day of the month) - one workflow, one Upstox fetch per day.
-    - cron: "30 11 * * 1-5"
+    - cron: "37 11 * * 1-5"
   workflow_dispatch:
     inputs:
       force_weekly:
