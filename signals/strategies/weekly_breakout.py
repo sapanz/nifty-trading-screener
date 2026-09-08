@@ -3,7 +3,7 @@
 A stock qualifies when, on the weekly timeframe:
   - it is above its 200-period SMA (long-term uptrend; the 200 SMA itself
     can be flat or rising, only price needs to be above it)
-  - its 30-period SMA is itself rising (a real, faster-moving uptrend, not
+  - its 50-period SMA is itself rising (a real, faster-moving uptrend, not
     just sideways drift the price happens to sit above)
   - the preceding N weeks formed a tight consolidation range, with more
     volume on the range's up (green) candles than its down (red) ones -
@@ -50,7 +50,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if not is_above_sma(row, f"sma{config.SMA_LONG}"):
             continue
         if not is_sma_rising(df, f"sma{config.BREAKOUT_TREND_SMA}"):
-            continue  # 30 SMA must be trending up - a real uptrend, not just above a flat 200 SMA
+            continue  # 50 SMA must be trending up - a real uptrend, not just above a flat 200 SMA
 
         prior = df.iloc[-1 - window : -1]
         range_high = float(prior["high"].max())

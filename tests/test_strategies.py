@@ -68,10 +68,10 @@ class TestWeeklyBreakout:
         signals = weekly_breakout.scan({"TESTCO": df})
         assert signals == []
 
-    def test_signal_fires_with_flat_200sma_but_rising_30sma(self):
+    def test_signal_fires_with_flat_200sma_but_rising_50sma(self):
         # a long flat base (dominates the 200 SMA, keeping it essentially
         # flat) followed by a rising run into the range - price is above a
-        # flat 200 SMA (fine, no slope required there) and the faster 30
+        # flat 200 SMA (fine, no slope required there) and the faster 50
         # SMA is genuinely rising, so the signal should still fire.
         n_flat = config.SMA_LONG
         ramp_weeks = 24
@@ -96,9 +96,9 @@ class TestWeeklyBreakout:
         signals = weekly_breakout.scan({"TESTCO": df})
         assert len(signals) == 1
 
-    def test_no_signal_when_30sma_not_rising(self):
+    def test_no_signal_when_50sma_not_rising(self):
         # price sits above a flat 200 SMA, but there was no recent run-up -
-        # the faster 30 SMA is flat too, not a real uptrend.
+        # the faster 50 SMA is flat too, not a real uptrend.
         margin = config.SMA_SLOPE_LOOKBACK + 20
         n_bulk = config.SMA_LONG + config.BREAKOUT_RANGE_WEEKS + margin
         dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_bulk, freq="W-FRI")
