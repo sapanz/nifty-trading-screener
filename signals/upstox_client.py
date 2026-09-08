@@ -1,4 +1,5 @@
-"""Thin wrapper around the Upstox v2 market-data HTTP API.
+"""Thin wrapper around the Upstox market-data HTTP API (v2 for the
+instrument master, v3 for historical candles).
 
 Two things this module deals with that are easy to get wrong:
 
@@ -12,19 +13,24 @@ Two things this module deals with that are easy to get wrong:
    for the one-tap daily refresh flow - this module never tries to mint
    or refresh one itself.
 
-The "day" interval is fetched once per run for Daily Swing. Weekly Range
-Breakout and Monthly ATH Breakout each fetch their own native interval
-directly (get_weekly_history / get_monthly_history) rather than
-resampling the daily fetch: monthly needs a much deeper lookback to find
-a genuine all-time high (the daily-history cap is nowhere near enough),
-and weekly wants candles that match what Upstox itself considers "the
-week's" OHLCV rather than a pandas resample of daily bars. Both only run
-on the day their strategy actually fires (once a week / once a month),
-so the extra fetch isn't paid on every run.
+All three history fetches (get_daily_history / get_weekly_history /
+get_monthly_history) now go through the v3 endpoint (_get_history_v3),
+which addresses interval as a separate {unit}/{multiple} pair
+(days/1, weeks/1, months/1) rather than v2's single day-only interval
+segment - v2's historical-candle endpoint 400s on anything but "day".
+_get_history (the original v2 path) is kept around for get_daily_history
+specifically, in case v3 turns out not to be worth it there; see that
+method's docstring. Weekly Range Breakout and Monthly ATH Breakout each
+fetch their own interval directly rather than resampling the daily
+fetch: monthly needs a much deeper lookback to find a genuine all-time
+high, and weekly wants candles that match what Upstox itself considers
+"the week's" OHLCV rather than a pandas resample of daily bars. Both
+only run on the day their strategy actually fires (once a week / once a
+month), so the extra fetch isn't paid on every run.
 
 Upstox's API has changed shape before; if historical-candle requests start
 failing with 4xx errors, check developer.upstox.com and adjust the URL
-building in ``get_daily_history`` accordingly.
+building in ``_get_history`` / ``_get_history_v3`` accordingly.
 """
 from __future__ import annotations
 
@@ -101,8 +107,18 @@ class UpstoxClient:
 
         Returns a DataFrame indexed by date, sorted oldest -> newest, with
         columns open/high/low/close/volume.
+
+        Uses the v3 endpoint (like get_weekly_history/get_monthly_history),
+        not the v2 "day" interval this used previously. The weekly native
+        fetch came back with a meaningfully worse backtest than the old
+        resampled-from-daily version, raising the question of whether v2
+        and v3 simply return different candle data in general (not just a
+        week/month-interval availability difference) - trying v3 here too
+        to see whether it changes Daily Swing's numbers, which have been
+        stable throughout this session's tuning. _get_history (v2) is left
+        in place below for an easy revert if this doesn't hold up.
         """
-        return self._get_history(instrument_key, "day", years)
+        return self._get_history_v3(instrument_key, "days", 1, years)
 
     def get_weekly_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch weekly OHLCV candles for one instrument, aggregated by
@@ -116,10 +132,10 @@ class UpstoxClient:
         a pandas resample of daily bars that may draw week boundaries
         slightly differently.
 
-        v2's historical-candle endpoint (used by get_daily_history) only
-        accepts "day" as an interval - "week" and "month" 400 there. This
-        uses the v3 endpoint instead, which takes the interval as a
-        separate unit/multiple pair (see _get_history_v3).
+        v2's historical-candle endpoint only accepts "day" as an interval -
+        "week" and "month" 400 there. This uses the v3 endpoint instead,
+        which takes the interval as a separate unit/multiple pair (see
+        _get_history_v3).
         """
         return self._get_history_v3(instrument_key, "weeks", 1, years)
 
