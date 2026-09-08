@@ -167,7 +167,7 @@ them there rather than in the strategy code.
   base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
   and dropped without beating this original version; see git history.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
-  must have a high-low range within 25% of the range low, i.e. a genuine
+  must have a high-low range within 20% of the range low, i.e. a genuine
   consolidation, not just drift. (This is currently the only weekly
   strategy: CIP, a resistance-zone/retest strategy, and Weekly Darvas Box,
   a variable-length box-then-breakout strategy, both ran in this slot
