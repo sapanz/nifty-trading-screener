@@ -40,10 +40,7 @@ class TestWeeklyBreakout:
         signals = weekly_breakout.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.stop_loss < sig.entry
-        # No fixed target - the trade trails on a close below its own SMA
-        # instead (see backtest.simulate_weekly_trailing_sma).
-        assert sig.targets == []
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
         # Stop-loss is anchored to the breakout level itself (range_high),
         # not the bottom of the consolidation range.

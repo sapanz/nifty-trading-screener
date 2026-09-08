@@ -5,17 +5,6 @@ A stock qualifies when, on the weekly timeframe:
   - the preceding N weeks formed a tight consolidation range
   - this week's close broke out above that range's high
   - the breakout candle closed properly (small upper wick) on strong volume
-
-Entry is the breakout candle's close; the initial stop-loss is anchored
-to the breakout level itself (old resistance becomes new support). There
-is no fixed profit target: a 12-month backtest with fixed 1x/2x
-measured-move targets came back at breakeven before costs and net-losing
-after them, and widening the second target changed nothing (simulate_forward
-exits at the first target touched either way - a fixed target list can't
-let a winner run past the nearest one). Instead, once the trade is
-running, it's held as long as the weekly close stays above its own
-BREAKOUT_TRAIL_SMA-week SMA - a classic Weinstein/Minervini-style trend
-trail - and exits the week the close falls back below it.
 """
 from __future__ import annotations
 
@@ -71,6 +60,8 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if risk <= 0:
             continue
 
+        range_height = range_high - range_low
+        targets = [round(range_high + range_height * mult, 2) for mult in config.BREAKOUT_RANGE_MULTIPLES]
         vol_ratio = float(row["volume"] / row[VOL_COL])
 
         signals.append(
@@ -78,12 +69,9 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 symbol=symbol,
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
-                targets=[],  # no fixed target - trails on a close below its own SMA (see backtest.simulate_weekly_trailing_sma)
+                targets=targets,
                 sort_key=vol_ratio,
-                note=(
-                    f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w) | "
-                    f"trail until close < {config.BREAKOUT_TRAIL_SMA}-week SMA"
-                ),
+                note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
             )
         )
 
