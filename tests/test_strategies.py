@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_darvas
 
 
 def _ramp_then_flat_df(
@@ -60,99 +60,55 @@ class TestWeeklyBreakout:
         assert signals == []
 
 
-def _cip_setup_df(
-    freq: str, step: pd.Timedelta, touch_lookback: int, resistance: float = 200.0, ramp_periods: int = 400, gap_periods: int = 3
+def _darvas_weekly_setup_df(
+    ramp_periods: int = 400, box_weeks: int = 3, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
 ) -> pd.DataFrame:
-    """Ramp up towards `resistance`, then alternate peak/pullback candles
-    at that level for `touch_lookback` periods - each
-    peak a confirmed, distinct swing-high test of the resistance *zone*
-    (a flat run has no local maxima at all, so this has to actually
-    oscillate to produce real touches) - break out above it on high
-    volume, drift for a few periods, then close with a bullish candle that
-    dips back to the old zone and holds it as new support (the "change in
-    polarity")."""
-    df = _ramp_then_flat_df(freq, ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=resistance)
+    """Ramp up towards 200 (never quite reaching it, so it stays this
+    stock's 52-week high), hold a tight box for `box_weeks`, then break out
+    above the box top on strong volume."""
+    df = _ramp_then_flat_df("W-FRI", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=200)
 
-    for i in range(touch_lookback):
-        level = resistance if i % 2 == 0 else resistance * 0.95
-        touch_row = pd.DataFrame(
-            {"open": [level], "high": [level * 1.005], "low": [level * 0.995], "close": [level], "volume": [100_000.0]},
-            index=[df.index[-1] + step],
+    for _ in range(box_weeks):
+        box_row = pd.DataFrame(
+            {"open": [199.0], "high": [box_top], "low": [box_bottom], "close": [199.0], "volume": [100_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
-        df = pd.concat([df, touch_row])
+        df = pd.concat([df, box_row])
 
-    breakout_close = resistance * 1.045
     breakout_row = pd.DataFrame(
-        {"open": [resistance * 1.005], "high": [resistance * 1.05], "low": [resistance], "close": [breakout_close], "volume": [500_000.0]},
-        index=[df.index[-1] + step],
+        {"open": [box_top], "high": [breakout_close * 1.01], "low": [box_top], "close": [breakout_close], "volume": [500_000.0]},
+        index=[df.index[-1] + pd.Timedelta(weeks=1)],
     )
     df = pd.concat([df, breakout_row])
-
-    for i in range(1, gap_periods + 1):
-        gap_close = breakout_close - i * (resistance * 0.01)
-        gap_row = pd.DataFrame(
-            {"open": [gap_close * 1.005], "high": [gap_close * 1.01], "low": [gap_close * 0.995], "close": [gap_close], "volume": [100_000.0]},
-            index=[df.index[-1] + step],
-        )
-        df = pd.concat([df, gap_row])
-
-    retest_row = pd.DataFrame(
-        {"open": [resistance * 1.005], "high": [resistance * 1.025], "low": [resistance * 0.998], "close": [resistance * 1.02], "volume": [100_000.0]},
-        index=[df.index[-1] + step],
-    )
-    df = pd.concat([df, retest_row])
     return df
 
 
-def _scramble_touch_block(df: pd.DataFrame, touch_lookback: int, gap_periods: int = 3) -> pd.DataFrame:
-    """Spread the resistance "touch" block's levels >5% apart, strictly
-    increasing, so none of them are confirmed swing-high peaks (each is
-    immediately topped by the next) and none cluster within
-    CIP_ZONE_TOLERANCE of each other either - i.e. no genuine,
-    repeatedly-tested resistance zone ever forms."""
-    tail_len = gap_periods + 2  # breakout + gap rows + retest
-    flat_idx = df.index[-(tail_len + touch_lookback) : -tail_len]
-    level = 100.0
-    for idx in flat_idx:
-        level *= 1.05
-        df.loc[idx, ["open", "high", "low", "close"]] = [level, level * 1.005, level * 0.995, level]
-    return df
-
-
-class TestCipWeekly:
-    def test_detects_polarity_flip(self):
-        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
-        signals = cip_weekly.scan({"TESTCO": df})
+class TestWeeklyDarvas:
+    def test_detects_darvas_box_breakout(self):
+        df = _darvas_weekly_setup_df()
+        signals = weekly_darvas.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Entry is the retest candle's high; stop-loss is the lower of the
-        # retest candle's own low and the previous candle's low.
-        row, prev_row = df.iloc[-1], df.iloc[-2]
-        assert sig.entry == round(float(row["high"]), 2)
-        assert sig.stop_loss == round(float(min(row["low"], prev_row["low"])), 2)
+        # Entry is the breakout candle's close; stop-loss sits just below
+        # the box bottom.
+        assert sig.entry == 210.0
+        assert sig.stop_loss == round(197.0 * (1 - config.SL_BUFFER), 2)
 
-    def test_no_signal_with_zero_zone_points(self):
-        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), config.CIP_WEEKLY_TOUCH_LOOKBACK)
-        df = _scramble_touch_block(df, config.CIP_WEEKLY_TOUCH_LOOKBACK)
-        signals = cip_weekly.scan({"TESTCO": df})
+    def test_no_signal_when_box_too_wide(self):
+        df = _darvas_weekly_setup_df(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
+        signals = weekly_darvas.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_with_only_one_zone_point(self):
-        touch_lookback = config.CIP_WEEKLY_TOUCH_LOOKBACK
-        gap_periods = 3
-        df = _cip_setup_df("W-FRI", pd.Timedelta(weeks=1), touch_lookback, gap_periods=gap_periods)
-        tail_len = gap_periods + 2
-        touch_idx = df.index[-(tail_len + touch_lookback) : -tail_len]
-        # Collapse every touch to a pullback level except one lone peak in
-        # the middle - a single confirmed swing-high isn't a "zone" on its
-        # own; CIP_WEEKLY_MIN_ZONE_POINTS=2 needs at least one more.
-        peak_pos = len(touch_idx) // 2
-        for pos, idx in enumerate(touch_idx):
-            level = 200.0 if pos == peak_pos else 190.0
-            df.loc[idx, ["open", "high", "low", "close"]] = [level, level * 1.005, level * 0.995, level]
-        signals = cip_weekly.scan({"TESTCO": df})
+    def test_no_signal_when_box_top_not_a_fresh_high(self):
+        df = _darvas_weekly_setup_df()
+        # A spike well above the box top (300 vs 201), placed within the
+        # 52-week new-high lookback before the box - the box didn't
+        # actually form at a genuine new high.
+        spike_idx = df.index[350]
+        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
+        signals = weekly_darvas.scan({"TESTCO": df})
         assert signals == []
 
 

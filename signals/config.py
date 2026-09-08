@@ -40,27 +40,23 @@ BOLLINGER_STD = 2
 CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
 RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
-# --- CIP (Change In Polarity), weekly only --------------------------------
-# An old resistance *zone* - validated by multiple distinct swing-high
-# peaks near each other, not just a single exact price - approached
-# repeatedly without breaking and then finally broken on strong volume,
-# later gets retested from above; if a bullish candle holds that
-# old-zone-turned-support level, that's the "change in polarity". (An
-# earlier version required the zone to be the stock's own all-time high
-# specifically, on the theory that it's the strongest possible support -
-# reverted: it made signals extremely rare (18 in 12 months, too few to
-# even evaluate), so the zone is back to being any well-tested recent
-# resistance, not necessarily the ATH. A daily-timeframe version was also
-# tried and dropped: even after tightening its resistance-zone criteria
-# hard, backtesting over 12 months showed a genuinely negative edge, not
-# just noise.)
-CIP_ZONE_TOLERANCE = 0.02        # how wide the resistance zone is below its own top
-CIP_VOLUME_MULTIPLIER = 1.5      # breakout candle's volume vs its trailing average
-CIP_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
-
-CIP_WEEKLY_TOUCH_LOOKBACK = 12      # weeks scanned for zone touches before a candidate breakout
-CIP_WEEKLY_BREAKOUT_SEARCH = 26     # how many weeks back a qualifying breakout can still count
-CIP_WEEKLY_MIN_ZONE_POINTS = 2      # the zone must show at least this many distinct swing-high peaks before breaking
+# --- Weekly Darvas Box (replaces CIP Weekly) ------------------------------
+# Nicolas Darvas only ever bought stocks consolidating into a tight box
+# that was itself sitting at a fresh new high, then breaking out of that
+# box on volume - applied here on the weekly timeframe (this slot
+# previously ran CIP, a resistance-zone/retest strategy - dropped in
+# favor of this; see git history). The box is variable-length - a
+# genuine consolidation can run short or long - so the strategy searches
+# backward for the shortest qualifying box between
+# DARVAS_WEEKLY_BOX_MIN_WEEKS and DARVAS_WEEKLY_BOX_MAX_WEEKS immediately
+# before today, rather than assuming a single fixed window.
+DARVAS_WEEKLY_NEW_HIGH_LOOKBACK = 52        # ~52 weeks: the box's top must be a new high over this many weekly candles
+DARVAS_WEEKLY_NEW_HIGH_TOLERANCE = 0.02     # how much the box top may sit below the actual 52-week high and still count as "new"
+DARVAS_WEEKLY_BOX_MIN_WEEKS = 3             # minimum consecutive weeks price must hold inside the box to confirm it
+DARVAS_WEEKLY_BOX_MAX_WEEKS = 15            # give up looking for a box for a given peak after this many weeks
+DARVAS_WEEKLY_BOX_TIGHTNESS = 0.12          # (box_top - box_bottom) / box_bottom must be <= 12%
+DARVAS_WEEKLY_VOLUME_MULTIPLIER = 1.5       # breakout candle's volume vs its trailing average
+DARVAS_WEEKLY_RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
 # Five other "Daily Swing" variants were tried and dropped in this slot
 # before landing back on the original SMA44/lower-BB confluence version

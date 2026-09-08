@@ -6,7 +6,7 @@ levels to Telegram, on a schedule, for four strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA, price tests support at the 44 SMA, and the 44 SMA sits right on top of the lower Bollinger Band |
-| **CIP Weekly** | Fridays, 5pm IST | Above 200 SMA, a resistance zone (2+ distinct swing-high peaks) broken on volume, later retested and held as support by a bullish candle |
+| **Weekly Darvas Box** | Fridays, 5pm IST | Above 200 SMA, at least N weeks consolidating in a tight box sitting at a fresh 52-week high, close breaks above the box on volume |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
@@ -23,7 +23,7 @@ the work on a cron schedule and posts straight to Telegram:
   first logs into Upstox automatically (`scripts/login_upstox.py`, via
   TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
   always runs the daily swing screener, additionally runs both weekly
-  strategies (Weekly Range Breakout and CIP Weekly) on Fridays, and
+  strategies (Weekly Range Breakout and Weekly Darvas Box) on Fridays, and
   additionally runs the monthly ATH breakout on the last trading day of
   the month — one Upstox pass serves every strategy that fires that day,
   whatever the day.
@@ -154,10 +154,9 @@ them there rather than in the strategy code.
 - **"Properly closed candle"**: `(high - close) / (high - low) <= 0.25`
   — the close sits in the top 75% of the candle's range (small upper wick).
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
-  Weekly breakout and monthly ATH breakout require this; Daily Swing and
-  CIP Weekly's retest candle don't (Daily Swing gates on the SMA44/lower-BB
-  confluence instead, CIP only gates volume on the original breakout
-  candle, not the retest).
+  Weekly breakout and monthly ATH breakout require this; Daily Swing gates
+  on the SMA44/lower-BB confluence instead, and Weekly Darvas Box uses its
+  own multiplier (`DARVAS_WEEKLY_VOLUME_MULTIPLIER`, 1.5x).
 - **Daily Swing**: `signals/strategies/daily_swing.py`. Above the 200 SMA
   (long-term uptrend), with the `SMA_SWING` (44) SMA itself rising - not
   flat or falling - and price testing support at it (low within
@@ -170,29 +169,19 @@ them there rather than in the strategy code.
   Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
   base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
   and dropped without beating this original version; see git history.)
-- **CIP Weekly (Change In Polarity)**: `signals/strategies/cip_weekly.py`.
-  The resistance is a **zone**, not a single exact price line: its top is
-  the highest high reached in the `CIP_WEEKLY_TOUCH_LOOKBACK` weeks
-  before a candidate breakout candle, and its bottom sits
-  `CIP_ZONE_TOLERANCE` below that. Scanning backward from today, it looks
-  for the most recent candle that broke out above the top of a zone which
-  was validated by at least `CIP_WEEKLY_MIN_ZONE_POINTS` distinct
-  **swing-high peaks** within it (a confirmed local high - strictly
-  higher than the candle immediately before and after it, not just any
-  candle sitting near the top of a flat run), on volume >=
-  `CIP_VOLUME_MULTIPLIER`x average, with a proper close. Requiring
-  multiple distinct peaks (rather than any candle merely sitting near the
-  high) is deliberate: a zone tested by several separate rejection
-  attempts is a much stronger signal than one long flat run. (An earlier
-  version required the zone to be the stock's own all-time high
-  specifically - reverted, since it made signals extremely rare, too few
-  to even evaluate in backtesting. A daily-timeframe version of CIP was
-  also tried and dropped after backtesting showed a genuinely negative
-  edge over 12 months, even after tightening its resistance-zone criteria
-  hard.) If found (within `CIP_WEEKLY_BREAKOUT_SEARCH` weeks of today),
-  today's candle must then be bullish, closed properly, dip back down
-  within `CIP_ZONE_TOLERANCE` of the zone's top, and close back above it -
-  the "change in polarity" from resistance to support.
+- **Weekly Darvas Box**: `signals/strategies/weekly_darvas.py`. Nicolas
+  Darvas only ever bought stocks consolidating into a tight box that was
+  itself sitting at a fresh new high, then breaking out of that box on
+  volume. The box is variable-length, not a single fixed window: the
+  strategy searches backward for the shortest qualifying box between
+  `DARVAS_WEEKLY_BOX_MIN_WEEKS` (3) and `DARVAS_WEEKLY_BOX_MAX_WEEKS` (15)
+  immediately before today whose range is within
+  `DARVAS_WEEKLY_BOX_TIGHTNESS` (12%) and whose top is itself a fresh
+  `DARVAS_WEEKLY_NEW_HIGH_LOOKBACK` (52-week) high (within
+  `DARVAS_WEEKLY_NEW_HIGH_TOLERANCE`) - a box that isn't sitting at a new
+  high isn't a genuine Darvas box. Today's candle must then close above
+  the box top on volume, with a proper close. (Replaces CIP, a
+  resistance-zone/retest strategy that ran here before; see git history.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
   consolidation, not just drift.
@@ -206,10 +195,11 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **CIP Weekly**: entry is the retest candle's **high**; stop-loss is the
-  **lower of the retest candle's own low and the previous candle's low**.
-  Targets are risk-multiples of that entry-to-SL distance
-  (`CIP_RISK_REWARD_TARGETS`, 2R/3R by default).
+- **Weekly Darvas Box**: entry is the breakout candle's **close**;
+  stop-loss sits below the box bottom (Darvas's own rule - the stop lives
+  below the whole consolidation, not just the breakout level). Targets are
+  risk-multiples of that entry-to-SL distance
+  (`DARVAS_WEEKLY_RISK_REWARD_TARGETS`, 2R/3R by default).
 - **Weekly Range Breakout**: entry is the breakout candle's close,
   stop-loss sits just under the breakout level itself (the top of the
   consolidation range — "old resistance becomes new support"), not the
@@ -321,7 +311,7 @@ signals/
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py      Daily Swing (SMA44/lower-BB confluence)
-    cip_weekly.py       CIP (Change In Polarity, resistance-zone based)
+    weekly_darvas.py    Weekly Darvas Box (variable-length box + breakout)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

@@ -15,11 +15,12 @@ single day's range could have hit both the stop-loss and a target, the
 stop-loss is assumed to trigger first (conservative, standard practice
 without intraday data).
 
-Some strategies (CIP) set entry above the signal candle's own close - a
-resting buy-stop order, not an immediate fill. simulate_forward only
-starts tracking stop/target outcomes once a later day's high actually
-reaches that entry price; a signal whose entry is never subsequently
-reached is reported as "unfilled" rather than a real win/loss/open trade.
+Some strategies (Daily Swing) set entry above the signal candle's own
+close - a resting buy-stop order, not an immediate fill. simulate_forward
+only starts tracking stop/target outcomes once a later day's high
+actually reaches that entry price; a signal whose entry is never
+subsequently reached is reported as "unfilled" rather than a real
+win/loss/open trade.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ import pandas as pd
 
 from signals import data
 from signals.models import Signal
-from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_darvas
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -132,7 +133,7 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
 
     results: dict[str, list[TradeResult]] = {
         "daily_swing": [],
-        "cip_weekly": [],
+        "weekly_darvas": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
@@ -145,7 +146,7 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
         sliced = _scan_as_of(weekly_data, asof)
         for strategy, scan_fn in (
             ("weekly_breakout", weekly_breakout.scan),
-            ("cip_weekly", cip_weekly.scan),
+            ("weekly_darvas", weekly_darvas.scan),
         ):
             for signal in scan_fn(sliced):
                 results[strategy].append(simulate_forward(strategy, signal, asof, daily_data[signal.symbol]))

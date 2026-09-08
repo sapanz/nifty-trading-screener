@@ -3,8 +3,8 @@
 
 Fetches daily OHLCV via Upstox once, then:
   - always runs the daily swing (SMA44/lower-BB confluence) screener
-  - also runs both weekly strategies (Weekly Range Breakout, CIP Weekly)
-    on Fridays (or FORCE_WEEKLY=true)
+  - also runs both weekly strategies (Weekly Range Breakout, Weekly
+    Darvas Box) on Fridays (or FORCE_WEEKLY=true)
   - also runs the monthly ATH breakout on the last trading day of the
     month (or FORCE_MONTHLY=true)
 
@@ -25,15 +25,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signals import data, runtime, universe  # noqa: E402
 from signals.calendar_utils import is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.strategies import cip_weekly, daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_darvas
 from signals.upstox_client import UpstoxClient
 
 DAILY_SWING_TITLE = "Daily Swing (SMA44/BB Confluence)"
 DAILY_SWING_EMOJI = "📈"
 WEEKLY_BREAKOUT_TITLE = "Weekly Range Breakout"
 WEEKLY_BREAKOUT_EMOJI = "🚀"
-CIP_WEEKLY_TITLE = "CIP Weekly"
-CIP_WEEKLY_EMOJI = "🔄"
+WEEKLY_DARVAS_TITLE = "Weekly Darvas Box"
+WEEKLY_DARVAS_EMOJI = "📦"
 MONTHLY_TITLE = "Monthly ATH Breakout"
 MONTHLY_EMOJI = "🏔️"
 FETCH_TITLE = "Signals (data fetch)"
@@ -71,9 +71,9 @@ def main() -> None:
             lambda: format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today),
         )
         run(
-            CIP_WEEKLY_TITLE,
-            CIP_WEEKLY_EMOJI,
-            lambda: format_strategy_message(CIP_WEEKLY_TITLE, CIP_WEEKLY_EMOJI, cip_weekly.scan(weekly), today),
+            WEEKLY_DARVAS_TITLE,
+            WEEKLY_DARVAS_EMOJI,
+            lambda: format_strategy_message(WEEKLY_DARVAS_TITLE, WEEKLY_DARVAS_EMOJI, weekly_darvas.scan(weekly), today),
         )
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
