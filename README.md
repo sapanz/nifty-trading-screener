@@ -189,11 +189,16 @@ them there rather than in the strategy code.
   stop-loss sits just under the breakout level itself (the top of the
   consolidation range — "old resistance becomes new support"), not the
   bottom of the range, so risk stays tight instead of scaling with
-  however wide the whole consolidation was. Targets are measured-move
-  projections of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x).
-  (Widening to 1x/3x was tried and reverted - it changed nothing, since
-  `simulate_forward` exits at the first target touched either way; see
-  the note in `signals/config.py`.)
+  however wide the whole consolidation was. There's no fixed profit
+  target — fixed measured-move targets (1x/2x, then 1x/3x range height)
+  came back at breakeven before costs and net-losing after them, and
+  widening the second target changed nothing, since `simulate_forward`
+  exits at the first target touched either way and can't let a winner
+  run past the nearest one (see the note in `signals/config.py`). Instead
+  the trade is held as long as the weekly close stays above its own
+  `BREAKOUT_TRAIL_SMA`-week SMA (30 by default) — a classic
+  Weinstein/Minervini-style trend trail — and exits the week the close
+  falls back below it, via `backtest.simulate_weekly_trailing_sma`.
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by

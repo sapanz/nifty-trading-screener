@@ -59,6 +59,15 @@ RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
 BREAKOUT_RANGE_TIGHTNESS = 0.15  # (range_high - range_low) / range_low must be <= 15%
+# No fixed profit target - a 12-month backtest at fixed 1x/2x (then 1x/3x)
+# measured-move targets came back at breakeven before costs and net-losing
+# after them; widening the target changed nothing because simulate_forward
+# exits at the first target touched regardless of how far a farther one
+# sits (see git history). Instead the position is held as long as the
+# weekly close stays above its own BREAKOUT_TRAIL_SMA-week SMA - a classic
+# Weinstein/Minervini-style trend trail - and exits the week the close
+# falls back below it; see backtest.simulate_weekly_trailing_sma.
+BREAKOUT_TRAIL_SMA = 30
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
@@ -66,19 +75,6 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # new support), not the bottom of the consolidation range - the 12-month
 # backtest showed the wider range_low anchor produces a high win rate but
 # a handful of large tail losses that drag average return negative.
-#
-# Widening the targets from (1, 2) to (1, 3) was tried and reverted: it
-# changed nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause
-# turned out to be architectural, not a threshold: simulate_forward exits
-# a trade the first day ANY target is touched (using the highest one
-# reached that same day), so it never keeps walking forward to see if a
-# farther target would eventually be hit too - in practice nearly every
-# winning trade exits at T1, and a farther T2/T3 only matters on the rare
-# day price gaps past both at once. A fixed multi-tier target list can't
-# "let winners run" past the nearest one; that needs a genuinely
-# different exit (a trailing stop, as tried for Daily Swing at one point)
-# not a bigger number here.
-BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- Transaction costs (Indian cash-equity delivery trades) --------------

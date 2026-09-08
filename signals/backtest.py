@@ -26,6 +26,13 @@ Every entered trade's return is net of config.ROUND_TRIP_COST_PCT (STT +
 stamp duty + exchange charges for a real Indian delivery trade) - a
 mechanical screener's reported edge is meaningless if it can't survive
 the costs a real trade actually pays.
+
+Weekly Range Breakout is the one exception to the daily walk-forward
+above: it carries no fixed target (see signals/strategies/weekly_breakout.py),
+so simulate_weekly_trailing_sma walks the *weekly* price path instead,
+holding the trade as long as the weekly close stays above its own trailing
+SMA and exiting the week it closes back below - a stop-loss breach still
+exits immediately, same as simulate_forward.
 """
 from __future__ import annotations
 
@@ -117,6 +124,54 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     )
 
 
+def simulate_weekly_trailing_sma(
+    strategy: str, signal: Signal, signal_date: pd.Timestamp, weekly_df: pd.DataFrame, sma_period: int
+) -> TradeResult:
+    """Walk the weekly price path after `signal_date`. There's no fixed
+    target: the trade is held as long as the weekly close stays above its
+    own `sma_period`-week SMA, and exits at that week's close the first
+    week the close falls back below it (a classic Weinstein/Minervini-style
+    trend trail) - or immediately if the initial stop-loss is breached
+    first. Unlike simulate_forward, entry here is always the breakout
+    candle's own close (an immediate fill), so there's no resting-order
+    "unfilled" case to handle.
+    """
+    future = weekly_df[weekly_df.index > signal_date]
+    sma = weekly_df["close"].rolling(sma_period).mean()
+
+    for dt, row in future.iterrows():
+        if row["low"] <= signal.stop_loss:
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
+                return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
+                holding_days=(dt - signal_date).days,
+            )
+        sma_value = sma.get(dt)
+        if pd.notna(sma_value) and row["close"] < sma_value:
+            exit_price = float(row["close"])
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="trailing_stop", exit_date=dt, exit_price=exit_price,
+                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
+                holding_days=(dt - signal_date).days,
+            )
+
+    # Neither hit yet - still open as of the last available weekly close.
+    if not future.empty:
+        last_date = future.index[-1]
+        last_close = float(future["close"].iloc[-1])
+    else:
+        last_date = signal_date
+        last_close = signal.entry
+    return TradeResult(
+        strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+        outcome="open", exit_date=last_date, exit_price=last_close,
+        return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
+        holding_days=(last_date - signal_date).days,
+    )
+
+
 def _dates_in_window(datasets: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     all_dates: set[pd.Timestamp] = set()
     for df in datasets.values():
@@ -153,7 +208,11 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
 
     for asof in _dates_in_window(weekly_data, start, end):
         for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
-            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+            results["weekly_breakout"].append(
+                simulate_weekly_trailing_sma(
+                    "weekly_breakout", signal, asof, weekly_data[signal.symbol], config.BREAKOUT_TRAIL_SMA
+                )
+            )
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
