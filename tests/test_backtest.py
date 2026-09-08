@@ -1,3 +1,4 @@
+import csv
 import pandas as pd
 import pytest
 
@@ -15,8 +16,8 @@ def _daily_df(closes: list[float]) -> pd.DataFrame:
     return df
 
 
-def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0)) -> Signal:
-    return Signal(symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets))
+def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0), extra=None) -> Signal:
+    return Signal(symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets), extra=extra or {})
 
 
 class TestSimulateForward:
@@ -107,6 +108,43 @@ class TestSimulateForward:
         result = backtest.simulate_forward("cip_daily", _signal(entry=106.0, stop_loss=95.0), dates[0], df)
         assert result.outcome == "stop_loss"
         assert result.exit_date == dates[3]
+
+    def test_carries_months_gap_from_signal_extra(self):
+        # Monthly ATH Breakout stamps how long the stock was below its old
+        # high onto the signal - that should ride along on every outcome.
+        df = _daily_df([100, 101, 102, 103])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward(
+            "monthly_breakout", _signal(extra={"months_gap": 14}), signal_date, df
+        )
+        assert result.months_gap == 14
+
+    def test_months_gap_is_none_when_not_set(self):
+        df = _daily_df([100, 101, 102, 103])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
+        assert result.months_gap is None
+
+
+class TestWriteCsv:
+    def test_months_gap_column(self, tmp_path):
+        trades = [
+            backtest.TradeResult(
+                "monthly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [115],
+                "target1", pd.Timestamp("2024-02-01"), 115, 15.0, 31, months_gap=14,
+            ),
+            backtest.TradeResult(
+                "weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+            ),
+        ]
+        path = tmp_path / "trades.csv"
+        backtest.write_csv(trades, str(path))
+
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert rows[0]["months_gap"] == "14"
+        assert rows[1]["months_gap"] == ""
 
 
 class TestSummarize:

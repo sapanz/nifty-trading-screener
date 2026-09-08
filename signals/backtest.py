@@ -45,7 +45,7 @@ def _net_return_pct(gross_return_pct: float) -> float:
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
-    "outcome", "exit_date", "exit_price", "return_pct", "holding_days",
+    "outcome", "exit_date", "exit_price", "return_pct", "holding_days", "months_gap",
 ]
 
 
@@ -62,11 +62,16 @@ class TradeResult:
     exit_price: float
     return_pct: float
     holding_days: int
+    # Monthly ATH Breakout only: months spent below the prior all-time high
+    # before this breakout (signal.extra["months_gap"]); None for every
+    # other strategy, which doesn't set it.
+    months_gap: int | None = None
 
 
 def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
     """Walk the real daily price path after `signal_date` to see what happened."""
     future = daily_df[daily_df.index > signal_date]
+    months_gap = signal.extra.get("months_gap")
 
     as_of = daily_df[daily_df.index <= signal_date]
     signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
@@ -79,7 +84,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
-                return_pct=0.0, holding_days=0,
+                return_pct=0.0, holding_days=0, months_gap=months_gap,
             )
         future = future[future.index >= filled.index[0]]
 
@@ -89,7 +94,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
                 return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days,
+                holding_days=(dt - signal_date).days, months_gap=months_gap,
             )
         hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
         if hit:
@@ -99,7 +104,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
                 return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days,
+                holding_days=(dt - signal_date).days, months_gap=months_gap,
             )
 
     # Neither hit yet - still open as of the last available price.
@@ -113,7 +118,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
         strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
         outcome="open", exit_date=last_date, exit_price=last_close,
         return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
-        holding_days=(last_date - signal_date).days,
+        holding_days=(last_date - signal_date).days, months_gap=months_gap,
     )
 
 
@@ -226,4 +231,5 @@ def write_csv(all_trades: list[TradeResult], path: str) -> None:
                 t.strategy, t.symbol, t.signal_date.date(), t.entry, t.stop_loss,
                 ";".join(str(x) for x in t.targets), t.outcome, t.exit_date.date(),
                 t.exit_price, round(t.return_pct, 2), t.holding_days,
+                t.months_gap if t.months_gap is not None else "",
             ])
