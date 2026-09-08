@@ -201,14 +201,18 @@ them there rather than in the strategy code.
   open percentage-based (15%/25%) since a fresh all-time high by
   definition has no prior resistance to aim at.
 
-Weekly OHLCV for Weekly Range Breakout is *derived* from the same daily
-fetch by resampling (`signals/data.py`) — Daily Swing and Weekly Range
-Breakout together only cost one Upstox call per symbol, for the "day"
-interval, no matter which of those two fire that day. Monthly ATH
-Breakout is the exception: it fetches its own native monthly candles
-directly (`data.fetch_monthly_ath_history`), on the one day a month it
-runs, so its all-time-high check isn't capped at the same 6-year window
-the other two strategies use (see `MONTHLY_ATH_HISTORY_YEARS`).
+Daily Swing is the only strategy on the shared daily fetch (`data.fetch_daily`,
+the "day" interval, once per run). Weekly Range Breakout and Monthly ATH
+Breakout each fetch their own native interval directly instead of
+resampling that daily data: `data.fetch_weekly_history` ("week") and
+`data.fetch_monthly_ath_history` ("month"), each only on the day its
+strategy actually runs (Fridays / month-end). Weekly's native fetch isn't
+about extra depth — `WEEKLY_HISTORY_YEARS` matches the daily fetch's 6
+years — it's so each weekly candle matches what Upstox itself considers
+"the week's" OHLCV, rather than a pandas resample of daily bars that can
+draw week boundaries slightly differently around a holiday-shortened
+week. Monthly's native fetch *is* about depth: `MONTHLY_ATH_HISTORY_YEARS`
+(25 years) so its all-time-high check isn't silently capped at 6 years.
 
 ## Known limitations
 
@@ -309,10 +313,10 @@ HEADLESS=false python scripts/login_upstox.py
 signals/
   config.py          tunable thresholds
   universe.py        Nifty 500 constituent list (from NSE)
-  upstox_client.py   Upstox API wrapper (instrument master + daily/monthly candles)
+  upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
-  data.py            daily + monthly-ATH fetch orchestration, weekly/monthly resampling, circuit breaker
+  data.py            daily/weekly/monthly-ATH fetch orchestration, resampling fallbacks, circuit breaker
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]

@@ -1,16 +1,20 @@
 """Fetch OHLCV for the Nifty 500 universe via Upstox.
 
-Upstox gets called for the "day" interval once per run; weekly and
-monthly series for Daily Swing and Weekly Range Breakout are derived here
-by resampling that same daily fetch - one round of Upstox calls serves
-both of those strategies. Monthly ATH Breakout is the exception:
-`fetch_monthly_ath_history` fetches its own native "month" interval
-directly (see MONTHLY_ATH_HISTORY_YEARS in config.py for why).
+Upstox gets called for the "day" interval once per run, for Daily Swing.
+Weekly Range Breakout and Monthly ATH Breakout each fetch their own
+native interval directly instead of resampling that daily fetch:
+`fetch_weekly_history` (native "week", so each candle matches what
+Upstox itself considers "the week's" OHLCV) and
+`fetch_monthly_ath_history` (native "month", fetched much deeper than
+the daily cap so "all-time high" means what it says - see
+MONTHLY_ATH_HISTORY_YEARS in config.py). `to_weekly`/`to_monthly` below
+still resample from daily as a fallback for callers that don't have a
+live client (e.g. a quick local backtest without extra Upstox fetches).
 
 If the data source is rejecting requests wholesale (as NSE direct
 scraping turned out to do from GitHub Actions), grinding through all ~500
-symbols before giving up wastes hours. Both fetch functions below check
-the failure rate after a small sample and abort early if it looks
+symbols before giving up wastes hours. All three fetch functions below
+check the failure rate after a small sample and abort early if it looks
 systemic.
 """
 from __future__ import annotations
@@ -102,6 +106,19 @@ def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[st
         fetch_one=lambda key: client.get_daily_history(key, years=config.DAILY_HISTORY_YEARS),
         throttle=client.throttle,
         label="daily",
+    )
+
+
+def fetch_weekly_history(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Fetch native weekly OHLCV for every symbol, for Weekly Range Breakout -
+    see WEEKLY_HISTORY_YEARS in config.py for why this is a separate fetch
+    from fetch_daily rather than a resample of it.
+    """
+    return _fetch_history(
+        instrument_map,
+        fetch_one=lambda key: client.get_weekly_history(key, years=config.WEEKLY_HISTORY_YEARS),
+        throttle=client.throttle,
+        label="weekly",
     )
 
 

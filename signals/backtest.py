@@ -27,11 +27,13 @@ stamp duty + exchange charges for a real Indian delivery trade) - a
 mechanical screener's reported edge is meaningless if it can't survive
 the costs a real trade actually pays.
 
-run_backtest()'s Monthly ATH Breakout scan should be fed a real native
-monthly fetch (data.fetch_monthly_ath_history) via its `monthly_data`
-argument so its all-time-high check sees genuinely deep history, not the
-DAILY_HISTORY_YEARS-capped resample it falls back to when that argument
-is omitted; see scripts/run_backtest.py for the live wiring.
+run_backtest()'s Weekly Range Breakout and Monthly ATH Breakout scans
+should each be fed their real native fetch (data.fetch_weekly_history /
+data.fetch_monthly_ath_history) via the `weekly_data` / `monthly_data`
+arguments, same as a live run sees - the daily-resample fallback used
+when either is omitted won't exactly match live weekly candle
+boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
+genuinely deep history. See scripts/run_backtest.py for the live wiring.
 """
 from __future__ import annotations
 
@@ -145,21 +147,27 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 
 
 def run_backtest(
-    daily_data: dict[str, pd.DataFrame], months: int, monthly_data: dict[str, pd.DataFrame] | None = None
+    daily_data: dict[str, pd.DataFrame],
+    months: int,
+    weekly_data: dict[str, pd.DataFrame] | None = None,
+    monthly_data: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest all active strategies over the trailing `months` months.
 
-    `monthly_data` drives the Monthly ATH Breakout scan specifically. Pass
-    the strategy's real native-monthly fetch (data.fetch_monthly_ath_history)
-    so its all-time-high check sees the same deep history a live run would;
-    omitting it falls back to resampling `daily_data` (data.to_monthly),
-    which is capped at DAILY_HISTORY_YEARS and only useful for a quick
-    local backtest without an extra Upstox fetch.
+    `weekly_data` and `monthly_data` drive the Weekly Range Breakout and
+    Monthly ATH Breakout scans specifically. Pass each strategy's real
+    native fetch (data.fetch_weekly_history / data.fetch_monthly_ath_history)
+    so they see the same data a live run would; omitting either falls back
+    to resampling `daily_data` (data.to_weekly / data.to_monthly), which is
+    fine for a quick local backtest without the extra Upstox fetches but
+    won't exactly match live candle boundaries (weekly) or reach past
+    DAILY_HISTORY_YEARS (monthly).
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
 
-    weekly_data = data.to_weekly(daily_data)
+    if weekly_data is None:
+        weekly_data = data.to_weekly(daily_data)
     if monthly_data is None:
         monthly_data = data.to_monthly(daily_data)
 
@@ -175,15 +183,18 @@ def run_backtest(
 
     for asof in _dates_in_window(weekly_data, start, end):
         for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
+            # weekly_data may come from a separate fetch than daily_data (a
+            # different set of symbols can fail between two independent
+            # Upstox calls) - the exit walk-forward still needs daily bars,
+            # so skip a signal whose symbol didn't come back in daily_data
+            # rather than raising.
+            if signal.symbol not in daily_data:
+                continue
             results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
-            # monthly_data may come from a separate fetch than daily_data
-            # (a different set of symbols can fail between two independent
-            # Upstox calls) - the exit walk-forward still needs daily bars,
-            # so skip a signal whose symbol didn't come back in daily_data
-            # rather than raising.
+            # Same reasoning as weekly_data above.
             if signal.symbol not in daily_data:
                 continue
             results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))

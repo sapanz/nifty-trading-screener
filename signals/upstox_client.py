@@ -12,14 +12,15 @@ Two things this module deals with that are easy to get wrong:
    for the one-tap daily refresh flow - this module never tries to mint
    or refresh one itself.
 
-The "day" interval is fetched once per run and weekly/monthly series for
-Daily Swing and Weekly Range Breakout are derived by resampling that same
-daily data (signals/data.py) rather than making separate calls per
-timeframe. Monthly ATH Breakout is the one exception: it fetches its own
-native "month" interval directly (get_monthly_history), since it needs a
-much deeper lookback than the daily-history cap to find a genuine
-all-time high, and monthly candles are cheap enough to fetch that far
-back without a separate call per timeframe being wasteful.
+The "day" interval is fetched once per run for Daily Swing. Weekly Range
+Breakout and Monthly ATH Breakout each fetch their own native interval
+directly (get_weekly_history / get_monthly_history) rather than
+resampling the daily fetch: monthly needs a much deeper lookback to find
+a genuine all-time high (the daily-history cap is nowhere near enough),
+and weekly wants candles that match what Upstox itself considers "the
+week's" OHLCV rather than a pandas resample of daily bars. Both only run
+on the day their strategy actually fires (once a week / once a month),
+so the extra fetch isn't paid on every run.
 
 Upstox's API has changed shape before; if historical-candle requests start
 failing with 4xx errors, check developer.upstox.com and adjust the URL
@@ -102,6 +103,20 @@ class UpstoxClient:
         columns open/high/low/close/volume.
         """
         return self._get_history(instrument_key, "day", years)
+
+    def get_weekly_history(self, instrument_key: str, years: int) -> pd.DataFrame:
+        """Fetch weekly OHLCV candles for one instrument, aggregated by
+        Upstox itself rather than resampled from daily bars.
+
+        Used only by Weekly Range Breakout. Unlike the monthly ATH fetch,
+        this isn't about needing more history (200-week SMA is ~4 years,
+        comfortably inside the same depth as the daily fetch) - it's about
+        each weekly candle matching what Upstox itself considers "the
+        week's" OHLCV (e.g. around a holiday-shortened week), rather than
+        a pandas resample of daily bars that may draw week boundaries
+        slightly differently.
+        """
+        return self._get_history(instrument_key, "week", years)
 
     def get_monthly_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch monthly OHLCV candles for one instrument, aggregated by

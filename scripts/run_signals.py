@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
-Fetches daily OHLCV via Upstox once, then:
-  - always runs the daily swing (SMA44/lower-BB confluence) screener
-  - also runs the weekly range breakout on Fridays (or FORCE_WEEKLY=true)
+Fetches daily OHLCV via Upstox for Daily Swing (always runs), then:
+  - also runs the weekly range breakout on Fridays (or FORCE_WEEKLY=true),
+    with its own native-weekly Upstox fetch
   - also runs the monthly ATH breakout on the last trading day of the
-    month (or FORCE_MONTHLY=true)
+    month (or FORCE_MONTHLY=true), with its own native-monthly fetch
 
-One shared daily fetch keeps Upstox calls to a single pass for Daily Swing
-and Weekly Range Breakout even when both fire on the same run (Fridays).
-Monthly ATH Breakout fetches separately, at native monthly granularity,
-since its all-time-high check needs much deeper history than the daily
-fetch's cap (see MONTHLY_ATH_HISTORY_YEARS in config.py) - this only
-costs an extra ~500-symbol fetch once a month, not every run. Requires
+Weekly Range Breakout and Monthly ATH Breakout each fetch their own
+interval directly rather than resampling the daily fetch - weekly so its
+candles match what Upstox itself considers "the week's" OHLCV, monthly
+because its all-time-high check needs much deeper history than the daily
+fetch's cap (see WEEKLY_HISTORY_YEARS / MONTHLY_ATH_HISTORY_YEARS in
+config.py). Each only costs an extra ~500-symbol fetch on the day it
+actually runs (once a week / once a month), not every run. Requires
 UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
 """
 import os
@@ -65,12 +66,14 @@ def main() -> None:
     run(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, lambda: format_strategy_message(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, daily_swing.scan(daily), today))
 
     if today.weekday() == 4 or os.environ.get("FORCE_WEEKLY") == "true":
-        weekly = data.to_weekly(daily)
-        run(
-            WEEKLY_BREAKOUT_TITLE,
-            WEEKLY_BREAKOUT_EMOJI,
-            lambda: format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today),
-        )
+        def build_weekly():
+            # Its own native weekly fetch, not resampled from `daily` - so
+            # each candle matches what Upstox itself considers "the
+            # week's" OHLCV (see WEEKLY_HISTORY_YEARS in config.py).
+            weekly = data.fetch_weekly_history(client, instrument_map)
+            return format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today)
+
+        run(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, build_weekly)
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
         def build_monthly():

@@ -17,10 +17,11 @@ uploads the full trade-by-trade CSV as a workflow artifact.
 
 This fetches the same ~500-symbol universe as a live run and then re-scans
 it once per historical date, so it takes noticeably longer than a normal
-run (order of 10-20 minutes, not seconds). Two separate Upstox fetches:
-daily (DAILY_HISTORY_YEARS) for Daily Swing/Weekly Range Breakout, and a
-deeper native-monthly fetch (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH
-Breakout's all-time-high check - same split as a live run.
+run (order of 10-20 minutes, not seconds). Three separate Upstox fetches,
+same split as a live run: daily (DAILY_HISTORY_YEARS) for Daily Swing,
+native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
+native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
+all-time-high check.
 """
 import os
 import sys
@@ -54,12 +55,15 @@ def main() -> None:
         symbols = universe.fetch_nifty500_symbols()
         instrument_map = data.build_instrument_map(client, symbols)
         daily = data.fetch_daily(client, instrument_map)
-        # Monthly ATH Breakout's all-time-high check needs its own, much
-        # deeper fetch (see MONTHLY_ATH_HISTORY_YEARS in config.py) - the
-        # daily fetch above is capped at DAILY_HISTORY_YEARS and would
-        # otherwise silently limit "all-time high" to that same window.
+        # Weekly Range Breakout and Monthly ATH Breakout each get their own
+        # native fetch rather than a resample of `daily` above - weekly so
+        # its candles match live Upstox week boundaries, monthly because
+        # its all-time-high check needs much deeper history than
+        # DAILY_HISTORY_YEARS (see WEEKLY_HISTORY_YEARS /
+        # MONTHLY_ATH_HISTORY_YEARS in config.py).
+        weekly = data.fetch_weekly_history(client, instrument_map)
         monthly = data.fetch_monthly_ath_history(client, instrument_map)
-        results = backtest.run_backtest(daily, months=months, monthly_data=monthly)
+        results = backtest.run_backtest(daily, months=months, weekly_data=weekly, monthly_data=monthly)
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise

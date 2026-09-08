@@ -60,6 +60,11 @@ class _FakeClient:
             raise RuntimeError("simulated blocked request")
         return _daily_df()
 
+    def get_weekly_history(self, instrument_key, years):
+        if instrument_key.startswith("FAIL"):
+            raise RuntimeError("simulated blocked request")
+        return _daily_df()
+
     def get_monthly_history(self, instrument_key, years):
         if instrument_key.startswith("FAIL"):
             raise RuntimeError("simulated blocked request")
@@ -86,6 +91,23 @@ def test_fetch_daily_circuit_breaker_aborts_on_systemic_failure(monkeypatch):
 
     with pytest.raises(RuntimeError, match="blocking requests wholesale"):
         data.fetch_daily(_FakeClient(), instrument_map)
+
+
+def test_fetch_weekly_history_skips_individual_failures():
+    instrument_map = {"GOOD1": "OK1", "BAD1": "FAIL1", "GOOD2": "OK2"}
+    result = data.fetch_weekly_history(_FakeClient(), instrument_map)
+    assert set(result.keys()) == {"GOOD1", "GOOD2"}
+
+
+def test_fetch_weekly_history_circuit_breaker_aborts_on_systemic_failure(monkeypatch):
+    monkeypatch.setattr(config, "CIRCUIT_BREAKER_SAMPLE_SIZE", 5)
+    monkeypatch.setattr(config, "CIRCUIT_BREAKER_FAILURE_RATIO", 0.8)
+
+    instrument_map = {f"BAD{i}": f"FAIL{i}" for i in range(5)}
+    instrument_map.update({f"GOOD{i}": f"OK{i}" for i in range(95)})
+
+    with pytest.raises(RuntimeError, match="blocking requests wholesale"):
+        data.fetch_weekly_history(_FakeClient(), instrument_map)
 
 
 def test_fetch_monthly_ath_history_skips_individual_failures():

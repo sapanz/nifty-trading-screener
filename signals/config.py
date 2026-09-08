@@ -133,13 +133,17 @@ UPSTOX_MAX_RETRIES = 3
 # symbols - fail loudly instead of quietly scanning nothing.
 MIN_INSTRUMENT_MATCH_RATIO = 0.5
 
-# Single daily-history depth, reused (via resampling) for weekly and daily
-# strategies - one fetch per symbol serves every strategy that fires that
-# day. 6 years comfortably covers a weekly SMA200 lookback (~4y) with
-# margin. Monthly ATH Breakout does NOT use this - see
-# MONTHLY_ATH_HISTORY_YEARS below, it needs a genuine all-time-high, not
-# one capped at 6 years.
+# Daily-history depth for Daily Swing (the only strategy left resampling
+# off of it). 6 years comfortably covers its SMA200 lookback with margin.
 DAILY_HISTORY_YEARS = 6
+
+# Weekly Range Breakout fetches its own native weekly candles directly
+# (UpstoxClient.get_weekly_history) rather than resampling the daily
+# fetch above - not for extra depth (200-week SMA is ~4 years, well
+# inside this already), but so each weekly candle matches what Upstox
+# itself considers "the week's" OHLCV rather than a pandas resample of
+# daily bars. Same depth as DAILY_HISTORY_YEARS is more than enough.
+WEEKLY_HISTORY_YEARS = 6
 
 # Monthly ATH Breakout fetches its own native monthly candles directly
 # (UpstoxClient.get_monthly_history) rather than resampling the capped

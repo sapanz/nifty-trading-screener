@@ -157,6 +157,34 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert results["monthly_breakout"] == []  # too little history to signal, but no error
 
+    def test_weekly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
+        # Same reasoning as the monthly case above: weekly_data can come
+        # from a separate Upstox fetch (data.fetch_weekly_history) than
+        # daily_data, so the two symbol sets can diverge.
+        from signals.strategies import weekly_breakout as wb
+
+        today = pd.Timestamp.today().normalize()
+        daily_data = {"HASDAILY": _daily_df([100, 101, 102, 103, 104])}
+        weekly_data = {
+            "HASDAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
+            "NODAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
+        }
+
+        def fake_scan(sliced):
+            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[110.0]) for sym in sliced]
+
+        monkeypatch.setattr(wb, "scan", fake_scan)
+
+        results = backtest.run_backtest(daily_data, months=1, weekly_data=weekly_data)
+        assert [t.symbol for t in results["weekly_breakout"]] == ["HASDAILY"]
+
+    def test_weekly_data_defaults_to_resampling_daily_data(self):
+        # omitting weekly_data shouldn't raise - it falls back to
+        # resampling daily_data, same fallback pattern as monthly_data.
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1)
+        assert results["weekly_breakout"] == []  # too little history to signal, but no error
+
 
 class TestWriteCsv:
     def test_months_gap_column(self, tmp_path):
