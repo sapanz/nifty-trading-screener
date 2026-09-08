@@ -145,11 +145,17 @@ DAILY_HISTORY_YEARS = 6
 
 # Weekly Range Breakout fetches its own native weekly candles directly
 # (UpstoxClient.get_weekly_history) rather than resampling the daily
-# fetch above - not for extra depth (200-week SMA is ~4 years, well
-# inside this already), but so each weekly candle matches what Upstox
-# itself considers "the week's" OHLCV rather than a pandas resample of
-# daily bars. Same depth as DAILY_HISTORY_YEARS is more than enough.
-WEEKLY_HISTORY_YEARS = 6
+# fetch above, so each weekly candle matches what Upstox itself
+# considers "the week's" OHLCV rather than a pandas resample of daily
+# bars. This used to be 6 (same as DAILY_HISTORY_YEARS), on the
+# assumption that a ~4-year 200-week SMA lookback left plenty of room -
+# it doesn't: with only 6 years fetched, ~4 of them are consumed just
+# building the SMA200 lead-in before any signal can fire at all, leaving
+# a real usable window of only ~2 years regardless of how far back a
+# backtest asks to look (confirmed directly: a 5-year backtest's weekly
+# signals all clustered in the most recent ~2 years). 12 years leaves a
+# genuine ~8-year usable window after the same ~4-year lead-in.
+WEEKLY_HISTORY_YEARS = 12
 
 # Monthly ATH Breakout fetches its own native monthly candles directly
 # (UpstoxClient.get_monthly_history) rather than resampling the capped

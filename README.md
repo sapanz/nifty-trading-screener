@@ -206,13 +206,17 @@ the "day" interval, once per run). Weekly Range Breakout and Monthly ATH
 Breakout each fetch their own native interval directly instead of
 resampling that daily data: `data.fetch_weekly_history` ("week") and
 `data.fetch_monthly_ath_history` ("month"), each only on the day its
-strategy actually runs (Fridays / month-end). Weekly's native fetch isn't
-about extra depth — `WEEKLY_HISTORY_YEARS` matches the daily fetch's 6
-years — it's so each weekly candle matches what Upstox itself considers
-"the week's" OHLCV, rather than a pandas resample of daily bars that can
-draw week boundaries slightly differently around a holiday-shortened
-week. Monthly's native fetch *is* about depth: `MONTHLY_ATH_HISTORY_YEARS`
-(25 years) so its all-time-high check isn't silently capped at 6 years.
+strategy actually runs (Fridays / month-end). Weekly's native fetch was
+originally motivated by candle accuracy rather than depth (each weekly
+candle should match what Upstox itself considers "the week's" OHLCV,
+rather than a pandas resample of daily bars that can draw week
+boundaries slightly differently around a holiday-shortened week), but it
+turned out depth mattered here too: `WEEKLY_HISTORY_YEARS` is now 12, not
+6, because the strategy's 200-week SMA lead-in alone eats ~4 years, and
+6 years left only ~2 years of real usable signal window regardless of
+how far back a backtest asked to look. Monthly's native fetch has always
+been about depth: `MONTHLY_ATH_HISTORY_YEARS` (25 years) so its
+all-time-high check isn't silently capped at 6 years.
 
 ## Known limitations
 
