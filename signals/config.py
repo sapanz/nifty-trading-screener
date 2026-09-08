@@ -66,7 +66,16 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # new support), not the bottom of the consolidation range - the 12-month
 # backtest showed the wider range_low anchor produces a high win rate but
 # a handful of large tail losses that drag average return negative.
-BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
+#
+# Targets were widened to (1, 3) from (1, 2): a 12-month backtest at (1, 2)
+# came back at exactly breakeven (PF 1.00, avg return -0.1%) with an avg
+# win (+5.1%) much smaller than Daily Swing's or Monthly ATH Breakout's -
+# the fixed target was likely capping winners before the trend paid off.
+# (An earlier (1, 3) attempt was reverted for a win-rate drop, but that
+# change was bundled with a simultaneous SL-anchor change too, so targets
+# alone were never isolated - this tries just the target widening on top
+# of the SL anchor that's already proven to work.)
+BREAKOUT_RANGE_MULTIPLES = (1, 3)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- NSE Nifty 500 constituent list --------------------------------------
