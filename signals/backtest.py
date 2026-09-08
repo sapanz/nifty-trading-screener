@@ -31,7 +31,7 @@ import pandas as pd
 
 from signals import data
 from signals.models import Signal
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_darvas
+from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
 
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
@@ -133,7 +133,6 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
 
     results: dict[str, list[TradeResult]] = {
         "daily_swing": [],
-        "weekly_darvas": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
@@ -143,13 +142,8 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
             results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(weekly_data, start, end):
-        sliced = _scan_as_of(weekly_data, asof)
-        for strategy, scan_fn in (
-            ("weekly_breakout", weekly_breakout.scan),
-            ("weekly_darvas", weekly_darvas.scan),
-        ):
-            for signal in scan_fn(sliced):
-                results[strategy].append(simulate_forward(strategy, signal, asof, daily_data[signal.symbol]))
+        for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
+            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):

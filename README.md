@@ -1,12 +1,11 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for four strategies:
+levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA, price tests support at the 44 SMA, and the 44 SMA sits right on top of the lower Bollinger Band |
-| **Weekly Darvas Box** | Fridays, 5pm IST | Above 200 SMA, at least N weeks consolidating in a tight box sitting at a fresh 52-week high, close breaks above the box on volume |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, last 6 weekly candles form a tight range, close breaks above it, proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume; reports how many months it took, sorted longest-dormant first |
 
@@ -22,11 +21,10 @@ the work on a cron schedule and posts straight to Telegram:
 - `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
   first logs into Upstox automatically (`scripts/login_upstox.py`, via
   TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
-  always runs the daily swing screener, additionally runs both weekly
-  strategies (Weekly Range Breakout and Weekly Darvas Box) on Fridays, and
-  additionally runs the monthly ATH breakout on the last trading day of
-  the month — one Upstox pass serves every strategy that fires that day,
-  whatever the day.
+  always runs the daily swing screener, additionally runs the weekly
+  range breakout on Fridays, and additionally runs the monthly ATH
+  breakout on the last trading day of the month — one Upstox pass serves
+  every strategy that fires that day, whatever the day.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
@@ -155,8 +153,7 @@ them there rather than in the strategy code.
   — the close sits in the top 75% of the candle's range (small upper wick).
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Weekly breakout and monthly ATH breakout require this; Daily Swing gates
-  on the SMA44/lower-BB confluence instead, and Weekly Darvas Box uses its
-  own multiplier (`DARVAS_WEEKLY_VOLUME_MULTIPLIER`, 1.5x).
+  on the SMA44/lower-BB confluence instead.
 - **Daily Swing**: `signals/strategies/daily_swing.py`. Above the 200 SMA
   (long-term uptrend), with the `SMA_SWING` (44) SMA itself rising - not
   flat or falling - and price testing support at it (low within
@@ -169,25 +166,15 @@ them there rather than in the strategy code.
   Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
   base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
   and dropped without beating this original version; see git history.)
-- **Weekly Darvas Box**: `signals/strategies/weekly_darvas.py`. Nicolas
-  Darvas only ever bought stocks consolidating into a tight box that was
-  itself sitting at a fresh new high, then breaking out of that box on
-  volume. The box is variable-length, not a single fixed window: the
-  strategy searches backward for the shortest qualifying box between
-  `DARVAS_WEEKLY_BOX_MIN_WEEKS` (6) and `DARVAS_WEEKLY_BOX_MAX_WEEKS` (20)
-  immediately before today whose range is within
-  `DARVAS_WEEKLY_BOX_TIGHTNESS` (8%) and whose top is itself a fresh
-  `DARVAS_WEEKLY_NEW_HIGH_LOOKBACK` (52-week) high (within
-  `DARVAS_WEEKLY_NEW_HIGH_TOLERANCE`) - a box that isn't sitting at a new
-  high isn't a genuine Darvas box. Today's candle must then close above
-  the box top on volume, with a proper close. (Replaces CIP, a
-  resistance-zone/retest strategy that ran here before; see git history. A
-  first backtest at looser settings - 3-15 week boxes, 12% tightness -
-  came out at CIP's old parity on a thin sample; the box was widened and
-  tightened per the reasoning in `signals/config.py`.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 15% of the range low, i.e. a genuine
-  consolidation, not just drift.
+  consolidation, not just drift. (This is currently the only weekly
+  strategy: CIP, a resistance-zone/retest strategy, and Weekly Darvas Box,
+  a variable-length box-then-breakout strategy, both ran in this slot
+  before - Darvas Box tightened enough to beat Weekly Range Breakout's own
+  numbers collapsed to 3 signals in 12 months, too few to trust, and its
+  looser version was just a slower, noisier version of the same
+  tight-range-then-breakout idea already covered here; see git history.)
 - **Monthly ATH**: all-time high is the max monthly close within the
   trailing history the screener fetches (see caveat below), not
   necessarily since IPO for very old listings.
@@ -198,11 +185,6 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Weekly Darvas Box**: entry is the breakout candle's **close**;
-  stop-loss sits below the box bottom (Darvas's own rule - the stop lives
-  below the whole consolidation, not just the breakout level). Targets are
-  risk-multiples of that entry-to-SL distance
-  (`DARVAS_WEEKLY_RISK_REWARD_TARGETS`, 2R/3R by default).
 - **Weekly Range Breakout**: entry is the breakout candle's close,
   stop-loss sits just under the breakout level itself (the top of the
   consolidation range — "old resistance becomes new support"), not the
@@ -314,7 +296,6 @@ signals/
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py      Daily Swing (SMA44/lower-BB confluence)
-    weekly_darvas.py    Weekly Darvas Box (variable-length box + breakout)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

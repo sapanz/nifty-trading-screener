@@ -1,7 +1,7 @@
 import pandas as pd
 
 from signals import config
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout, weekly_darvas
+from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -57,58 +57,6 @@ class TestWeeklyBreakout:
         )
         df = pd.concat([df, breakout_row])
         signals = weekly_breakout.scan({"TESTCO": df})
-        assert signals == []
-
-
-def _darvas_weekly_setup_df(
-    ramp_periods: int = 400, box_weeks: int = 6, box_top: float = 201.0, box_bottom: float = 197.0, breakout_close: float = 210.0
-) -> pd.DataFrame:
-    """Ramp up towards 200 (never quite reaching it, so it stays this
-    stock's 52-week high), hold a tight box for `box_weeks`, then break out
-    above the box top on strong volume."""
-    df = _ramp_then_flat_df("W-FRI", ramp_weeks=ramp_periods, flat_weeks=0, start=50, plateau=200)
-
-    for _ in range(box_weeks):
-        box_row = pd.DataFrame(
-            {"open": [199.0], "high": [box_top], "low": [box_bottom], "close": [199.0], "volume": [100_000.0]},
-            index=[df.index[-1] + pd.Timedelta(weeks=1)],
-        )
-        df = pd.concat([df, box_row])
-
-    breakout_row = pd.DataFrame(
-        {"open": [box_top], "high": [breakout_close * 1.01], "low": [box_top], "close": [breakout_close], "volume": [500_000.0]},
-        index=[df.index[-1] + pd.Timedelta(weeks=1)],
-    )
-    df = pd.concat([df, breakout_row])
-    return df
-
-
-class TestWeeklyDarvas:
-    def test_detects_darvas_box_breakout(self):
-        df = _darvas_weekly_setup_df()
-        signals = weekly_darvas.scan({"TESTCO": df})
-        assert len(signals) == 1
-        sig = signals[0]
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
-
-        # Entry is the breakout candle's close; stop-loss sits just below
-        # the box bottom.
-        assert sig.entry == 210.0
-        assert sig.stop_loss == round(197.0 * (1 - config.SL_BUFFER), 2)
-
-    def test_no_signal_when_box_too_wide(self):
-        df = _darvas_weekly_setup_df(box_top=230.0, box_bottom=180.0, breakout_close=235.0)
-        signals = weekly_darvas.scan({"TESTCO": df})
-        assert signals == []
-
-    def test_no_signal_when_box_top_not_a_fresh_high(self):
-        df = _darvas_weekly_setup_df()
-        # A spike well above the box top (300 vs 201), placed within the
-        # 52-week new-high lookback before the box - the box didn't
-        # actually form at a genuine new high.
-        spike_idx = df.index[350]
-        df.loc[spike_idx, ["open", "high", "low", "close"]] = [300.0, 301.5, 298.5, 300.0]
-        signals = weekly_darvas.scan({"TESTCO": df})
         assert signals == []
 
 
