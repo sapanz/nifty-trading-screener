@@ -82,6 +82,7 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                     f"Breakout after {_format_gap(months_gap)} | Vol {vol_ratio:.1f}x avg"
                 ),
                 extra={"months_gap": months_gap},
+                candle_date=current_date.date(),
             )
         )
 

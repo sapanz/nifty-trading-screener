@@ -2,7 +2,25 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def ist_today() -> date:
+    """The current calendar date in IST, not the machine's local timezone.
+
+    NSE trades on IST calendar days, but this project runs on GitHub
+    Actions, whose runners use UTC - and IST is UTC+5:30, so plain
+    `date.today()` silently returns yesterday's date for any run landing
+    between 6:30pm and midnight UTC (which does happen: scheduled GitHub
+    Actions runs aren't guaranteed to fire on time, and a manual run can
+    land at any hour). Every "what day is it" decision in this codebase -
+    message labeling, month-end detection, the Upstox fetch's date bound -
+    should go through this rather than `date.today()` directly.
+    """
+    return datetime.now(IST).date()
 
 
 def is_last_trading_day_of_month(today: date | None = None) -> bool:
@@ -13,7 +31,7 @@ def is_last_trading_day_of_month(today: date | None = None) -> bool:
     holiday, this will fire one weekday early instead. Good enough for a
     "once a month" screener; not exchange-calendar exact.
     """
-    today = today or date.today()
+    today = today or ist_today()
     if today.weekday() >= 5:
         return False
     last_calendar_day = calendar.monthrange(today.year, today.month)[1]

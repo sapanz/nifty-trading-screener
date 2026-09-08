@@ -1,6 +1,20 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
-from signals.calendar_utils import is_last_trading_day_of_month
+from signals.calendar_utils import IST, ist_today, is_last_trading_day_of_month
+
+
+def test_ist_today_is_ahead_of_utc_date_late_in_the_day():
+    # 22:00 UTC is already the next calendar day in IST (UTC+5:30) - this
+    # is exactly the window where plain date.today() on a UTC machine
+    # (e.g. a GitHub Actions runner) silently returns yesterday's date.
+    utc_evening = datetime(2026, 9, 8, 22, 0, tzinfo=timezone.utc)
+    assert utc_evening.astimezone(IST).date() == date(2026, 9, 9)
+
+
+def test_ist_today_returns_a_date():
+    # Can't assert an exact value (it's "now"), just that it behaves like
+    # a real IST-aware date rather than silently falling back to UTC/local.
+    assert isinstance(ist_today(), date)
 
 
 def test_last_weekday_of_month_true():

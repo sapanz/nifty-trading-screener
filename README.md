@@ -36,6 +36,19 @@ the work on a cron schedule and posts straight to Telegram:
   attempt to sidestep that queue contention, not a fix for it - actual
   delivery time still isn't guaranteed.
 
+  Because of that, a run can land at any hour, including well past IST
+  midnight - and GitHub Actions runners use UTC, not IST. Every "what
+  day is it" decision in this codebase (message labeling, month-end
+  detection, the Upstox fetch's date bound) goes through
+  `calendar_utils.ist_today()` rather than the machine's local
+  `date.today()`, so a late-running job doesn't silently mislabel a
+  message with the wrong calendar day. Each signal also carries the
+  actual date of the candle that qualified it (`candle_date`) - if that
+  ever falls behind the run date (a stale/delayed Upstox fetch, or a
+  market holiday the code doesn't otherwise know about), the Telegram
+  message flags it explicitly instead of silently assuming the two
+  match.
+
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
 on any day for testing.

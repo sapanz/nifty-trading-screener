@@ -103,6 +103,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 targets=targets,
                 sort_key=vol_ratio,
                 note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
+                candle_date=row.name.date(),
             )
         )
 
