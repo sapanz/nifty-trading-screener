@@ -115,8 +115,13 @@ class UpstoxClient:
         week's" OHLCV (e.g. around a holiday-shortened week), rather than
         a pandas resample of daily bars that may draw week boundaries
         slightly differently.
+
+        v2's historical-candle endpoint (used by get_daily_history) only
+        accepts "day" as an interval - "week" and "month" 400 there. This
+        uses the v3 endpoint instead, which takes the interval as a
+        separate unit/multiple pair (see _get_history_v3).
         """
-        return self._get_history(instrument_key, "week", years)
+        return self._get_history_v3(instrument_key, "weeks", 1, years)
 
     def get_monthly_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch monthly OHLCV candles for one instrument, aggregated by
@@ -128,8 +133,10 @@ class UpstoxClient:
         (a 25-year lookback is ~300 candles/symbol here vs ~6,300 at daily
         granularity), so it doesn't need to share signals.data.fetch_daily's
         DAILY_HISTORY_YEARS cap.
+
+        Uses the v3 endpoint - see get_weekly_history's docstring for why.
         """
-        return self._get_history(instrument_key, "month", years)
+        return self._get_history_v3(instrument_key, "months", 1, years)
 
     def _get_history(self, instrument_key: str, interval: str, years: int) -> pd.DataFrame:
         today = date.today()
@@ -138,7 +145,22 @@ class UpstoxClient:
             f"{config.UPSTOX_BASE_URL}/historical-candle/"
             f"{instrument_key}/{interval}/{today.isoformat()}/{from_date.isoformat()}"
         )
+        return self._request_candles(url, instrument_key)
 
+    def _get_history_v3(self, instrument_key: str, unit: str, interval: int, years: int) -> pd.DataFrame:
+        """Like _get_history, but against the v3 historical-candle endpoint,
+        which addresses interval as a separate {unit}/{interval} pair
+        (e.g. weeks/1, months/1) rather than v2's single day-only segment.
+        """
+        today = date.today()
+        from_date = today - timedelta(days=365 * years)
+        url = (
+            f"{config.UPSTOX_BASE_URL_V3}/historical-candle/"
+            f"{instrument_key}/{unit}/{interval}/{today.isoformat()}/{from_date.isoformat()}"
+        )
+        return self._request_candles(url, instrument_key)
+
+    def _request_candles(self, url: str, instrument_key: str) -> pd.DataFrame:
         last_exc: Exception | None = None
         for attempt in range(1, config.UPSTOX_MAX_RETRIES + 1):
             try:

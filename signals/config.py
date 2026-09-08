@@ -122,6 +122,12 @@ NSE_INDEX_LIST_URLS = (
 # reliable option; see tools/refresh_upstox_token.py for the one-tap daily
 # token refresh that keeps this fully working without a manual token paste.
 UPSTOX_BASE_URL = "https://api.upstox.com/v2"
+# v2's historical-candle endpoint only accepts "day" as an interval -
+# "week"/"month" 400 there (confirmed live, not just undocumented). Weekly
+# and monthly native fetches use v3 instead, which takes interval as a
+# separate {unit}/{multiple} pair (e.g. weeks/1, months/1) rather than a
+# single day-only segment - see UpstoxClient._get_history_v3.
+UPSTOX_BASE_URL_V3 = "https://api.upstox.com/v3"
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
 UPSTOX_EQUITY_TYPE = "EQUITY"  # instrument_type value for cash-market equities (confirmed live, not "EQ")
 UPSTOX_REQUEST_DELAY_SECONDS = 0.25  # spacing between historical-candle calls
