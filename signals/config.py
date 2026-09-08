@@ -67,6 +67,18 @@ BREAKOUT_RANGE_TIGHTNESS = 0.20  # (range_high - range_low) / range_low must be 
 # git history; 30-week at least matched baseline while cutting more noise.)
 BREAKOUT_TREND_SMA = 30
 
+# How far above the consolidation range's high the breakout candle's close
+# may sit - (entry - range_high) / range_high. Found by inspecting a 5-year
+# backtest's trade CSV directly: barely-there breakouts (0-4% above the
+# range) mostly fail (weak, low-conviction, easily reversed), and anything
+# beyond ~12% is often already extended - including a genuine bug case
+# where the breakout candle's own close had already run past the fixed
+# measured-move target (target1), guaranteeing a loss before the trade
+# even started. Restricting entries to this 4-12% band alone flipped a
+# 5-year backtest from net-losing to net-profitable (PF 0.81 -> 1.09).
+BREAKOUT_MIN_EXTENSION = 0.04
+BREAKOUT_MAX_EXTENSION = 0.12
+
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # Breakout SL is anchored to the breakout level itself (old resistance ->

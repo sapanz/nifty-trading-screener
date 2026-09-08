@@ -9,7 +9,11 @@ A stock qualifies when, on the weekly timeframe:
     volume on the range's up (green) candles than its down (red) ones -
     a classic accumulation signature: buyers stepping in harder than
     sellers while the range builds, not just quiet drift
-  - this week's close broke out above that range's high
+  - this week's close broke out above that range's high, by between
+    BREAKOUT_MIN_EXTENSION and BREAKOUT_MAX_EXTENSION - not a barely-there
+    break (weak, easily reversed) and not already extended (often means
+    the fixed measured-move target sits behind the entry before the trade
+    even starts)
   - the breakout candle is bullish (closed above its own open) and closed
     properly (in the top 25% of its own range, i.e. a small upper wick)
     on strong volume
@@ -67,6 +71,9 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         if not row["close"] > range_high:
             continue
+        extension = (row["close"] - range_high) / range_high
+        if not (config.BREAKOUT_MIN_EXTENSION < extension <= config.BREAKOUT_MAX_EXTENSION):
+            continue  # too weak a break (likely to fail) or too extended (target may already sit behind entry)
         if not is_bullish(row):
             continue  # breakout candle must be green (close > open), not just closed near its own high
         if not is_proper_close(row):

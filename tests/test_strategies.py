@@ -23,6 +23,12 @@ def _ramp_then_flat_df(
 
 
 class TestWeeklyBreakout:
+    # Range candles: range_low=180, range_high=200 (10% wide, within the
+    # 20% tightness cap). A valid breakout candle sits BREAKOUT_MIN/MAX_
+    # EXTENSION above 200 - 216.0 (8% extension) is used throughout as the
+    # default "properly extended" breakout close.
+    VALID_BREAKOUT_ROW = {"open": [210.0], "high": [216.5], "low": [209.0], "close": [216.0], "volume": [400_000.0]}
+
     def _tight_accumulation_range(self, df: pd.DataFrame) -> pd.DataFrame:
         """Overwrite the trailing BREAKOUT_RANGE_WEEKS rows into a tight,
         green-candle-dominated range (open < close throughout) so the
@@ -30,20 +36,17 @@ class TestWeeklyBreakout:
         passes trivially."""
         for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
             idx = -i
-            df.iloc[idx, df.columns.get_loc("open")] = 199.0
-            df.iloc[idx, df.columns.get_loc("high")] = 202.0
-            df.iloc[idx, df.columns.get_loc("low")] = 198.0
-            df.iloc[idx, df.columns.get_loc("close")] = 200.0
+            df.iloc[idx, df.columns.get_loc("open")] = 182.0
+            df.iloc[idx, df.columns.get_loc("high")] = 200.0
+            df.iloc[idx, df.columns.get_loc("low")] = 180.0
+            df.iloc[idx, df.columns.get_loc("close")] = 198.0
         return df
 
     def test_detects_range_breakout_with_volume(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
         df = self._tight_accumulation_range(df)
 
-        breakout_row = pd.DataFrame(
-            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
-            index=[df.index[-1] + pd.Timedelta(weeks=1)],
-        )
+        breakout_row = pd.DataFrame(self.VALID_BREAKOUT_ROW, index=[df.index[-1] + pd.Timedelta(weeks=1)])
         df = pd.concat([df, breakout_row])
 
         signals = weekly_breakout.scan({"TESTCO": df})
@@ -53,17 +56,48 @@ class TestWeeklyBreakout:
 
         # Stop-loss is anchored to the breakout level itself (range_high),
         # not the bottom of the consolidation range.
-        assert sig.stop_loss == round(202.0 * (1 - config.SL_BUFFER), 2)
+        assert sig.stop_loss == round(200.0 * (1 - config.SL_BUFFER), 2)
 
-    def test_no_signal_when_breakout_candle_is_red(self):
-        # closes near its own high (small upper wick, would pass
-        # is_proper_close) but still closed below its own open - a red
-        # candle, not the bullish breakout the strategy requires.
+    def test_no_signal_when_breakout_extension_too_small(self):
+        # closes barely above the range (well under BREAKOUT_MIN_EXTENSION)
+        # - a weak, low-conviction break, not the decisive move the
+        # strategy requires.
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
         df = self._tight_accumulation_range(df)
 
         breakout_row = pd.DataFrame(
-            {"open": [204.0], "high": [204.2], "low": [201.0], "close": [203.9], "volume": [400_000.0]},
+            {"open": [199.0], "high": [201.5], "low": [198.0], "close": [201.0], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_breakout_extension_too_large(self):
+        # closes far beyond BREAKOUT_MAX_EXTENSION - already extended,
+        # exactly the scenario where a fixed measured-move target can end
+        # up sitting behind the entry price before the trade even starts.
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
+        df = self._tight_accumulation_range(df)
+
+        breakout_row = pd.DataFrame(
+            {"open": [235.0], "high": [242.0], "low": [233.0], "close": [240.0], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_breakout_candle_is_red(self):
+        # a properly extended breakout (within the valid band) that closes
+        # near its own high (small upper wick, would pass is_proper_close)
+        # but still closed below its own open - a red candle, not the
+        # bullish breakout the strategy requires.
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
+        df = self._tight_accumulation_range(df)
+
+        breakout_row = pd.DataFrame(
+            {"open": [216.5], "high": [216.6], "low": [209.0], "close": [216.0], "volume": [400_000.0]},
             index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
         df = pd.concat([df, breakout_row])
@@ -104,10 +138,7 @@ class TestWeeklyBreakout:
         df["low"] = df["close"] * 0.995
         df["volume"] = 100_000.0
         df = self._tight_accumulation_range(df)
-        breakout_row = pd.DataFrame(
-            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
-            index=[df.index[-1] + pd.Timedelta(weeks=1)],
-        )
+        breakout_row = pd.DataFrame(self.VALID_BREAKOUT_ROW, index=[df.index[-1] + pd.Timedelta(weeks=1)])
         df = pd.concat([df, breakout_row])
         signals = weekly_breakout.scan({"TESTCO": df})
         assert len(signals) == 1
@@ -118,16 +149,13 @@ class TestWeeklyBreakout:
         margin = config.SMA_SLOPE_LOOKBACK + 20
         n_bulk = config.SMA_LONG + config.BREAKOUT_RANGE_WEEKS + margin
         dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_bulk, freq="W-FRI")
-        df = pd.DataFrame({"close": [202.0] * n_bulk}, index=dates)
+        df = pd.DataFrame({"close": [210.0] * n_bulk}, index=dates)
         df["open"] = df["close"]
         df["high"] = df["close"] * 1.005
         df["low"] = df["close"] * 0.995
         df["volume"] = 100_000.0
         df = self._tight_accumulation_range(df)
-        breakout_row = pd.DataFrame(
-            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
-            index=[df.index[-1] + pd.Timedelta(weeks=1)],
-        )
+        breakout_row = pd.DataFrame(self.VALID_BREAKOUT_ROW, index=[df.index[-1] + pd.Timedelta(weeks=1)])
         df = pd.concat([df, breakout_row])
         signals = weekly_breakout.scan({"TESTCO": df})
         assert signals == []
@@ -144,8 +172,10 @@ class TestWeeklyBreakout:
             df.iloc[idx, df.columns.get_loc("low")] = 198.0
             df.iloc[idx, df.columns.get_loc("close")] = 199.0
             df.iloc[idx, df.columns.get_loc("volume")] = 150_000.0
+        # range_high here is 202 (not the shared helper's 200), so the
+        # breakout close needs its own valid-extension value: ~8% above 202.
         breakout_row = pd.DataFrame(
-            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
+            {"open": [212.0], "high": [218.6], "low": [211.0], "close": [218.0], "volume": [400_000.0]},
             index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
         df = pd.concat([df, breakout_row])
