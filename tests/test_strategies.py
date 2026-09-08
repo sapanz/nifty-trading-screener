@@ -68,12 +68,37 @@ class TestWeeklyBreakout:
         signals = weekly_breakout.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_200sma_not_rising(self):
-        # a long, almost-flat history (bulk of the 200-week window sits just
-        # above the eventual range) followed by the same tight range and
-        # breakout as the passing test - price ends up above its 200 SMA,
-        # but the SMA itself is essentially flat/declining into the
-        # breakout, not a real uptrend.
+    def test_signal_fires_with_flat_200sma_but_rising_30sma(self):
+        # a long flat base (dominates the 200 SMA, keeping it essentially
+        # flat) followed by a rising run into the range - price is above a
+        # flat 200 SMA (fine, no slope required there) and the faster 30
+        # SMA is genuinely rising, so the signal should still fire.
+        n_flat = config.SMA_LONG
+        ramp_weeks = 24
+        flat_part = [180.0] * n_flat
+        ramp_part = [180.0 + (199.0 - 180.0) * i / ramp_weeks for i in range(ramp_weeks)]
+        dates = pd.date_range(
+            end=pd.Timestamp.today().normalize(),
+            periods=n_flat + ramp_weeks + config.BREAKOUT_RANGE_WEEKS,
+            freq="W-FRI",
+        )
+        df = pd.DataFrame({"close": flat_part + ramp_part + [200.0] * config.BREAKOUT_RANGE_WEEKS}, index=dates)
+        df["open"] = df["close"]
+        df["high"] = df["close"] * 1.005
+        df["low"] = df["close"] * 0.995
+        df["volume"] = 100_000.0
+        df = self._tight_accumulation_range(df)
+        breakout_row = pd.DataFrame(
+            {"open": [202.0], "high": [203.5], "low": [201.0], "close": [203.3], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert len(signals) == 1
+
+    def test_no_signal_when_30sma_not_rising(self):
+        # price sits above a flat 200 SMA, but there was no recent run-up -
+        # the faster 30 SMA is flat too, not a real uptrend.
         margin = config.SMA_SLOPE_LOOKBACK + 20
         n_bulk = config.SMA_LONG + config.BREAKOUT_RANGE_WEEKS + margin
         dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_bulk, freq="W-FRI")

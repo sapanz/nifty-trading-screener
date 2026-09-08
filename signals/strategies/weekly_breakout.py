@@ -1,8 +1,10 @@
 """Weekly range-breakout strategy (runs Fridays after close).
 
 A stock qualifies when, on the weekly timeframe:
-  - it is above its 200-period SMA, and that SMA is itself rising (a real
-    uptrend, not just sideways drift the price happens to sit above)
+  - it is above its 200-period SMA (long-term uptrend; the 200 SMA itself
+    can be flat or rising, only price needs to be above it)
+  - its 30-period SMA is itself rising (a real, faster-moving uptrend, not
+    just sideways drift the price happens to sit above)
   - the preceding N weeks formed a tight consolidation range, with more
     volume on the range's up (green) candles than its down (red) ones -
     a classic accumulation signature: buyers stepping in harder than
@@ -39,15 +41,16 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
 
         add_sma(df, config.SMA_LONG)
+        add_sma(df, config.BREAKOUT_TREND_SMA)
         add_avg_volume(df, config.VOLUME_LOOKBACK)
         row = df.iloc[-1]
 
-        if pd.isna(row.get(f"sma{config.SMA_LONG}")):
+        if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{config.BREAKOUT_TREND_SMA}")):
             continue
         if not is_above_sma(row, f"sma{config.SMA_LONG}"):
             continue
-        if not is_sma_rising(df, f"sma{config.SMA_LONG}"):
-            continue  # price sitting above a flat/falling 200 SMA isn't a real uptrend
+        if not is_sma_rising(df, f"sma{config.BREAKOUT_TREND_SMA}"):
+            continue  # 30 SMA must be trending up - a real uptrend, not just above a flat 200 SMA
 
         prior = df.iloc[-1 - window : -1]
         range_high = float(prior["high"].max())
