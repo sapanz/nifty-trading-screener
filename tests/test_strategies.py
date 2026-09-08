@@ -52,15 +52,11 @@ class TestWeeklyBreakout:
         signals = weekly_breakout.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
-        assert sig.stop_loss < sig.entry
-        assert sig.targets == []
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Stop-loss is whichever of the breakout level (range_high) or a
-        # fixed WEEKLY_MAX_RISK_PCT below entry is tighter - here the entry
-        # is extended enough above range_high that the fixed-risk anchor
-        # wins.
-        expected_sl = max(200.0 * (1 - config.SL_BUFFER), 216.0 * (1 - config.WEEKLY_MAX_RISK_PCT))
-        assert sig.stop_loss == round(expected_sl, 2)
+        # Stop-loss is anchored to the breakout level itself (range_high),
+        # not the bottom of the consolidation range.
+        assert sig.stop_loss == round(200.0 * (1 - config.SL_BUFFER), 2)
 
     def test_no_signal_when_breakout_extension_too_small(self):
         # closes barely above the range (well under BREAKOUT_MIN_EXTENSION)
@@ -259,8 +255,7 @@ class TestMonthlyBreakout:
         assert len(signals) == 1
         sig = signals[0]
         assert sig.extra["months_gap"] == len(df) - 1 - ath_month_idx
-        assert sig.stop_loss < sig.entry
-        assert sig.targets == []
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
     def test_sorted_biggest_gap_first(self):
         df_a = self._monthly_df(months=36)

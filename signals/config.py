@@ -94,28 +94,11 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # farther target would eventually be hit too - in practice nearly every
 # winning trade exits at T1, and a farther T2/T3 only matters on the rare
 # day price gaps past both at once. A fixed multi-tier target list can't
-# "let winners run" past the nearest one - Weekly Range Breakout and
-# Monthly ATH Breakout both moved off fixed targets entirely for this
-# reason; see BREAKOUT_TREND_SMA / MONTHLY_TRAIL_SMA and
-# backtest.simulate_weekly_trailing_sma.
-#
-# Weekly Range Breakout's SL used to be anchored purely to range_high, but
-# once entries were required to be BREAKOUT_MIN_EXTENSION-MAX_EXTENSION
-# above it, that anchor let risk balloon with the extension itself (a 12%-
-# extended entry has ~14% of raw risk before costs) - average loss on a
-# 5-year backtest came back around -7%. WEEKLY_MAX_RISK_PCT caps it: the
-# SL is whichever of the range_high anchor or this fixed %-from-entry is
-# tighter (closer to entry).
-WEEKLY_MAX_RISK_PCT = 0.04
-
-# Monthly ATH Breakout keeps its stop-loss (2% under the prior all-time
-# high) unchanged, but no longer exits at a fixed profit target - like
-# Weekly Range Breakout, it's held as long as the *weekly* close stays
-# above its own MONTHLY_TRAIL_SMA-week SMA, exiting the week it closes
-# back below (see backtest.simulate_weekly_trailing_sma). Deliberately a
-# separate constant from BREAKOUT_TREND_SMA even though both start at 30,
-# so the two strategies' trail periods can be tuned independently.
-MONTHLY_TRAIL_SMA = 30
+# "let winners run" past the nearest one; that needs a genuinely
+# different exit (a trailing stop, as tried for Daily Swing at one point)
+# not a bigger number here.
+BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
+ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never

@@ -7,25 +7,20 @@ dict of DataFrames sliced up to that date, exactly like a live run would
 see, so there is no separate "backtest mode" to drift out of sync with
 production behaviour and no lookahead bias).
 
-Daily Swing is walked forward on real subsequent daily price action to see
-whether it would have hit a target or its stop-loss first (simulate_forward).
-If a single day's range could have hit both the stop-loss and a target, the
+Every generated signal is then walked forward on the real subsequent
+daily price action to see whether it would have hit a target or its
+stop-loss first - regardless of which timeframe produced the signal,
+daily bars give the finest resolution available for that walk. If a
+single day's range could have hit both the stop-loss and a target, the
 stop-loss is assumed to trigger first (conservative, standard practice
-without intraday data). Daily Swing sets entry above the signal candle's
-own close - a resting buy-stop order, not an immediate fill - so
-simulate_forward only starts tracking stop/target outcomes once a later
-day's high actually reaches that entry price; a signal whose entry is never
+without intraday data).
+
+Some strategies (Daily Swing) set entry above the signal candle's own
+close - a resting buy-stop order, not an immediate fill. simulate_forward
+only starts tracking stop/target outcomes once a later day's high
+actually reaches that entry price; a signal whose entry is never
 subsequently reached is reported as "unfilled" rather than a real
 win/loss/open trade.
-
-Weekly Range Breakout and Monthly ATH Breakout don't use fixed targets at
-all - simulate_forward's target list can't "let winners run" past the
-nearest target (see config.py's stop-loss/target-construction comments for
-why). Both are instead walked forward on the weekly close via
-simulate_weekly_trailing_sma: held as long as the weekly close stays above
-its own trailing SMA (BREAKOUT_TREND_SMA for weekly, MONTHLY_TRAIL_SMA for
-monthly), exiting the week it closes back below - or immediately if the
-stop-loss is breached first.
 
 Every entered trade's return is net of config.ROUND_TRIP_COST_PCT (STT +
 stamp duty + exchange charges for a real Indian delivery trade) - a
@@ -135,54 +130,6 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     )
 
 
-def simulate_weekly_trailing_sma(
-    strategy: str, signal: Signal, signal_date: pd.Timestamp, weekly_df: pd.DataFrame, sma_period: int
-) -> TradeResult:
-    """Walk the weekly price path after `signal_date`. There's no fixed
-    target: the trade is held as long as the weekly close stays above its
-    own `sma_period`-week SMA, and exits at that week's close the first
-    week the close falls back below it (a classic Weinstein/Minervini-style
-    trend trail) - or immediately if the initial stop-loss is breached
-    first. Unlike simulate_forward, entry here is always the breakout
-    candle's own close (an immediate fill), so there's no resting-order
-    "unfilled" case to handle.
-    """
-    future = weekly_df[weekly_df.index > signal_date]
-    sma = weekly_df["close"].rolling(sma_period).mean()
-    months_gap = signal.extra.get("months_gap")
-
-    for dt, row in future.iterrows():
-        if row["low"] <= signal.stop_loss:
-            return TradeResult(
-                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-                outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
-                return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
-            )
-        sma_value = sma.get(dt)
-        if pd.notna(sma_value) and row["close"] < sma_value:
-            exit_price = float(row["close"])
-            return TradeResult(
-                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-                outcome="trailing_stop", exit_date=dt, exit_price=exit_price,
-                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
-            )
-
-    if not future.empty:
-        last_date = future.index[-1]
-        last_close = float(future["close"].iloc[-1])
-    else:
-        last_date = signal_date
-        last_close = signal.entry
-    return TradeResult(
-        strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
-        outcome="open", exit_date=last_date, exit_price=last_close,
-        return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
-        holding_days=(last_date - signal_date).days, months_gap=months_gap,
-    )
-
-
 def _dates_in_window(datasets: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     all_dates: set[pd.Timestamp] = set()
     for df in datasets.values():
@@ -236,25 +183,21 @@ def run_backtest(
 
     for asof in _dates_in_window(weekly_data, start, end):
         for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
-            results["weekly_breakout"].append(
-                simulate_weekly_trailing_sma(
-                    "weekly_breakout", signal, asof, weekly_data[signal.symbol], config.BREAKOUT_TREND_SMA
-                )
-            )
+            # weekly_data may come from a separate fetch than daily_data (a
+            # different set of symbols can fail between two independent
+            # Upstox calls) - the exit walk-forward still needs daily bars,
+            # so skip a signal whose symbol didn't come back in daily_data
+            # rather than raising.
+            if signal.symbol not in daily_data:
+                continue
+            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
-            # monthly_breakout's own scan runs on monthly_data, but its exit
-            # walk now trails the *weekly* close against MONTHLY_TRAIL_SMA -
-            # weekly_data is an independent fetch from monthly_data, so a
-            # symbol present in one can still be missing from the other.
-            if signal.symbol not in weekly_data:
+            # Same reasoning as weekly_data above.
+            if signal.symbol not in daily_data:
                 continue
-            results["monthly_breakout"].append(
-                simulate_weekly_trailing_sma(
-                    "monthly_breakout", signal, asof, weekly_data[signal.symbol], config.MONTHLY_TRAIL_SMA
-                )
-            )
+            results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
 
     return results
 

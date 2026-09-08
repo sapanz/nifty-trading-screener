@@ -127,28 +127,27 @@ class TestSimulateForward:
 
 
 class TestRunBacktest:
-    def test_monthly_signal_for_symbol_missing_from_weekly_data_is_skipped(self, monkeypatch):
-        # monthly_breakout's exit walk trails the *weekly* close
-        # (simulate_weekly_trailing_sma), which is an independent Upstox
-        # fetch from monthly_data - a symbol that fails the weekly fetch but
-        # not the monthly one shouldn't blow up the walk-forward.
+    def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
+        # monthly_data can come from a separate Upstox fetch than daily_data
+        # (data.fetch_monthly_ath_history vs data.fetch_daily) - a symbol
+        # that fails one fetch but not the other shouldn't blow up the
+        # simulate_forward walk-forward, which needs daily bars.
         from signals.strategies import monthly_breakout as mb
 
         today = pd.Timestamp.today().normalize()
-        daily_data = {"HASWEEKLY": _daily_df([100, 101, 102, 103, 104])}
-        weekly_data = {"HASWEEKLY": _daily_df([100, 101, 102, 103, 104])}
+        daily_data = {"HASDAILY": _daily_df([100, 101, 102, 103, 104])}
         monthly_data = {
-            "HASWEEKLY": pd.DataFrame({"close": [100.0]}, index=[today]),
-            "NOWEEKLY": pd.DataFrame({"close": [100.0]}, index=[today]),
+            "HASDAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
+            "NODAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
         }
 
         def fake_scan(sliced):
-            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[]) for sym in sliced]
+            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[110.0]) for sym in sliced]
 
         monkeypatch.setattr(mb, "scan", fake_scan)
 
-        results = backtest.run_backtest(daily_data, months=1, weekly_data=weekly_data, monthly_data=monthly_data)
-        assert [t.symbol for t in results["monthly_breakout"]] == ["HASWEEKLY"]
+        results = backtest.run_backtest(daily_data, months=1, monthly_data=monthly_data)
+        assert [t.symbol for t in results["monthly_breakout"]] == ["HASDAILY"]
 
     def test_monthly_data_defaults_to_resampling_daily_data(self):
         # omitting monthly_data shouldn't raise - it falls back to
@@ -158,11 +157,10 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert results["monthly_breakout"] == []  # too little history to signal, but no error
 
-    def test_weekly_breakout_does_not_depend_on_daily_data(self, monkeypatch):
-        # weekly_breakout's exit walk now trails the weekly close directly
-        # (simulate_weekly_trailing_sma) off the same weekly_data used for
-        # the scan - there's no cross-dataset dependency on daily_data left,
-        # so a symbol present only in weekly_data still produces a trade.
+    def test_weekly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
+        # Same reasoning as the monthly case above: weekly_data can come
+        # from a separate Upstox fetch (data.fetch_weekly_history) than
+        # daily_data, so the two symbol sets can diverge.
         from signals.strategies import weekly_breakout as wb
 
         today = pd.Timestamp.today().normalize()
@@ -173,12 +171,12 @@ class TestRunBacktest:
         }
 
         def fake_scan(sliced):
-            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[]) for sym in sliced]
+            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[110.0]) for sym in sliced]
 
         monkeypatch.setattr(wb, "scan", fake_scan)
 
         results = backtest.run_backtest(daily_data, months=1, weekly_data=weekly_data)
-        assert {t.symbol for t in results["weekly_breakout"]} == {"HASDAILY", "NODAILY"}
+        assert [t.symbol for t in results["weekly_breakout"]] == ["HASDAILY"]
 
     def test_weekly_data_defaults_to_resampling_daily_data(self):
         # omitting weekly_data shouldn't raise - it falls back to
@@ -186,79 +184,6 @@ class TestRunBacktest:
         daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
         results = backtest.run_backtest(daily_data, months=1)
         assert results["weekly_breakout"] == []  # too little history to signal, but no error
-
-
-def _weekly_df(closes: list[float]) -> pd.DataFrame:
-    dates = pd.date_range("2024-01-05", periods=len(closes), freq="W-FRI")
-    df = pd.DataFrame({"close": closes}, index=dates)
-    df["open"] = df["close"]
-    df["high"] = df["close"] * 1.01
-    df["low"] = df["close"] * 0.99
-    df["volume"] = 1000.0
-    return df
-
-
-class TestSimulateWeeklyTrailingSma:
-    def test_stop_loss_breach_exits_immediately(self):
-        df = _weekly_df([100, 101, 102, 95, 96])
-        signal_date = df.index[0]
-        result = backtest.simulate_weekly_trailing_sma(
-            "weekly_breakout", _signal(stop_loss=97.0), signal_date, df, sma_period=2
-        )
-        assert result.outcome == "stop_loss"
-        assert result.exit_price == 97.0
-        assert result.return_pct < 0
-
-    def test_return_is_net_of_round_trip_transaction_cost(self):
-        df = _weekly_df([100, 101, 102, 95, 96])
-        signal_date = df.index[0]
-        result = backtest.simulate_weekly_trailing_sma(
-            "weekly_breakout", _signal(stop_loss=97.0), signal_date, df, sma_period=2
-        )
-        gross_return_pct = (97.0 / 100.0 - 1) * 100
-        assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
-
-    def test_exits_first_week_close_falls_below_own_trailing_sma(self):
-        # sma_period=2: sma[w1]=(100+110)/2=105 (110>105, held), sma[w2]=(110+108)/2=109
-        # (108<109, exits here at that week's close).
-        df = _weekly_df([100, 110, 108, 90])
-        signal_date = df.index[0]
-        result = backtest.simulate_weekly_trailing_sma(
-            "weekly_breakout", _signal(stop_loss=10.0), signal_date, df, sma_period=2
-        )
-        assert result.outcome == "trailing_stop"
-        assert result.exit_date == df.index[2]
-        assert result.exit_price == 108.0
-
-    def test_still_open_when_close_never_falls_below_sma(self):
-        df = _weekly_df([100, 105, 110, 115])
-        signal_date = df.index[0]
-        result = backtest.simulate_weekly_trailing_sma(
-            "weekly_breakout", _signal(stop_loss=10.0), signal_date, df, sma_period=2
-        )
-        assert result.outcome == "open"
-        assert result.exit_price == df["close"].iloc[-1]
-        assert result.exit_date == df.index[-1]
-
-    def test_open_with_no_future_data_falls_back_to_entry(self):
-        df = _weekly_df([100.0])
-        signal_date = df.index[0]  # no rows after the signal date at all
-        result = backtest.simulate_weekly_trailing_sma(
-            "weekly_breakout", _signal(stop_loss=10.0), signal_date, df, sma_period=2
-        )
-        assert result.outcome == "open"
-        assert result.exit_price == 100.0
-        assert result.holding_days == 0
-
-    def test_carries_months_gap_from_signal_extra(self):
-        # Reused for monthly_breakout too, which stamps months_gap onto the
-        # signal - that should ride along on every outcome here as well.
-        df = _weekly_df([100, 105, 110, 115])
-        signal_date = df.index[0]
-        result = backtest.simulate_weekly_trailing_sma(
-            "monthly_breakout", _signal(stop_loss=10.0, extra={"months_gap": 7}), signal_date, df, sma_period=2
-        )
-        assert result.months_gap == 7
 
 
 class TestWriteCsv:

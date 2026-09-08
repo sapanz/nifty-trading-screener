@@ -8,12 +8,6 @@ A stock qualifies when, on the monthly timeframe:
 Each result also reports how long (in months) the stock spent below its
 old high before finally breaking out, and the list is sorted with the
 longest-dormant breakouts first - those tend to be the most explosive.
-
-The stop-loss stays anchored to the prior all-time high (2% under it,
-config.SL_BUFFER), but there's no fixed profit target: like Weekly Range
-Breakout, the trade is held as long as the *weekly* close stays above its
-own MONTHLY_TRAIL_SMA-week SMA, exiting the week it closes back below (see
-backtest.simulate_weekly_trailing_sma).
 """
 from __future__ import annotations
 
@@ -69,18 +63,18 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             continue
 
         vol_ratio = float(row["volume"] / row[VOL_COL])
+        targets = [round(entry * (1 + pct), 2) for pct in config.ATH_BREAKOUT_TARGET_PCTS]
 
         signals.append(
             Signal(
                 symbol=symbol,
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
-                targets=[],
+                targets=targets,
                 sort_key=months_gap,
                 note=(
                     f"Prior ATH {ath_prior:.2f} ({ath_date.strftime('%b %Y')}) | "
-                    f"Breakout after {_format_gap(months_gap)} | Vol {vol_ratio:.1f}x avg | "
-                    f"trail until weekly close < {config.MONTHLY_TRAIL_SMA}-week SMA"
+                    f"Breakout after {_format_gap(months_gap)} | Vol {vol_ratio:.1f}x avg"
                 ),
                 extra={"months_gap": months_gap},
             )

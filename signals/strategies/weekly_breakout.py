@@ -17,13 +17,6 @@ A stock qualifies when, on the weekly timeframe:
   - the breakout candle is bullish (closed above its own open) and closed
     properly (in the top 25% of its own range, i.e. a small upper wick)
     on strong volume
-
-There's no fixed profit target: the trade is held as long as the weekly
-close stays above its own BREAKOUT_TREND_SMA-week SMA, exiting the week it
-closes back below (see backtest.simulate_weekly_trailing_sma). The stop-loss
-is whichever of the breakout level (range_high) or a fixed
-WEEKLY_MAX_RISK_PCT below entry is tighter - capping how much risk an
-extended entry can carry (see config.py for why).
 """
 from __future__ import annotations
 
@@ -92,15 +85,14 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         # Anchor SL to the breakout level itself (old resistance becomes new
         # support), not the bottom of the consolidation range - the latter
         # let risk balloon with however wide the whole range was, producing
-        # a high win rate but large tail losses in backtesting. But once
-        # entries are allowed to sit up to BREAKOUT_MAX_EXTENSION above that
-        # level, the range_high anchor alone lets risk balloon right back
-        # with the extension - so take whichever of the two is tighter.
-        stop_loss = float(max(range_high * (1 - config.SL_BUFFER), entry * (1 - config.WEEKLY_MAX_RISK_PCT)))
+        # a high win rate but large tail losses in backtesting.
+        stop_loss = float(range_high * (1 - config.SL_BUFFER))
         risk = entry - stop_loss
         if risk <= 0:
             continue
 
+        range_height = range_high - range_low
+        targets = [round(range_high + range_height * mult, 2) for mult in config.BREAKOUT_RANGE_MULTIPLES]
         vol_ratio = float(row["volume"] / row[VOL_COL])
 
         signals.append(
@@ -108,12 +100,9 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 symbol=symbol,
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
-                targets=[],
+                targets=targets,
                 sort_key=vol_ratio,
-                note=(
-                    f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w) | "
-                    f"trail until close < {config.BREAKOUT_TREND_SMA}-week SMA"
-                ),
+                note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
             )
         )
 

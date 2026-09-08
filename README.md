@@ -187,24 +187,19 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Weekly Range Breakout**: entry is the breakout candle's close.
-  Stop-loss is whichever of two anchors is tighter: just under the
-  breakout level itself (the top of the consolidation range — "old
-  resistance becomes new support"), or a fixed `WEEKLY_MAX_RISK_PCT`
-  (4%) below entry — the latter caps risk from ballooning on a more
-  extended entry (entries can sit up to 12% above the breakout level).
-  There's no fixed target: the trade is held as long as the weekly close
-  stays above its own `BREAKOUT_TREND_SMA`-week SMA, exiting the week it
-  closes back below (`backtest.simulate_weekly_trailing_sma`) — fixed
-  measured-move targets were dropped because `simulate_forward` exits at
-  the first target touched, so a farther target almost never mattered in
-  practice and winners couldn't run past the nearest one; see the note in
-  `signals/config.py`.
+- **Weekly Range Breakout**: entry is the breakout candle's close,
+  stop-loss sits just under the breakout level itself (the top of the
+  consolidation range — "old resistance becomes new support"), not the
+  bottom of the range, so risk stays tight instead of scaling with
+  however wide the whole consolidation was. Targets are measured-move
+  projections of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x).
+  (Widening to 1x/3x was tried and reverted - it changed nothing, since
+  `simulate_forward` exits at the first target touched either way; see
+  the note in `signals/config.py`.)
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
-  just under the prior all-time high with a 2% buffer (unchanged). Like
-  Weekly Range Breakout, there's no fixed target: the trade is held as
-  long as the *weekly* close stays above its own `MONTHLY_TRAIL_SMA`-week
-  SMA, exiting the week it closes back below.
+  just under the prior all-time high with a 2% buffer, and targets are
+  open percentage-based (15%/25%) since a fresh all-time high by
+  definition has no prior resistance to aim at.
 
 Daily Swing is the only strategy on the shared daily fetch (`data.fetch_daily`,
 the "day" interval, once per run). Weekly Range Breakout and Monthly ATH
@@ -269,15 +264,11 @@ data available up to that date — the same `scan()` functions the live
 screener uses, unmodified, so there's no separate backtest logic that
 could silently drift out of sync with what actually runs Monday-Friday.
 
-Every signal found is then walked forward on real subsequent price action
-to see how it would have played out. Daily Swing checks a fixed target vs.
-a fixed stop-loss (if a single day's range could have hit both, the
-stop-loss is assumed to trigger first — conservative, since there's no
-intraday data to say which happened first within the day). Weekly Range
-Breakout and Monthly ATH Breakout have no fixed target — each is walked
-forward on the weekly close instead, held as long as it stays above its
-own trailing SMA and exited the week it closes back below (or immediately
-on a stop-loss breach).
+Every signal found is then walked forward on the real subsequent daily
+price action to see how it would have played out. Most strategies check a
+fixed target vs. a fixed stop-loss (if a single day's range could have hit
+both, the stop-loss is assumed to trigger first — conservative, since
+there's no intraday data to say which happened first within the day).
 
 **Every reported return is net of `ROUND_TRIP_COST_PCT`** (0.22%) — real
 transaction costs for an Indian cash-equity delivery trade (brokerage is
