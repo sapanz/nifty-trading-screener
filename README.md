@@ -18,13 +18,23 @@ No manual judgement calls at run time — every "properly closed candle" /
 There's no server to keep online. A single GitHub Actions workflow does
 the work on a cron schedule and posts straight to Telegram:
 
-- `.github/workflows/signals.yml` — Mon-Fri, 11:30 UTC (5:00pm IST). It
+- `.github/workflows/signals.yml` — Mon-Fri, 11:37 UTC (5:07pm IST; a
+  deliberately odd minute, not the round 11:30 - see caveat below). It
   first logs into Upstox automatically (`scripts/login_upstox.py`, via
   TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
   always runs the daily swing screener, additionally runs the weekly
   range breakout on Fridays, and additionally runs the monthly ATH
   breakout on the last trading day of the month — one Upstox pass serves
   every strategy that fires that day, whatever the day.
+
+  **GitHub Actions' `schedule` trigger is best-effort, not exact** - a
+  cron time is a request, not a guarantee, and GitHub can delay a
+  scheduled run (or even skip it) during high platform load, especially
+  at popular on-the-hour/half-hour minutes that every other repo's cron
+  jobs also target. Live runs on the old `:30` schedule showed 3-5 hour
+  delays (5pm IST scheduled, signals arriving 8-10pm IST); `:37` is an
+  attempt to sidestep that queue contention, not a fix for it - actual
+  delivery time still isn't guaranteed.
 
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
