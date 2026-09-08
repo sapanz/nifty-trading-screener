@@ -55,6 +55,22 @@ class TestWeeklyBreakout:
         # not the bottom of the consolidation range.
         assert sig.stop_loss == round(202.0 * (1 - config.SL_BUFFER), 2)
 
+    def test_no_signal_when_breakout_candle_is_red(self):
+        # closes near its own high (small upper wick, would pass
+        # is_proper_close) but still closed below its own open - a red
+        # candle, not the bullish breakout the strategy requires.
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
+        df = self._tight_accumulation_range(df)
+
+        breakout_row = pd.DataFrame(
+            {"open": [204.0], "high": [204.2], "low": [201.0], "close": [203.9], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
     def test_no_signal_when_range_too_wide(self):
         df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
         for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
