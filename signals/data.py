@@ -1,18 +1,22 @@
-"""Fetch daily OHLCV for the Nifty 500 universe via Upstox, once per run.
+"""Fetch OHLCV for the Nifty 500 universe via Upstox.
 
-Upstox only gets called for the "day" interval; weekly and monthly series
-used by the other strategies are derived here by resampling that same
-daily fetch - one round of Upstox calls serves every strategy that runs
-that day.
+Upstox gets called for the "day" interval once per run; weekly and
+monthly series for Daily Swing and Weekly Range Breakout are derived here
+by resampling that same daily fetch - one round of Upstox calls serves
+both of those strategies. Monthly ATH Breakout is the exception:
+`fetch_monthly_ath_history` fetches its own native "month" interval
+directly (see MONTHLY_ATH_HISTORY_YEARS in config.py for why).
 
 If the data source is rejecting requests wholesale (as NSE direct
 scraping turned out to do from GitHub Actions), grinding through all ~500
-symbols before giving up wastes hours. `fetch_daily` checks the failure
-rate after a small sample and aborts early if it looks systemic.
+symbols before giving up wastes hours. Both fetch functions below check
+the failure rate after a small sample and abort early if it looks
+systemic.
 """
 from __future__ import annotations
 
 import logging
+from typing import Callable
 
 import pandas as pd
 
@@ -54,27 +58,28 @@ def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, 
     return mapping
 
 
-def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
-    """Fetch daily OHLCV for every symbol. Failures are logged and skipped.
-
-    Aborts early with a clear error if a large fraction of an initial
-    sample fails - a sign the data source is blocking us wholesale rather
-    than a handful of unlucky symbols.
+def _fetch_history(
+    instrument_map: dict[str, str], fetch_one: Callable[[str], pd.DataFrame], throttle: Callable[[], None], label: str
+) -> dict[str, pd.DataFrame]:
+    """Shared fetch loop: pull one series per symbol, skip individual
+    failures, and abort early if a large fraction of an initial sample
+    fails - a sign the data source is blocking us wholesale rather than a
+    handful of unlucky symbols.
     """
     result: dict[str, pd.DataFrame] = {}
     failures: list[str] = []
 
     for i, (symbol, instrument_key) in enumerate(instrument_map.items(), start=1):
         try:
-            df = client.get_daily_history(instrument_key, years=config.DAILY_HISTORY_YEARS)
+            df = fetch_one(instrument_key)
             if not df.empty:
                 result[symbol] = df
             else:
                 failures.append(symbol)
         except Exception as exc:  # noqa: BLE001 - one bad symbol shouldn't kill the run
             failures.append(symbol)
-            logger.warning("Failed to fetch daily history for %s: %s", symbol, exc)
-        client.throttle()
+            logger.warning("Failed to fetch %s history for %s: %s", label, symbol, exc)
+        throttle()
 
         if i == config.CIRCUIT_BREAKER_SAMPLE_SIZE:
             failure_ratio = len(failures) / i
@@ -88,6 +93,29 @@ def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[st
     if failures:
         logger.warning("Skipped %d/%d symbols due to fetch errors or empty data: %s", len(failures), len(instrument_map), failures[:20])
     return result
+
+
+def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Fetch daily OHLCV for every symbol. Failures are logged and skipped."""
+    return _fetch_history(
+        instrument_map,
+        fetch_one=lambda key: client.get_daily_history(key, years=config.DAILY_HISTORY_YEARS),
+        throttle=client.throttle,
+        label="daily",
+    )
+
+
+def fetch_monthly_ath_history(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Fetch native monthly OHLCV for every symbol, for Monthly ATH Breakout's
+    all-time-high check specifically - see MONTHLY_ATH_HISTORY_YEARS in
+    config.py for why this is a separate, deeper fetch from fetch_daily.
+    """
+    return _fetch_history(
+        instrument_map,
+        fetch_one=lambda key: client.get_monthly_history(key, years=config.MONTHLY_ATH_HISTORY_YEARS),
+        throttle=client.throttle,
+        label="monthly ATH",
+    )
 
 
 def _resample(daily_df: pd.DataFrame, rule: str) -> pd.DataFrame:

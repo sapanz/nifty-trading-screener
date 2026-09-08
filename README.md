@@ -175,9 +175,11 @@ them there rather than in the strategy code.
   numbers collapsed to 3 signals in 12 months, too few to trust, and its
   looser version was just a slower, noisier version of the same
   tight-range-then-breakout idea already covered here; see git history.)
-- **Monthly ATH**: all-time high is the max monthly close within the
-  trailing history the screener fetches (see caveat below), not
-  necessarily since IPO for very old listings.
+- **Monthly ATH**: all-time high is the max monthly close within a
+  dedicated deep monthly fetch (`MONTHLY_ATH_HISTORY_YEARS`, 25 years by
+  default - see caveat below), fetched separately from the 6-year daily
+  history the other two strategies use, since a genuine all-time high
+  needs much more lookback than a trend/range check does.
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the signal candle's **high** (a buy-stop
@@ -199,9 +201,14 @@ them there rather than in the strategy code.
   open percentage-based (15%/25%) since a fresh all-time high by
   definition has no prior resistance to aim at.
 
-Weekly and monthly OHLCV are both *derived* from the same daily fetch by
-resampling (`signals/data.py`) — Upstox only gets called once per symbol,
-for the "day" interval, no matter how many strategies fire that day.
+Weekly OHLCV for Weekly Range Breakout is *derived* from the same daily
+fetch by resampling (`signals/data.py`) — Daily Swing and Weekly Range
+Breakout together only cost one Upstox call per symbol, for the "day"
+interval, no matter which of those two fire that day. Monthly ATH
+Breakout is the exception: it fetches its own native monthly candles
+directly (`data.fetch_monthly_ath_history`), on the one day a month it
+runs, so its all-time-high check isn't capped at the same 6-year window
+the other two strategies use (see `MONTHLY_ATH_HISTORY_YEARS`).
 
 ## Known limitations
 
@@ -220,11 +227,14 @@ for the "day" interval, no matter how many strategies fire that day.
   every single strategy in one run is more likely this than a real
   quiet market.
 - **All-time-high depth is bounded**, not literal all-time. The monthly
-  ATH check only sees `DAILY_HISTORY_YEARS` (6, by default) of history,
-  because it's derived from the same daily fetch every other strategy
-  uses. A stock whose real all-time high was set further back than that
-  won't be recognized as still being below it. Increase
-  `DAILY_HISTORY_YEARS` in `signals/config.py` for a deeper look-back.
+  ATH check fetches its own native monthly candles directly
+  (`MONTHLY_ATH_HISTORY_YEARS`, 25 years by default), separately from the
+  6-year daily fetch the other two strategies use - so it sees a much
+  deeper history, but a handful of decades-old listings (Reliance, ITC,
+  etc.) still predate even that. Those stocks get a 25-year ATH check,
+  not a literal since-IPO one. Increase `MONTHLY_ATH_HISTORY_YEARS` in
+  `signals/config.py` for a deeper look-back (monthly candles are cheap
+  enough that this costs little even pushed much further).
 - **NSE holiday calendar**: the "last trading day of the month" check is
   pure calendar math (last weekday of the month). If the real last
   trading day happens to be an NSE holiday, the run fires one weekday
@@ -299,10 +309,10 @@ HEADLESS=false python scripts/login_upstox.py
 signals/
   config.py          tunable thresholds
   universe.py        Nifty 500 constituent list (from NSE)
-  upstox_client.py   Upstox API wrapper (instrument master + daily candles)
+  upstox_client.py   Upstox API wrapper (instrument master + daily/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
-  data.py            daily fetch orchestration + weekly/monthly resampling + circuit breaker
+  data.py            daily + monthly-ATH fetch orchestration, weekly/monthly resampling, circuit breaker
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]

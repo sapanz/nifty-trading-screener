@@ -7,8 +7,12 @@ Fetches daily OHLCV via Upstox once, then:
   - also runs the monthly ATH breakout on the last trading day of the
     month (or FORCE_MONTHLY=true)
 
-One shared fetch keeps Upstox calls to a single pass per day even when
-several strategies fire on the same run (e.g. every Friday). Requires
+One shared daily fetch keeps Upstox calls to a single pass for Daily Swing
+and Weekly Range Breakout even when both fire on the same run (Fridays).
+Monthly ATH Breakout fetches separately, at native monthly granularity,
+since its all-time-high check needs much deeper history than the daily
+fetch's cap (see MONTHLY_ATH_HISTORY_YEARS in config.py) - this only
+costs an extra ~500-symbol fetch once a month, not every run. Requires
 UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
 """
 import os
@@ -69,12 +73,15 @@ def main() -> None:
         )
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
-        monthly = data.to_monthly(daily)
-        run(
-            MONTHLY_TITLE,
-            MONTHLY_EMOJI,
-            lambda: format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today),
-        )
+        def build_monthly():
+            # Its own native monthly fetch, not resampled from `daily` -
+            # the daily fetch is capped at DAILY_HISTORY_YEARS and an
+            # all-time-high check needs a much deeper lookback than that
+            # (see MONTHLY_ATH_HISTORY_YEARS in config.py).
+            monthly = data.fetch_monthly_ath_history(client, instrument_map)
+            return format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today)
+
+        run(MONTHLY_TITLE, MONTHLY_EMOJI, build_monthly)
 
     if failures:
         raise RuntimeError(f"{len(failures)} strategy run(s) failed: {failures}")

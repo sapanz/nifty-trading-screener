@@ -126,6 +126,38 @@ class TestSimulateForward:
         assert result.months_gap is None
 
 
+class TestRunBacktest:
+    def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
+        # monthly_data can come from a separate Upstox fetch than daily_data
+        # (data.fetch_monthly_ath_history vs data.fetch_daily) - a symbol
+        # that fails one fetch but not the other shouldn't blow up the
+        # simulate_forward walk-forward, which needs daily bars.
+        from signals.strategies import monthly_breakout as mb
+
+        today = pd.Timestamp.today().normalize()
+        daily_data = {"HASDAILY": _daily_df([100, 101, 102, 103, 104])}
+        monthly_data = {
+            "HASDAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
+            "NODAILY": pd.DataFrame({"close": [100.0]}, index=[today]),
+        }
+
+        def fake_scan(sliced):
+            return [Signal(symbol=sym, entry=100.0, stop_loss=95.0, targets=[110.0]) for sym in sliced]
+
+        monkeypatch.setattr(mb, "scan", fake_scan)
+
+        results = backtest.run_backtest(daily_data, months=1, monthly_data=monthly_data)
+        assert [t.symbol for t in results["monthly_breakout"]] == ["HASDAILY"]
+
+    def test_monthly_data_defaults_to_resampling_daily_data(self):
+        # omitting monthly_data shouldn't raise - it falls back to
+        # resampling daily_data (config.DAILY_HISTORY_YEARS-capped, but
+        # still usable for a quick local backtest).
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1)
+        assert results["monthly_breakout"] == []  # too little history to signal, but no error
+
+
 class TestWriteCsv:
     def test_months_gap_column(self, tmp_path):
         trades = [

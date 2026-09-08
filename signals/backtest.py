@@ -26,6 +26,12 @@ Every entered trade's return is net of config.ROUND_TRIP_COST_PCT (STT +
 stamp duty + exchange charges for a real Indian delivery trade) - a
 mechanical screener's reported edge is meaningless if it can't survive
 the costs a real trade actually pays.
+
+run_backtest()'s Monthly ATH Breakout scan should be fed a real native
+monthly fetch (data.fetch_monthly_ath_history) via its `monthly_data`
+argument so its all-time-high check sees genuinely deep history, not the
+DAILY_HISTORY_YEARS-capped resample it falls back to when that argument
+is omitted; see scripts/run_backtest.py for the live wiring.
 """
 from __future__ import annotations
 
@@ -138,13 +144,24 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
     return sliced
 
 
-def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, list[TradeResult]]:
-    """Backtest all active strategies over the trailing `months` months."""
+def run_backtest(
+    daily_data: dict[str, pd.DataFrame], months: int, monthly_data: dict[str, pd.DataFrame] | None = None
+) -> dict[str, list[TradeResult]]:
+    """Backtest all active strategies over the trailing `months` months.
+
+    `monthly_data` drives the Monthly ATH Breakout scan specifically. Pass
+    the strategy's real native-monthly fetch (data.fetch_monthly_ath_history)
+    so its all-time-high check sees the same deep history a live run would;
+    omitting it falls back to resampling `daily_data` (data.to_monthly),
+    which is capped at DAILY_HISTORY_YEARS and only useful for a quick
+    local backtest without an extra Upstox fetch.
+    """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
 
     weekly_data = data.to_weekly(daily_data)
-    monthly_data = data.to_monthly(daily_data)
+    if monthly_data is None:
+        monthly_data = data.to_monthly(daily_data)
 
     results: dict[str, list[TradeResult]] = {
         "daily_swing": [],
@@ -162,6 +179,13 @@ def run_backtest(daily_data: dict[str, pd.DataFrame], months: int) -> dict[str, 
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
+            # monthly_data may come from a separate fetch than daily_data
+            # (a different set of symbols can fail between two independent
+            # Upstox calls) - the exit walk-forward still needs daily bars,
+            # so skip a signal whose symbol didn't come back in daily_data
+            # rather than raising.
+            if signal.symbol not in daily_data:
+                continue
             results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
 
     return results

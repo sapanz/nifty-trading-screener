@@ -12,9 +12,14 @@ Two things this module deals with that are easy to get wrong:
    for the one-tap daily refresh flow - this module never tries to mint
    or refresh one itself.
 
-Only the "day" interval is fetched here; weekly and monthly series used
-by the other strategies are derived by resampling that daily data
-(signals/data.py) rather than making separate calls per timeframe.
+The "day" interval is fetched once per run and weekly/monthly series for
+Daily Swing and Weekly Range Breakout are derived by resampling that same
+daily data (signals/data.py) rather than making separate calls per
+timeframe. Monthly ATH Breakout is the one exception: it fetches its own
+native "month" interval directly (get_monthly_history), since it needs a
+much deeper lookback than the daily-history cap to find a genuine
+all-time high, and monthly candles are cheap enough to fetch that far
+back without a separate call per timeframe being wasteful.
 
 Upstox's API has changed shape before; if historical-candle requests start
 failing with 4xx errors, check developer.upstox.com and adjust the URL
@@ -96,11 +101,27 @@ class UpstoxClient:
         Returns a DataFrame indexed by date, sorted oldest -> newest, with
         columns open/high/low/close/volume.
         """
+        return self._get_history(instrument_key, "day", years)
+
+    def get_monthly_history(self, instrument_key: str, years: int) -> pd.DataFrame:
+        """Fetch monthly OHLCV candles for one instrument, aggregated by
+        Upstox itself rather than resampled from daily bars.
+
+        Used only by the Monthly ATH Breakout strategy, which needs a much
+        deeper lookback than the other strategies to find a stock's genuine
+        all-time high - fetching at monthly granularity keeps that cheap
+        (a 25-year lookback is ~300 candles/symbol here vs ~6,300 at daily
+        granularity), so it doesn't need to share signals.data.fetch_daily's
+        DAILY_HISTORY_YEARS cap.
+        """
+        return self._get_history(instrument_key, "month", years)
+
+    def _get_history(self, instrument_key: str, interval: str, years: int) -> pd.DataFrame:
         today = date.today()
         from_date = today - timedelta(days=365 * years)
         url = (
             f"{config.UPSTOX_BASE_URL}/historical-candle/"
-            f"{instrument_key}/day/{today.isoformat()}/{from_date.isoformat()}"
+            f"{instrument_key}/{interval}/{today.isoformat()}/{from_date.isoformat()}"
         )
 
         last_exc: Exception | None = None

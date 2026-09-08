@@ -133,12 +133,25 @@ UPSTOX_MAX_RETRIES = 3
 # symbols - fail loudly instead of quietly scanning nothing.
 MIN_INSTRUMENT_MATCH_RATIO = 0.5
 
-# Single daily-history depth, reused (via resampling) for weekly, monthly,
-# and the monthly all-time-high check - one fetch per symbol serves every
-# strategy that fires that day. 6 years comfortably covers a weekly
-# SMA200 lookback (~4y) with margin; it also caps how far back the
-# monthly ATH check can "see" (see README caveats).
+# Single daily-history depth, reused (via resampling) for weekly and daily
+# strategies - one fetch per symbol serves every strategy that fires that
+# day. 6 years comfortably covers a weekly SMA200 lookback (~4y) with
+# margin. Monthly ATH Breakout does NOT use this - see
+# MONTHLY_ATH_HISTORY_YEARS below, it needs a genuine all-time-high, not
+# one capped at 6 years.
 DAILY_HISTORY_YEARS = 6
+
+# Monthly ATH Breakout fetches its own native monthly candles directly
+# (UpstoxClient.get_monthly_history) rather than resampling the capped
+# daily fetch above, specifically so "all-time high" means what it says.
+# Monthly candles are cheap enough that a deep lookback costs almost
+# nothing: 25 years is ~300 candles/symbol vs ~6,300 for the same span at
+# daily granularity. It won't reach a handful of decades-old listings
+# (Reliance, ITC, etc. IPO'd well before this) - Upstox just returns
+# however much history actually exists rather than erroring, so those
+# still get a much deeper (if not literally all-time) ATH check than the
+# old 6-year cap gave every symbol. Raise this further if that gap matters.
+MONTHLY_ATH_HISTORY_YEARS = 25
 
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
