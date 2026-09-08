@@ -58,7 +58,7 @@ RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
 # --- Weekly breakout ------------------------------------------------------
 BREAKOUT_RANGE_WEEKS = 6         # look at the 6 candles preceding the breakout candle
-BREAKOUT_RANGE_TIGHTNESS = 0.20  # (range_high - range_low) / range_low must be <= 20%
+BREAKOUT_RANGE_TIGHTNESS = 0.25  # (range_high - range_low) / range_low must be <= 25%
 # 200 SMA is a pure "above it" long-term filter (no slope requirement - a
 # 200-week SMA moves too slowly for a rising check to mean much and just
 # shrinks the candidate pool for no real signal). The actual trend check is
