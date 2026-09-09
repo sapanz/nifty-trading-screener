@@ -8,6 +8,10 @@ A stock qualifies when, on the daily timeframe:
   - the 44 SMA and the lower Bollinger Band sit right on top of each other
     (a confluence of two independent support levels, not just one)
   - the candle closed properly (small upper wick, bullish)
+  - the resulting risk (entry-to-SL distance, as a % of entry) is at
+    least DAILY_SWING_MIN_RISK_PCT - a tight stop here means a weak setup
+    with little room to work, not a safer trade; see config.py for the
+    backtest evidence
 
 Entry is the signal candle's high; stop-loss is the lower of the signal
 candle's own low and the previous candle's low.
@@ -70,6 +74,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         risk = entry - stop_loss
         if risk <= 0:
             continue
+        if risk / entry <= config.DAILY_SWING_MIN_RISK_PCT:
+            continue  # too tight a stop - a weak setup, not a safer trade
 
         targets = [round(entry + risk * mult, 2) for mult in config.RISK_REWARD_TARGETS]
 

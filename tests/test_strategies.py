@@ -210,12 +210,16 @@ class TestDailySwing:
         # gentle continued drift (not dead-flat) so the 44 SMA is clearly
         # rising; small enough not to blow out the SMA44/lower-BB confluence
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
-        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+        # low_mult widened from the shared default (0.995) so entry-to-SL
+        # risk clears DAILY_SWING_MIN_RISK_PCT (5.5%) - a support candle
+        # that dips further below the SMA before closing back above it.
+        df = _append_support_row(df, 44, pd.Timedelta(days=1), low_mult=0.94)
 
         signals = daily_swing.scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert (sig.entry - sig.stop_loss) / sig.entry > config.DAILY_SWING_MIN_RISK_PCT
 
         # Entry is the signal candle's high; stop-loss is the lower of the
         # signal candle's own low and the previous candle's low.
@@ -235,6 +239,16 @@ class TestDailySwing:
 
     def test_no_signal_when_sma44_declining(self):
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+        signals = daily_swing.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_risk_too_tight(self):
+        # otherwise-valid confluence setup, but the default support-row
+        # fixture's low sits close enough to entry that entry-to-SL risk
+        # comes in under DAILY_SWING_MIN_RISK_PCT - a weak setup with
+        # little room to work, not a safer trade.
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
         signals = daily_swing.scan({"TESTCO": df})
         assert signals == []
