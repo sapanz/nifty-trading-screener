@@ -7,7 +7,7 @@ levels to Telegram, on a schedule, for three strategies:
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA, price tests support at the 44 SMA, and the 44 SMA sits right on top of the lower Bollinger Band |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle |
-| **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
+| **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see

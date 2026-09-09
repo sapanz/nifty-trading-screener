@@ -3,6 +3,11 @@
 A stock qualifies when, on the monthly timeframe:
   - this month's close is above every prior month's close (a fresh
     closing-basis all-time high, within the history that was fetched)
+  - the breakout candle is bullish (closed above its own open) and closed
+    properly (in the top 25% of its own range, i.e. a small upper wick) -
+    without this, a month that gapped up hard intramonth and then faded
+    back down still counts as a fresh ATH on a closing basis alone, even
+    though it closed red
   - volume was elevated
 
 Each result also reports how long (in months) the stock spent below its
@@ -17,7 +22,7 @@ from __future__ import annotations
 import pandas as pd
 
 from signals import config
-from signals.indicators import add_avg_volume, is_volume_candle
+from signals.indicators import add_avg_volume, is_bullish, is_proper_close, is_volume_candle
 from signals.models import Signal
 
 VOL_COL = f"avg_vol{config.MONTHLY_VOLUME_LOOKBACK}"
@@ -52,6 +57,10 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         ath_date = prior["close"].idxmax()
 
         if not row["close"] > ath_prior:
+            continue
+        if not is_bullish(row):
+            continue  # a gap-up-then-fade month can still close at a fresh ATH while red
+        if not is_proper_close(row):
             continue
         if not is_volume_candle(row, VOL_COL, config.MONTHLY_VOLUME_MULTIPLIER):
             continue

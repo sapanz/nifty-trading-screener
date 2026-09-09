@@ -295,3 +295,19 @@ class TestMonthlyBreakout:
 
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
+
+    def test_no_signal_when_breakout_candle_is_red(self):
+        # closes at a fresh all-time high on a closing basis (110% of the
+        # prior ATH), with a small upper wick (would pass is_proper_close),
+        # but still closed below its own open - a gap-up-then-fade month,
+        # not the bullish breakout the strategy requires.
+        df = self._monthly_df()
+        prior_ath = df["close"].iloc[:-1].max()
+        df.iloc[-1, df.columns.get_loc("open")] = prior_ath * 1.13
+        df.iloc[-1, df.columns.get_loc("high")] = prior_ath * 1.13
+        df.iloc[-1, df.columns.get_loc("close")] = prior_ath * 1.10
+        df.iloc[-1, df.columns.get_loc("low")] = prior_ath * 1.05
+        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
+
+        signals = monthly_breakout.scan({"TESTCO": df})
+        assert signals == []
