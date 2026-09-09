@@ -125,38 +125,6 @@ class TestSimulateForward:
         result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.months_gap is None
 
-    def test_time_stop_exits_at_close_when_neither_hit(self):
-        # flat price, never touches the stop-loss or either target - without
-        # a time-stop this would just be "open"; with one, it exits once
-        # held past max_holding_days.
-        df = _daily_df([100] * 10)
-        signal_date = df.index[0]
-        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df, max_holding_days=5)
-        assert result.outcome == "time_stop"
-        assert result.holding_days > 5
-        assert result.exit_price == 100.0
-
-    def test_max_holding_days_none_disables_time_stop(self):
-        # default behavior (no max_holding_days passed) is unaffected -
-        # every other strategy's simulate_forward calls stay exactly as
-        # they were before this parameter existed.
-        df = _daily_df([100] * 20)
-        signal_date = df.index[0]
-        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
-        assert result.outcome == "open"
-
-    def test_stop_loss_takes_priority_over_time_stop_same_day(self):
-        df = _daily_df([100, 90])  # day1 low=90*0.99=89.1 <= stop 95
-        signal_date = df.index[0]
-        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df, max_holding_days=0)
-        assert result.outcome == "stop_loss"
-
-    def test_target_takes_priority_over_time_stop_same_day(self):
-        df = _daily_df([100, 111])  # day1 high=111*1.01=112.11 crosses target1 (110)
-        signal_date = df.index[0]
-        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df, max_holding_days=0)
-        assert result.outcome == "target1"
-
 
 class TestRunBacktest:
     def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
@@ -216,30 +184,6 @@ class TestRunBacktest:
         daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
         results = backtest.run_backtest(daily_data, months=1)
         assert results["weekly_breakout"] == []  # too little history to signal, but no error
-
-    def test_weekly_breakout_applies_time_stop(self, monkeypatch):
-        # run_backtest wires WEEKLY_MAX_HOLDING_DAYS into weekly_breakout's
-        # simulate_forward call - a flat price that never hits SL or target
-        # should come back "time_stop", not "open", once held long enough.
-        from signals.strategies import weekly_breakout as wb
-
-        today = pd.Timestamp.today().normalize()
-        signal_date = today - pd.Timedelta(days=35)  # well past WEEKLY_MAX_HOLDING_DAYS, still in a 2-month window
-        daily_dates = pd.date_range(start=signal_date - pd.Timedelta(days=5), end=today, freq="B")
-        daily_df = pd.DataFrame(
-            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0},
-            index=daily_dates,
-        )
-        daily_data = {"TESTCO": daily_df}
-        weekly_data = {"TESTCO": pd.DataFrame({"close": [100.0]}, index=[signal_date])}
-
-        def fake_scan(sliced):
-            return [Signal(symbol="TESTCO", entry=100.0, stop_loss=50.0, targets=[200.0])]
-
-        monkeypatch.setattr(wb, "scan", fake_scan)
-
-        results = backtest.run_backtest(daily_data, months=2, weekly_data=weekly_data)
-        assert [t.outcome for t in results["weekly_breakout"]] == ["time_stop"]
 
 
 class TestWriteCsv:

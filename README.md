@@ -240,15 +240,7 @@ them there rather than in the strategy code.
   of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x). (Widening
   to 1x/3x was tried and reverted - it changed nothing, since
   `simulate_forward` exits at the first target touched either way; see
-  the note in `signals/config.py`.) There's also a **time-stop**
-  (`WEEKLY_MAX_HOLDING_DAYS`, 14 days): exit at market if neither the
-  target nor stop-loss has been hit by then. A 5-year backtest's trade
-  CSV showed a sharp cliff here - trades resolving within ~14 days had a
-  strong positive edge (PF ~3), but trades still open past that
-  increasingly turned into slow-bleeding losers (PF <1) as the wider
-  mid-range SL gave them a long runway to fail slowly instead of quickly.
-  This bot only posts signals rather than managing positions, so the
-  Telegram note states this as a rule to apply manually.
+  the note in `signals/config.py`.)
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by
