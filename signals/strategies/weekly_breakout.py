@@ -110,6 +110,14 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         range_height = range_high - range_low
         targets = [round(range_high + range_height * mult, 2) for mult in config.BREAKOUT_RANGE_MULTIPLES]
+        if targets[0] <= entry:
+            # Targets are anchored to range_high, not to entry - on a tight
+            # enough range, entry (which can run up to BREAKOUT_MAX_EXTENSION
+            # above range_high) can end up sitting above target1 itself,
+            # guaranteeing a loss the moment the trade fills even though it
+            # still gets recorded as a "target1" outcome. Skip rather than
+            # take a trade whose own target is already behind its entry.
+            continue
         vol_ratio = float(row["volume"] / row[VOL_COL])
 
         # Diagnostic-only fields (not gated on) so a backtest's trade CSV can
