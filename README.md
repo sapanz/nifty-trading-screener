@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA; a bullish candle with a proper close takes support at the 44 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 44 SMA — all three (SMA, band, candle) converging at once |
+| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -197,25 +197,35 @@ them there rather than in the strategy code.
   this one threshold.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Weekly breakout and monthly ATH breakout require this; Daily Swing gates
-  on the SMA44/lower-BB confluence instead.
+  on the SMA/lower-BB confluence primarily, plus its own separate volume
+  and trend-extension filters (below).
 - **Daily Swing**: `signals/strategies/daily_swing.py`. Above the 200 SMA
-  (long-term uptrend), with the `SMA_SWING` (44) SMA itself rising - not
+  (long-term uptrend), with the `SMA_SWING` (50) SMA itself rising - not
   flat or falling - and price testing support at it (low within
   `DAILY_SUPPORT_TOLERANCE` above the SMA, closing back above). On top of
-  that, the 44 SMA and the lower Bollinger Band (`BOLLINGER_PERIOD`,
+  that, the SMA and the lower Bollinger Band (`BOLLINGER_PERIOD`,
   `BOLLINGER_STD`) must sit within `CONFLUENCE_TOLERANCE` of each other -
   two independently-computed support levels lining up is a stronger signal
   than either alone - and the candle's low must reach down to the lower
-  band too, not just the SMA. All three - the 44 SMA, the lower band, and
+  band too, not just the SMA. All three - the SMA, the lower band, and
   the candle itself - have to converge at once: the same candle must also
   be bullish (close > open) with a proper close (small upper wick), the
   same "properly closed candle" test used elsewhere in this table. It's
   easy to read this as just "SMA sits on the band" from a quick summary,
   but the candle's own shape and its low both have to line up there too,
-  not only the two moving levels. (Several other Daily Swing designs -
-  Darvas Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
-  base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
-  and dropped without beating this original version; see git history.)
+  not only the two moving levels. On top of all of that, volume must be at
+  or above its own trailing average and price must already sit a healthy
+  distance above the 200 SMA (`DAILY_SWING_MIN_VOL_RATIO`,
+  `DAILY_SWING_MIN_DIST_FROM_SMA200_PCT`) - found by mining a 5-year
+  backtest's diagnostic columns: below-average-volume pullbacks were net
+  losers, and pullbacks still close to the 200 SMA underperformed ones with
+  more established trend beneath them; requiring both moved that backtest
+  from PF 1.19 to PF 1.39. (44 was the original `SMA_SWING`; 50 tested
+  marginally better - PF 1.37 -> 1.41 - and was kept. Several other Daily
+  Swing designs - Darvas Box, CANSLIM overlays, ATH-proximity SMA-30
+  support, Wyckoff-style base/breakout/retest, a volume-anomaly "pocket
+  pivot" - were tried later and dropped without beating this original
+  version; see git history.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
   must have a high-low range within 20% of the range low, i.e. a genuine
   consolidation, not just drift. (This is currently the only weekly
@@ -252,10 +262,17 @@ them there rather than in the strategy code.
   comes back to retest the range as support after breaking out, and a
   stop right at the breakout level gets hit by that normal retest, not
   just a genuine failed breakout. Targets are measured-move projections
-  of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x). (Widening
-  to 1x/3x was tried and reverted - it changed nothing, since
-  `simulate_forward` exits at the first target touched either way; see
-  the note in `signals/config.py`.)
+  of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1.5x and 3x). Widening
+  T2 only (1x/2x -> 1x/3x) was tried and reverted - it changed nothing,
+  since `simulate_forward` exits at the first target touched and nearly
+  every winning trade exits at T1 long before T2 is ever reached. Widening
+  T1 itself (1x -> 1.5x, keeping T2 proportional at 3x) is a different
+  lever and did move the numbers: PF 1.14 -> 1.34, avg return +0.3% ->
+  +1.4%, win rate 75% -> 64% (still solid, not a collapse) - a deliberate
+  trade of some win rate for meaningfully bigger wins, motivated by the
+  original 75%-win-rate/1.14-PF combination being far below what that win
+  rate should support at a healthier win/loss ratio. See the note in
+  `signals/config.py`.
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by
@@ -384,7 +401,7 @@ signals/
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py      Daily Swing (SMA44/lower-BB confluence)
+    daily_swing.py      Daily Swing (SMA50/lower-BB confluence)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

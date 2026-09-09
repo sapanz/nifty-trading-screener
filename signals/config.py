@@ -34,10 +34,10 @@ DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
 # be above it, trend can be sideways or rising.
 SMA_SLOPE_LOOKBACK = 3
 
-# --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
-# EXPERIMENT: testing 50 in place of the original 44 (untested until now -
-# see if a slightly slower support level changes win rate/PF materially).
-# Revert to 44 if the backtest doesn't show a clear improvement.
+# --- Daily swing: SMA / lower Bollinger Band confluence -----------------
+# 44 was the original value. 50 tested marginally better on a 5-year
+# backtest (PF 1.37 -> 1.41, avg return +1.3% -> +1.4%, win rate flat at
+# ~40%) and was kept - a small, non-conclusive edge, not a dramatic one.
 SMA_SWING = 50
 BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2
@@ -115,16 +115,18 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 # day price gaps past both at once. Widening T2 alone can't "let winners
 # run" past T1.
 #
-# Widening T1 ITSELF is a different, untested lever - mining the 5-year
-# backtest's diagnostic columns (vol_ratio, extension_pct, tightness_pct,
+# Widening T1 ITSELF is a different lever - mining the 5-year backtest's
+# diagnostic columns (vol_ratio, extension_pct, tightness_pct,
 # dist_from_sma200_pct, rsi14) for a selectivity filter found nothing
 # robust (every threshold tried was either non-monotonic across buckets or
 # fell apart when checked year-by-year - one looked good only because of a
-# single outlier year, PF 12.39 on 31 trades). The real problem instead
-# looks structural: a 75% win rate should support a far higher PF than
-# 1.14 at only a 4.6%/12.3% avg-win/avg-loss ratio - there's slack to trade
-# some win rate for a bigger win before PF suffers. 1.5x/3x (vs 1x/2x)
-# tests exactly that, unlike the T2-only change above.
+# single outlier year, PF 12.39 on 31 trades - not implemented). The real
+# problem was structural instead: a 75% win rate should support a far
+# higher PF than 1.14 at only a 4.6%/12.3% avg-win/avg-loss ratio - there
+# was slack to trade some win rate for a bigger win before PF suffers.
+# 1.5x/3x (vs 1x/2x) confirmed it: PF 1.14 -> 1.34, avg return +0.3% ->
+# +1.4%, avg win +4.6% -> +9.8%, win rate 75% -> 64% (a real trade-off, but
+# not a collapse like the earlier trailing-SMA-exit attempt's 67% -> 21%).
 BREAKOUT_RANGE_MULTIPLES = (1.5, 3)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
