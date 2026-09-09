@@ -1,3 +1,5 @@
+from datetime import date
+
 import pandas as pd
 import pytest
 
@@ -148,3 +150,87 @@ def test_build_instrument_map_raises_when_almost_nothing_matches():
     symbols = [f"SYM{i}" for i in range(500)]
     with pytest.raises(RuntimeError, match="instrument master likely changed shape"):
         data.build_instrument_map(client, symbols)
+
+
+class _FakeIntradayClient:
+    """Only implements get_intraday_daily_candle - for _with_todays_candle
+    tests, which don't need the historical-fetch methods above."""
+
+    def __init__(self, intraday_df=None, raise_error=False):
+        self._intraday_df = intraday_df
+        self._raise_error = raise_error
+
+    def get_intraday_daily_candle(self, instrument_key):
+        if self._raise_error:
+            raise RuntimeError("simulated intraday endpoint failure")
+        return self._intraday_df if self._intraday_df is not None else pd.DataFrame(
+            columns=["open", "high", "low", "close", "volume"]
+        )
+
+
+def _todays_row(day: date, close: float = 150.0) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"open": [148.0], "high": [151.0], "low": [147.0], "close": [close], "volume": [5000.0]},
+        index=[pd.Timestamp(day)],
+    )
+
+
+def test_with_todays_candle_appends_when_historical_stops_yesterday(monkeypatch):
+    today = date(2026, 9, 9)
+    monkeypatch.setattr(data, "ist_today", lambda: today)
+    historical = _daily_df()  # last row is 2024-01-12, well before "today"
+    client = _FakeIntradayClient(intraday_df=_todays_row(today))
+
+    result = data._with_todays_candle(client, "KEY1", historical)
+
+    assert result.index[-1] == pd.Timestamp(today)
+    assert result.iloc[-1]["close"] == 150.0
+    assert len(result) == len(historical) + 1
+
+
+def test_with_todays_candle_noop_when_historical_already_current(monkeypatch):
+    today = date(2026, 9, 9)
+    monkeypatch.setattr(data, "ist_today", lambda: today)
+    historical = pd.concat([_daily_df(), _todays_row(today)])
+    client = _FakeIntradayClient(intraday_df=_todays_row(today, close=999.0))  # would be obviously wrong if used
+
+    result = data._with_todays_candle(client, "KEY1", historical)
+
+    assert result.iloc[-1]["close"] == 150.0  # unchanged - historical already reached today
+    assert len(result) == len(historical)
+
+
+def test_with_todays_candle_falls_back_when_intraday_is_empty(monkeypatch):
+    today = date(2026, 9, 9)
+    monkeypatch.setattr(data, "ist_today", lambda: today)
+    historical = _daily_df()
+    client = _FakeIntradayClient(intraday_df=None)  # empty - e.g. before market open, or a holiday
+
+    result = data._with_todays_candle(client, "KEY1", historical)
+
+    assert result.equals(historical)
+
+
+def test_with_todays_candle_falls_back_when_intraday_endpoint_fails(monkeypatch):
+    today = date(2026, 9, 9)
+    monkeypatch.setattr(data, "ist_today", lambda: today)
+    historical = _daily_df()
+    client = _FakeIntradayClient(raise_error=True)
+
+    result = data._with_todays_candle(client, "KEY1", historical)
+
+    assert result.equals(historical)  # today's candle is a bonus, not worth failing the fetch over
+
+
+def test_with_todays_candle_handles_empty_historical(monkeypatch):
+    # A brand-new listing with no historical data yet should still pick up
+    # today's candle rather than erroring on an empty frame.
+    today = date(2026, 9, 9)
+    monkeypatch.setattr(data, "ist_today", lambda: today)
+    client = _FakeIntradayClient(intraday_df=_todays_row(today))
+    empty = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+    result = data._with_todays_candle(client, "KEY1", empty)
+
+    assert len(result) == 1
+    assert result.iloc[0]["close"] == 150.0

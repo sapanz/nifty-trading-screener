@@ -49,6 +49,25 @@ the work on a cron schedule and posts straight to Telegram:
   message flags it explicitly instead of silently assuming the two
   match.
 
+  That IST fix turned out not to be the whole story: Upstox's
+  historical-candle endpoint is backward-looking only and never includes
+  the *current* trading day, confirmed live even ~2 hours after market
+  close (a run at 5:27pm IST still had no candle for that day). Without
+  a same-evening fix, every Daily Swing run would silently signal off
+  yesterday's close, one full day behind, no matter how correctly the
+  "what day is it" logic above ran. `data.fetch_daily` now tops each
+  symbol up with its own candle from Upstox's separate v3 *intraday*
+  endpoint (`UpstoxClient.get_intraday_daily_candle`) whenever the
+  historical fetch doesn't already reach today - if that also comes back
+  empty (before the market opens, or a holiday) it just falls back to
+  the historical data as before, rather than failing the whole fetch.
+  Weekly Range Breakout and Monthly ATH Breakout have the same
+  underlying gap for their own still-forming current period (this week /
+  this month) - not yet fixed the same way, since synthesizing a partial
+  week/month candle needs combining several days' worth of data rather
+  than fetching one extra candle; less urgent since they only run once a
+  week or month.
+
 It can also be triggered manually from the **Actions** tab ("Run
 workflow"), with checkboxes to force the weekly/monthly strategies to run
 on any day for testing.
