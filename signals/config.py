@@ -35,7 +35,10 @@ DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
 SMA_SLOPE_LOOKBACK = 3
 
 # --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
-SMA_SWING = 44
+# EXPERIMENT: testing 50 in place of the original 44 (untested until now -
+# see if a slightly slower support level changes win rate/PF materially).
+# Revert to 44 if the backtest doesn't show a clear improvement.
+SMA_SWING = 50
 BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2
 CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
@@ -96,23 +99,33 @@ BREAKOUT_MAX_EXTENSION = 0.12
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
-# Breakout SL is anchored to the breakout level itself (old resistance ->
-# new support), not the bottom of the consolidation range - the 12-month
-# backtest showed the wider range_low anchor produces a high win rate but
-# a handful of large tail losses that drag average return negative.
+# Weekly's SL sits at the midpoint of the consolidation range, not the
+# breakout level itself - see weekly_breakout.py. Price often comes back to
+# retest the range as support after breaking out, and a stop right at the
+# breakout level gets hit by that normal retest rather than a genuine
+# failed breakout.
 #
-# Widening the targets from (1, 2) to (1, 3) was tried and reverted: it
-# changed nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause
-# turned out to be architectural, not a threshold: simulate_forward exits
-# a trade the first day ANY target is touched (using the highest one
-# reached that same day), so it never keeps walking forward to see if a
-# farther target would eventually be hit too - in practice nearly every
-# winning trade exits at T1, and a farther T2/T3 only matters on the rare
-# day price gaps past both at once. A fixed multi-tier target list can't
-# "let winners run" past the nearest one; that needs a genuinely
-# different exit (a trailing stop, as tried for Daily Swing at one point)
-# not a bigger number here.
-BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
+# Widening T2 from (1, 2) to (1, 3) was tried and reverted: it changed
+# nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause turned out
+# to be architectural, not a threshold: simulate_forward exits a trade the
+# first day ANY target is touched (using the highest one reached that same
+# day), so it never keeps walking forward to see if a farther target would
+# eventually be hit too - in practice nearly every winning trade exits at
+# T1 (313 of 315 weekly wins), and a farther T2 only matters on the rare
+# day price gaps past both at once. Widening T2 alone can't "let winners
+# run" past T1.
+#
+# Widening T1 ITSELF is a different, untested lever - mining the 5-year
+# backtest's diagnostic columns (vol_ratio, extension_pct, tightness_pct,
+# dist_from_sma200_pct, rsi14) for a selectivity filter found nothing
+# robust (every threshold tried was either non-monotonic across buckets or
+# fell apart when checked year-by-year - one looked good only because of a
+# single outlier year, PF 12.39 on 31 trades). The real problem instead
+# looks structural: a 75% win rate should support a far higher PF than
+# 1.14 at only a 4.6%/12.3% avg-win/avg-loss ratio - there's slack to trade
+# some win rate for a bigger win before PF suffers. 1.5x/3x (vs 1x/2x)
+# tests exactly that, unlike the T2-only change above.
+BREAKOUT_RANGE_MULTIPLES = (1.5, 3)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
 # Minimum months a stock must have spent below its old all-time high before
