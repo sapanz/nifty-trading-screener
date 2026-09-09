@@ -6,7 +6,7 @@ levels to Telegram, on a schedule, for three strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA; a bullish candle with a proper close takes support at the 44 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 44 SMA — all three (SMA, band, candle) converging at once |
-| **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle |
+| **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
 No manual judgement calls at run time — every "properly closed candle" /
@@ -221,13 +221,18 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Weekly Range Breakout**: entry is the breakout candle's close,
-  stop-loss sits just under the breakout level itself (the top of the
-  consolidation range — "old resistance becomes new support"), not the
-  bottom of the range, so risk stays tight instead of scaling with
-  however wide the whole consolidation was. Targets are measured-move
-  projections of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x).
-  (Widening to 1x/3x was tried and reverted - it changed nothing, since
+- **Weekly Range Breakout**: entry is a resting buy-stop at the breakout
+  candle's own **high** (like Daily Swing, not an immediate fill at its
+  close) - the trade only enters once a later candle actually trades up
+  through that high, confirming the breakout continues rather than
+  assuming it does from the close alone; an entry never reached is
+  reported "unfilled". Stop-loss sits at the **midpoint of the
+  consolidation range**, not the breakout level itself - price often
+  comes back to retest the range as support after breaking out, and a
+  stop right at the breakout level gets hit by that normal retest, not
+  just a genuine failed breakout. Targets are measured-move projections
+  of the range height (`BREAKOUT_RANGE_MULTIPLES`, 1x and 2x). (Widening
+  to 1x/3x was tried and reverted - it changed nothing, since
   `simulate_forward` exits at the first target touched either way; see
   the note in `signals/config.py`.)
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits

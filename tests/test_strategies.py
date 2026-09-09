@@ -54,9 +54,12 @@ class TestWeeklyBreakout:
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Stop-loss is anchored to the breakout level itself (range_high),
-        # not the bottom of the consolidation range.
-        assert sig.stop_loss == round(200.0 * (1 - config.SL_BUFFER), 2)
+        # Entry is a resting buy-stop at the breakout candle's own high, not
+        # an immediate fill at its close.
+        assert sig.entry == round(216.5, 2)
+        # Stop-loss sits at the midpoint of the consolidation range
+        # (180-200), not anchored to the breakout level itself.
+        assert sig.stop_loss == round((200.0 + 180.0) / 2, 2)
         assert sig.candle_date == df.index[-1].date()
 
     def test_no_signal_when_breakout_extension_too_small(self):

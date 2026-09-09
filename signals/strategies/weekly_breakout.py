@@ -17,6 +17,16 @@ A stock qualifies when, on the weekly timeframe:
   - the breakout candle is bullish (closed above its own open) and closed
     properly (in the top 25% of its own range, i.e. a small upper wick)
     on strong volume
+
+Entry is a resting buy-stop at the breakout candle's own high, not an
+immediate fill at its close - the trade only enters once a later candle
+actually trades up through that high, confirming the breakout continues
+rather than assuming it does (see backtest.simulate_forward's handling of
+entry > signal-close; an entry that's never reached is reported
+"unfilled"). Stop-loss sits at the midpoint of the consolidation range
+(not the breakout level itself) - price often comes back to retest the
+range as support after breaking out, and a stop right at the breakout
+level gets hit by that normal retest, not just a genuine failed breakout.
 """
 from __future__ import annotations
 
@@ -81,12 +91,17 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if not is_volume_candle(row, VOL_COL, config.WEEKLY_VOLUME_MULTIPLIER):
             continue
 
-        entry = float(row["close"])
-        # Anchor SL to the breakout level itself (old resistance becomes new
-        # support), not the bottom of the consolidation range - the latter
-        # let risk balloon with however wide the whole range was, producing
-        # a high win rate but large tail losses in backtesting.
-        stop_loss = float(range_high * (1 - config.SL_BUFFER))
+        # Entry is a resting buy-stop at this candle's own high, not an
+        # immediate fill at its close - simulate_forward (and a live buy-stop
+        # order) only fills once a later candle actually trades up through
+        # it, confirming the breakout keeps going rather than assuming it
+        # will from the close alone.
+        entry = float(row["high"])
+        # SL at the midpoint of the consolidation range: price often comes
+        # back to retest the range as support after breaking out, and a
+        # stop right at the breakout level (range_high) gets stopped out by
+        # that normal retest rather than a genuine failed breakout.
+        stop_loss = float((range_high + range_low) / 2)
         risk = entry - stop_loss
         if risk <= 0:
             continue
