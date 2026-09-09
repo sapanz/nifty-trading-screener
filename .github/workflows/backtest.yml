@@ -13,7 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     # Re-scans the whole universe once per historical date in the window,
     # so this runs much longer than a normal live run (order of 10-20 min).
-    timeout-minutes: 60
+    # A 60-month run got noticeably slower once diagnostic indicators
+    # (RSI, added to scan()'s hot path) started being recomputed on every
+    # historical date - a run that used to finish in ~25-28 min ran past
+    # 40 min and was cancelled rather than risk the old 60-minute cap.
+    # Padded to 90 for headroom; if it keeps growing, the real fix is
+    # precomputing indicators once per symbol instead of once per
+    # (date, symbol) pair, not just raising this further.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
