@@ -40,16 +40,6 @@ BOLLINGER_STD = 2
 CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
 RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
-# Minimum entry-to-SL risk, as a fraction of entry. Found by inspecting a
-# 5-year backtest's trade CSV directly: risk_pct correlates positively
-# with performance across the board - a tight stop here means a weak
-# setup with little room to work, not a safer trade. Requiring risk_pct >
-# 5.5% moved that backtest from PF 1.20 (2837 trades) to PF 1.42 (442
-# trades), and - more importantly for a system meant to be followed
-# without checking charts - cut max drawdown from -426 to -156 and the
-# longest losing streak roughly in half.
-DAILY_SWING_MIN_RISK_PCT = 0.055
-
 # A "Weekly Darvas Box" strategy used to run here (replacing CIP, a
 # resistance-zone/retest strategy). Tightening it enough to be
 # higher-conviction than Weekly Range Breakout collapsed it to 3 signals

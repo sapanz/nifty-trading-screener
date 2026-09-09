@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA; a bullish candle with a proper close takes support at the 44 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 44 SMA — all three (SMA, band, candle) converging at once; entry-to-SL risk must be at least `DAILY_SWING_MIN_RISK_PCT` (5.5%) |
+| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA; a bullish candle with a proper close takes support at the 44 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 44 SMA — all three (SMA, band, candle) converging at once |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -191,13 +191,7 @@ them there rather than in the strategy code.
   same "properly closed candle" test used elsewhere in this table. It's
   easy to read this as just "SMA sits on the band" from a quick summary,
   but the candle's own shape and its low both have to line up there too,
-  not only the two moving levels. On top of all that, the resulting
-  entry-to-SL risk must be at least `DAILY_SWING_MIN_RISK_PCT` (5.5%) -
-  found by inspecting a 5-year backtest's trade CSV directly, a tight
-  stop here means a weak setup with little room to work, not a safer
-  trade: requiring it moved that backtest from PF 1.20 (2837 trades) to
-  PF 1.42 (442 trades), and cut max drawdown from -426 to -156 and the
-  longest losing streak roughly in half. (Several other Daily Swing designs -
+  not only the two moving levels. (Several other Daily Swing designs -
   Darvas Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
   base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
   and dropped without beating this original version; see git history.)
