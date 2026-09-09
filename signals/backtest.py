@@ -76,8 +76,24 @@ class TradeResult:
     months_gap: int | None = None
 
 
-def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
-    """Walk the real daily price path after `signal_date` to see what happened."""
+def simulate_forward(
+    strategy: str,
+    signal: Signal,
+    signal_date: pd.Timestamp,
+    daily_df: pd.DataFrame,
+    max_holding_days: int | None = None,
+) -> TradeResult:
+    """Walk the real daily price path after `signal_date` to see what happened.
+
+    `max_holding_days`, when set, adds a time-stop: if neither the target
+    nor the stop-loss has been hit by then, the trade exits at that day's
+    close (outcome "time_stop") rather than being carried indefinitely.
+    Weekly Range Breakout's own trade history showed a sharp cliff here -
+    trades resolving within ~14 days had a strong positive edge, while
+    trades still open past that increasingly turned into slow-bleeding
+    losers (see WEEKLY_MAX_HOLDING_DAYS in config.py) - so this isn't a
+    generic risk-management nicety, it's a directly evidenced rule.
+    """
     future = daily_df[daily_df.index > signal_date]
     months_gap = signal.extra.get("months_gap")
 
@@ -111,6 +127,14 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
+                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
+                holding_days=(dt - signal_date).days, months_gap=months_gap,
+            )
+        if max_holding_days is not None and (dt - signal_date).days > max_holding_days:
+            exit_price = float(row["close"])
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="time_stop", exit_date=dt, exit_price=exit_price,
                 return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
                 holding_days=(dt - signal_date).days, months_gap=months_gap,
             )
@@ -190,7 +214,12 @@ def run_backtest(
             # rather than raising.
             if signal.symbol not in daily_data:
                 continue
-            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+            results["weekly_breakout"].append(
+                simulate_forward(
+                    "weekly_breakout", signal, asof, daily_data[signal.symbol],
+                    max_holding_days=config.WEEKLY_MAX_HOLDING_DAYS,
+                )
+            )
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):

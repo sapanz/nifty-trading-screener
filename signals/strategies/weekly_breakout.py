@@ -27,6 +27,13 @@ entry > signal-close; an entry that's never reached is reported
 (not the breakout level itself) - price often comes back to retest the
 range as support after breaking out, and a stop right at the breakout
 level gets hit by that normal retest, not just a genuine failed breakout.
+
+There's also a time-stop (WEEKLY_MAX_HOLDING_DAYS): exit at market if
+neither the target nor stop-loss has been hit within that many days.
+Trades that drag on past that window skew heavily toward eventual losers
+rather than merely slow winners (see config.py for the backtest evidence)
+- this isn't automated (the bot only posts signals), so it's stated here
+in the note field as a rule to apply manually.
 """
 from __future__ import annotations
 
@@ -117,7 +124,10 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
                 sort_key=vol_ratio,
-                note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
+                note=(
+                    f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w) | "
+                    f"exit by day {config.WEEKLY_MAX_HOLDING_DAYS} if neither SL nor target hit"
+                ),
                 candle_date=row.name.date(),
             )
         )

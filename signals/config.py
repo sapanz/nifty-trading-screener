@@ -100,6 +100,19 @@ SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
 BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
 
+# Weekly Range Breakout time-stop: exit at market if neither the target nor
+# the stop-loss has been hit within this many days. Found by inspecting a
+# 5-year backtest's trade CSV directly, after switching entry to a resting
+# buy-stop at the breakout candle's high and SL to the range midpoint:
+# trades resolving within ~14 days had a strong positive edge (PF ~3), but
+# trades still open past that increasingly turned into slow-bleeding
+# losers (PF <1, avg return going more negative the longer they dragged
+# on) - the wider mid-range SL gives a losing trade a long runway to
+# eventually fail instead of failing fast. This isn't automated: the bot
+# only posts signals, so the Telegram note calls this out as a rule to
+# apply manually.
+WEEKLY_MAX_HOLDING_DAYS = 14
+
 # Minimum months a stock must have spent below its old all-time high before
 # a fresh breakout counts as a signal. Found by inspecting a 5-year
 # backtest's trade CSV directly: months_gap correlates positively and
