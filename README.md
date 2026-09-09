@@ -5,7 +5,7 @@ levels to Telegram, on a schedule, for three strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
-| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA, price tests support at the 44 SMA, and the 44 SMA sits right on top of the lower Bollinger Band |
+| **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 44 SMA; a bullish candle with a proper close takes support at the 44 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 44 SMA — all three (SMA, band, candle) converging at once |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -185,8 +185,14 @@ them there rather than in the strategy code.
   `BOLLINGER_STD`) must sit within `CONFLUENCE_TOLERANCE` of each other -
   two independently-computed support levels lining up is a stronger signal
   than either alone - and the candle's low must reach down to the lower
-  band too, not just the SMA. (Several other Daily Swing designs - Darvas
-  Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
+  band too, not just the SMA. All three - the 44 SMA, the lower band, and
+  the candle itself - have to converge at once: the same candle must also
+  be bullish (close > open) with a proper close (small upper wick), the
+  same "properly closed candle" test used elsewhere in this table. It's
+  easy to read this as just "SMA sits on the band" from a quick summary,
+  but the candle's own shape and its low both have to line up there too,
+  not only the two moving levels. (Several other Daily Swing designs -
+  Darvas Box, CANSLIM overlays, ATH-proximity SMA-30 support, Wyckoff-style
   base/breakout/retest, a volume-anomaly "pocket pivot" - were tried later
   and dropped without beating this original version; see git history.)
 - **Weekly breakout range**: the 6 weeks preceding the breakout candle
