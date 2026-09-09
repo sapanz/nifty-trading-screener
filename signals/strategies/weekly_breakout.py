@@ -15,7 +15,7 @@ A stock qualifies when, on the weekly timeframe:
     the fixed measured-move target sits behind the entry before the trade
     even starts)
   - the breakout candle is bullish (closed above its own open) and closed
-    properly (in the top 25% of its own range, i.e. a small upper wick)
+    properly (in the top 20% of its own range, i.e. a small upper wick)
     on strong volume
 
 Entry is a resting buy-stop at the breakout candle's own high, not an

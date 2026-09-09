@@ -191,8 +191,10 @@ Concretely:
 All thresholds live in [`signals/config.py`](signals/config.py) — tune
 them there rather than in the strategy code.
 
-- **"Properly closed candle"**: `(high - close) / (high - low) <= 0.25`
-  — the close sits in the top 75% of the candle's range (small upper wick).
+- **"Properly closed candle"**: `(high - close) / (high - low) <= MAX_UPPER_WICK_RATIO`
+  (0.20) — the close sits in the top 20% of the candle's range (small
+  upper wick). A global rule - every strategy's proper-close check shares
+  this one threshold.
 - **"Volume candle"**: volume >= 1.3x the trailing 20-period average.
   Weekly breakout and monthly ATH breakout require this; Daily Swing gates
   on the SMA44/lower-BB confluence instead.

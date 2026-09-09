@@ -4,7 +4,7 @@ A stock qualifies when, on the monthly timeframe:
   - this month's close is above every prior month's close (a fresh
     closing-basis all-time high, within the history that was fetched)
   - the breakout candle is bullish (closed above its own open) and closed
-    properly (in the top 25% of its own range, i.e. a small upper wick) -
+    properly (in the top 20% of its own range, i.e. a small upper wick) -
     without this, a month that gapped up hard intramonth and then faded
     back down still counts as a fresh ATH on a closing basis alone, even
     though it closed red

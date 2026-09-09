@@ -11,8 +11,9 @@ SMA_LONG = 200          # "above 200 SMA" trend filter used by every strategy
 # --- Candle quality -----------------------------------------------------
 # A candle is a "proper close" when the upper wick is small relative to
 # the candle's own range, i.e. price closed near its high instead of
-# getting rejected and closing well below it.
-MAX_UPPER_WICK_RATIO = 0.25  # (high - close) / (high - low) must be <= this
+# getting rejected and closing well below it. Global rule - every
+# strategy's is_proper_close() check shares this one threshold.
+MAX_UPPER_WICK_RATIO = 0.20  # (high - close) / (high - low) must be <= this
 
 # --- Volume candle ---------------------------------------------------------
 # Weekly breakout and monthly ATH breakout gate on volume; daily swing
