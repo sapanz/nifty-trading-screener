@@ -90,7 +90,7 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                     f"Prior ATH {ath_prior:.2f} ({ath_date.strftime('%b %Y')}) | "
                     f"Breakout after {_format_gap(months_gap)} | Vol {vol_ratio:.1f}x avg"
                 ),
-                extra={"months_gap": months_gap},
+                extra={"months_gap": months_gap, "vol_ratio": round(vol_ratio, 2)},
                 candle_date=current_date.date(),
             )
         )

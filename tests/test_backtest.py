@@ -206,6 +206,32 @@ class TestWriteCsv:
         assert rows[0]["months_gap"] == "14"
         assert rows[1]["months_gap"] == ""
 
+    def test_diagnostics_columns(self, tmp_path):
+        # Diagnostic-only fields (see backtest.DIAGNOSTIC_KEYS) ride along
+        # per-trade so a backtest's CSV can be mined for what separates good
+        # signals from bad ones - a trade whose signal didn't set a given
+        # key just leaves that column blank.
+        trades = [
+            backtest.TradeResult(
+                "daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-10"), 110, 10.0, 9,
+                diagnostics={"rsi14": 62.5, "vol_ratio": 1.8},
+            ),
+            backtest.TradeResult(
+                "weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+            ),
+        ]
+        path = tmp_path / "trades.csv"
+        backtest.write_csv(trades, str(path))
+
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert rows[0]["rsi14"] == "62.5"
+        assert rows[0]["vol_ratio"] == "1.8"
+        assert rows[0]["confluence_gap_pct"] == ""  # not set on this trade
+        assert rows[1]["rsi14"] == ""
+
 
 class TestSummarize:
     def test_empty_trades(self):

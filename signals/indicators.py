@@ -35,6 +35,21 @@ def add_avg_volume(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return df
 
 
+def add_rsi(df: pd.DataFrame, period: int = 14, column: str = "close") -> pd.DataFrame:
+    """Wilder's RSI - a diagnostic, not currently gated on by any strategy.
+    Logged alongside each signal purely so a backtest's trade CSV can be
+    mined for whether RSI level correlates with outcome, instead of
+    guessing blind through repeated backtest round-trips."""
+    delta = df[column].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss
+    df[f"rsi{period}"] = 100 - (100 / (1 + rs))
+    return df
+
+
 def upper_wick_ratio(row: pd.Series) -> float:
     """(high - close) / (high - low). 0 = closed at the high, 1 = closed at the low."""
     candle_range = row["high"] - row["low"]

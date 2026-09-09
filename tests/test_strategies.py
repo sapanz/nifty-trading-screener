@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from signals import config
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
@@ -61,6 +62,13 @@ class TestWeeklyBreakout:
         # (180-200), not anchored to the breakout level itself.
         assert sig.stop_loss == round((200.0 + 180.0) / 2, 2)
         assert sig.candle_date == df.index[-1].date()
+        # Diagnostic-only fields (not gated on) that ride along so a
+        # backtest's CSV can be mined for what separates good and bad
+        # signals - see backtest.DIAGNOSTIC_KEYS.
+        assert sig.extra["extension_pct"] == pytest.approx((216.0 - 200.0) / 200.0 * 100, abs=0.01)
+        assert sig.extra["tightness_pct"] == pytest.approx((200.0 - 180.0) / 180.0 * 100, abs=0.01)
+        assert "dist_from_sma200_pct" in sig.extra
+        assert 0 <= sig.extra["rsi14"] <= 100
 
     def test_no_signal_when_breakout_extension_too_small(self):
         # closes barely above the range (well under BREAKOUT_MIN_EXTENSION)
@@ -226,6 +234,13 @@ class TestDailySwing:
         # scan() has no notion of "today" at all, only whatever the caller
         # handed it as the last row.
         assert sig.candle_date == row.name.date()
+        # Diagnostic-only fields (not gated on) that ride along so a
+        # backtest's CSV can be mined for what separates good and bad
+        # signals - see backtest.DIAGNOSTIC_KEYS.
+        assert "confluence_gap_pct" in sig.extra
+        assert "dist_from_sma200_pct" in sig.extra
+        assert "vol_ratio" in sig.extra
+        assert 0 <= sig.extra["rsi14"] <= 100
 
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify

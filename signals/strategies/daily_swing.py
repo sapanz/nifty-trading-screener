@@ -18,7 +18,9 @@ import pandas as pd
 
 from signals import config
 from signals.indicators import (
+    add_avg_volume,
     add_bollinger_bands,
+    add_rsi,
     add_sma,
     confluence_gap,
     is_above_sma,
@@ -43,6 +45,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
         add_sma(df, config.SMA_LONG)
         add_sma(df, SMA_SWING)
         add_bollinger_bands(df)
+        add_avg_volume(df, config.VOLUME_LOOKBACK)
+        add_rsi(df)
         row = df.iloc[-1]
 
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{SMA_SWING}")) or pd.isna(row.get("bb_lower")):
@@ -73,6 +77,14 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         targets = [round(entry + risk * mult, 2) for mult in config.RISK_REWARD_TARGETS]
 
+        # Diagnostic-only fields (not gated on) so a backtest's trade CSV can
+        # be mined for what actually differentiates good and bad signals -
+        # see backtest.DIAGNOSTIC_KEYS.
+        sma_long_val = float(row[f"sma{config.SMA_LONG}"])
+        avg_vol_val = row.get(f"avg_vol{config.VOLUME_LOOKBACK}")
+        vol_ratio = float(row["volume"] / avg_vol_val) if pd.notna(avg_vol_val) and avg_vol_val > 0 else None
+        rsi_val = row.get("rsi14")
+
         signals.append(
             Signal(
                 symbol=symbol,
@@ -82,6 +94,12 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 sort_key=-gap,  # tightest SMA44/lower-BB confluence first
                 note=f"SMA44 {sma_swing_val:.2f} / LowerBB {bb_lower_val:.2f}",
                 candle_date=row.name.date(),
+                extra={
+                    "confluence_gap_pct": round(gap * 100, 3),
+                    "dist_from_sma200_pct": round((entry / sma_long_val - 1) * 100, 2),
+                    **({"vol_ratio": round(vol_ratio, 2)} if vol_ratio is not None else {}),
+                    **({"rsi14": round(float(rsi_val), 1)} if pd.notna(rsi_val) else {}),
+                },
             )
         )
 

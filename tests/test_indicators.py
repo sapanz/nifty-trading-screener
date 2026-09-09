@@ -145,3 +145,30 @@ def test_is_accumulation_range_false_when_tied():
         "volume": [500.0, 500.0],
     })
     assert indicators.is_accumulation_range(df) is False
+
+
+def test_add_rsi_high_for_a_steady_uptrend():
+    # every close higher than the last - no losses at all, RSI should sit
+    # near the top of its 0-100 range.
+    df = pd.DataFrame({"close": [100.0 + i for i in range(30)]})
+    indicators.add_rsi(df, period=14)
+    assert df["rsi14"].iloc[-1] > 90
+
+
+def test_add_rsi_low_for_a_steady_downtrend():
+    df = pd.DataFrame({"close": [100.0 - i for i in range(30)]})
+    indicators.add_rsi(df, period=14)
+    assert df["rsi14"].iloc[-1] < 10
+
+
+def test_add_rsi_mid_for_a_flat_series():
+    df = pd.DataFrame({"close": [100.0] * 30})
+    indicators.add_rsi(df, period=14)
+    # no gains and no losses -> 0/0 -> NaN, not a misleading 50 or 100
+    assert pd.isna(df["rsi14"].iloc[-1])
+
+
+def test_add_rsi_nan_before_period_elapses():
+    df = pd.DataFrame({"close": [100.0 + i for i in range(10)]})
+    indicators.add_rsi(df, period=14)
+    assert pd.isna(df["rsi14"].iloc[-1])

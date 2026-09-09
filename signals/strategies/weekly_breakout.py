@@ -35,6 +35,7 @@ import pandas as pd
 from signals import config
 from signals.indicators import (
     add_avg_volume,
+    add_rsi,
     add_sma,
     is_above_sma,
     is_accumulation_range,
@@ -60,6 +61,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         add_sma(df, config.SMA_LONG)
         add_sma(df, config.BREAKOUT_TREND_SMA)
         add_avg_volume(df, config.VOLUME_LOOKBACK)
+        add_rsi(df)
         row = df.iloc[-1]
 
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{config.BREAKOUT_TREND_SMA}")):
@@ -110,6 +112,12 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         targets = [round(range_high + range_height * mult, 2) for mult in config.BREAKOUT_RANGE_MULTIPLES]
         vol_ratio = float(row["volume"] / row[VOL_COL])
 
+        # Diagnostic-only fields (not gated on) so a backtest's trade CSV can
+        # be mined for what actually differentiates good and bad signals -
+        # see backtest.DIAGNOSTIC_KEYS.
+        sma_long_val = float(row[f"sma{config.SMA_LONG}"])
+        rsi_val = row.get("rsi14")
+
         signals.append(
             Signal(
                 symbol=symbol,
@@ -119,6 +127,13 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 sort_key=vol_ratio,
                 note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
                 candle_date=row.name.date(),
+                extra={
+                    "vol_ratio": round(vol_ratio, 2),
+                    "extension_pct": round(extension * 100, 2),
+                    "tightness_pct": round((range_high - range_low) / range_low * 100, 2),
+                    "dist_from_sma200_pct": round((entry / sma_long_val - 1) * 100, 2),
+                    **({"rsi14": round(float(rsi_val), 1)} if pd.notna(rsi_val) else {}),
+                },
             )
         )
 

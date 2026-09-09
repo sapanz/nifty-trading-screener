@@ -38,7 +38,7 @@ genuinely deep history. See scripts/run_backtest.py for the live wiring.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -51,9 +51,21 @@ def _net_return_pct(gross_return_pct: float) -> float:
     """Deduct the round-trip transaction cost from a gross price return."""
     return gross_return_pct - config.ROUND_TRIP_COST_PCT
 
+# Diagnostic-only fields a strategy can stamp onto a signal's `extra` dict
+# (aside from months_gap, which has its own typed column) purely so a
+# backtest's trade CSV carries enough to mine for what actually
+# differentiates good and bad signals - vs guessing blind through repeated
+# backtest round-trips. Not every strategy sets every key; write_csv leaves
+# a column blank wherever a given trade's signal didn't set it.
+DIAGNOSTIC_KEYS = [
+    "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
+    "extension_pct", "tightness_pct",
+]
+
 CSV_FIELDS = [
     "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
     "outcome", "exit_date", "exit_price", "return_pct", "holding_days", "months_gap",
+    *DIAGNOSTIC_KEYS,
 ]
 
 
@@ -74,12 +86,17 @@ class TradeResult:
     # before this breakout (signal.extra["months_gap"]); None for every
     # other strategy, which doesn't set it.
     months_gap: int | None = None
+    # Everything else a strategy stamped onto signal.extra (see
+    # DIAGNOSTIC_KEYS) - diagnostic-only, never used to gate a signal or
+    # alter simulate_forward's own logic.
+    diagnostics: dict = field(default_factory=dict)
 
 
 def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
     """Walk the real daily price path after `signal_date` to see what happened."""
     future = daily_df[daily_df.index > signal_date]
     months_gap = signal.extra.get("months_gap")
+    diagnostics = {k: v for k, v in signal.extra.items() if k != "months_gap"}
 
     as_of = daily_df[daily_df.index <= signal_date]
     signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
@@ -92,7 +109,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
-                return_pct=0.0, holding_days=0, months_gap=months_gap,
+                return_pct=0.0, holding_days=0, months_gap=months_gap, diagnostics=diagnostics,
             )
         future = future[future.index >= filled.index[0]]
 
@@ -102,7 +119,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
                 return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
+                holding_days=(dt - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
             )
         hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
         if hit:
@@ -112,7 +129,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
                 return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
+                holding_days=(dt - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
             )
 
     # Neither hit yet - still open as of the last available price.
@@ -126,7 +143,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
         strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
         outcome="open", exit_date=last_date, exit_price=last_close,
         return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
-        holding_days=(last_date - signal_date).days, months_gap=months_gap,
+        holding_days=(last_date - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
     )
 
 
@@ -267,4 +284,5 @@ def write_csv(all_trades: list[TradeResult], path: str) -> None:
                 ";".join(str(x) for x in t.targets), t.outcome, t.exit_date.date(),
                 t.exit_price, round(t.return_pct, 2), t.holding_days,
                 t.months_gap if t.months_gap is not None else "",
+                *(t.diagnostics.get(key, "") for key in DIAGNOSTIC_KEYS),
             ])
