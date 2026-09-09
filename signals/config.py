@@ -41,6 +41,20 @@ BOLLINGER_STD = 2
 CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
 RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
 
+# Found by inspecting a 5-year backtest's trade CSV directly (diagnostic
+# columns logged but not gated on until now): trades with below-average
+# volume were net losers outright (PF 0.91), and trades still close to the
+# 200 SMA underperformed ones with more room already built up above it.
+# Neither filter touches entry/stop/target sizing, so it doesn't widen risk
+# (that lever - a risk_pct floor - was tried separately and reverted per
+# explicit direction: quick, low-SL trades are the point here) - it only
+# trims which setups get taken. Requiring both together moved a 5-year
+# backtest from PF 1.19 (2236 signals) to PF 1.39 (356 signals), with the
+# improvement holding across most individual years (2022, a broad market
+# downturn, is the one year it doesn't).
+DAILY_SWING_MIN_VOL_RATIO = 1.0
+DAILY_SWING_MIN_DIST_FROM_SMA200_PCT = 15
+
 # A "Weekly Darvas Box" strategy used to run here (replacing CIP, a
 # resistance-zone/retest strategy). Tightening it enough to be
 # higher-conviction than Weekly Range Breakout collapsed it to 3 signals

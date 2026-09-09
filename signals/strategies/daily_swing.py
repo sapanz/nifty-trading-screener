@@ -8,6 +8,12 @@ A stock qualifies when, on the daily timeframe:
   - the 44 SMA and the lower Bollinger Band sit right on top of each other
     (a confluence of two independent support levels, not just one)
   - the candle closed properly (small upper wick, bullish)
+  - volume is at or above its own average, and price already sits a healthy
+    distance above the 200 SMA (see DAILY_SWING_MIN_VOL_RATIO /
+    DAILY_SWING_MIN_DIST_FROM_SMA200_PCT) - both found by mining a 5-year
+    backtest's diagnostic columns: below-average-volume pullbacks were net
+    losers, and pullbacks still close to the 200 SMA underperformed ones
+    with more established trend beneath them
 
 Entry is the signal candle's high; stop-loss is the lower of the signal
 candle's own low and the previous candle's low.
@@ -77,12 +83,23 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         targets = [round(entry + risk * mult, 2) for mult in config.RISK_REWARD_TARGETS]
 
-        # Diagnostic-only fields (not gated on) so a backtest's trade CSV can
-        # be mined for what actually differentiates good and bad signals -
-        # see backtest.DIAGNOSTIC_KEYS.
+        # Volume and trend-extension confirm the pullback is being bought,
+        # not just drifting back up on thin interest - found by mining a
+        # 5-year backtest's diagnostic columns (logged but not gated on
+        # until now): trades with below-average volume were net losers
+        # (PF 0.91), and trades still close to the 200 SMA (a weaker, newer
+        # uptrend) underperformed those with real room already built up.
+        # Neither filter touches entry/stop/target, so it doesn't widen risk
+        # - it only trims which setups get taken (PF 1.19 -> 1.39 in
+        # backtest, retaining ~16% of signals).
         sma_long_val = float(row[f"sma{config.SMA_LONG}"])
         avg_vol_val = row.get(f"avg_vol{config.VOLUME_LOOKBACK}")
         vol_ratio = float(row["volume"] / avg_vol_val) if pd.notna(avg_vol_val) and avg_vol_val > 0 else None
+        if vol_ratio is None or vol_ratio < config.DAILY_SWING_MIN_VOL_RATIO:
+            continue
+        dist_from_sma200_pct = (entry / sma_long_val - 1) * 100
+        if dist_from_sma200_pct < config.DAILY_SWING_MIN_DIST_FROM_SMA200_PCT:
+            continue
         rsi_val = row.get("rsi14")
 
         signals.append(
@@ -96,8 +113,8 @@ def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 candle_date=row.name.date(),
                 extra={
                     "confluence_gap_pct": round(gap * 100, 3),
-                    "dist_from_sma200_pct": round((entry / sma_long_val - 1) * 100, 2),
-                    **({"vol_ratio": round(vol_ratio, 2)} if vol_ratio is not None else {}),
+                    "dist_from_sma200_pct": round(dist_from_sma200_pct, 2),
+                    "vol_ratio": round(vol_ratio, 2),
                     **({"rsi14": round(float(rsi_val), 1)} if pd.notna(rsi_val) else {}),
                 },
             )
