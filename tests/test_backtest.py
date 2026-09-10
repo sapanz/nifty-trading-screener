@@ -223,6 +223,61 @@ class TestSimulateForwardShort:
         assert result.exit_date == dates[3]
 
 
+class TestSimulateForwardMaxHoldingDays:
+    """max_holding_days - Futures OI Buildup's "quick trade, ~1 week hold"
+    forced exit. Every other strategy passes None (the default), for which
+    this never fires - see the other TestSimulateForward* classes."""
+
+    def test_force_exits_at_close_after_max_holding_days(self):
+        # Drifts gently upward, never touching the stop (95) or target (110)
+        # within 3 trading days - should force-exit at day 3's close rather
+        # than keep riding as "open".
+        df = _daily_df([100, 100.5, 101, 101.5, 108, 109])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", _signal(), signal_date, df, max_holding_days=3)
+        assert result.outcome == "time_exit"
+        assert result.exit_date == df.index[3]  # 3rd trading day after signal_date
+        assert result.exit_price == 101.5
+
+    def test_stop_or_target_still_wins_before_max_holding_days(self):
+        # Target (110) is hit on day 2 - well before the day-3 cap - so the
+        # cap should never come into play.
+        df = _daily_df([100, 101, 111, 101, 101])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", _signal(), signal_date, df, max_holding_days=3)
+        assert result.outcome == "target1"
+
+    def test_no_forced_exit_when_max_holding_days_is_none(self):
+        # The default for every strategy but Futures OI Buildup - drifting
+        # sideways for a long time should stay "open", not force-exit.
+        df = _daily_df([100, 100.5, 101, 101.2, 101.4, 101.6, 101.8, 102])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
+        assert result.outcome == "open"
+
+    def test_holding_days_counted_from_fill_not_signal_date(self):
+        # A resting stop-style entry (106, above the signal close of 100)
+        # only fills on day 2 (high=107.07 >= 106) - the 2-trading-day cap
+        # should count from THAT fill, not from signal_date, so day 2 after
+        # fill is day 4 overall.
+        dates = pd.date_range("2024-01-01", periods=5, freq="B")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 100.0, 106.0, 106.0, 106.0],
+                "high": [100.0, 101.0, 107.0, 106.5, 106.5],
+                "low": [100.0, 99.0, 106.0, 105.5, 105.5],
+                "close": [100.0, 100.0, 106.5, 106.0, 106.2],
+                "volume": [1000.0] * 5,
+            },
+            index=dates,
+        )
+        result = backtest.simulate_forward(
+            "futures_oi", _signal(entry=106.0), dates[0], df, max_holding_days=2,
+        )
+        assert result.outcome == "time_exit"
+        assert result.exit_date == dates[3]  # 2nd trading day after the day-2 fill
+
+
 class TestRunBacktest:
     def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
         # monthly_data can come from a separate Upstox fetch than daily_data

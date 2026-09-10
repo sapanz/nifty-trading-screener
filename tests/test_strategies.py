@@ -319,11 +319,12 @@ class TestFuturesOI:
         # Bullish, properly-closed candle: (high-close)/(high-low) = 0.10,
         # well under MAX_UPPER_WICK_RATIO (0.20). Volume 900k vs a 500k
         # baseline average is 1.8x, clearing FUTURES_VOLUME_MULTIPLIER (1.3x).
+        # risk/entry = 3/202 = 1.5%, comfortably under FUTURES_MAX_RISK_PCT (2.5%).
         prev_oi = float(df["open_interest"].iloc[-1])
         df.iloc[-1, df.columns.get_loc("open")] = 200.0
-        df.iloc[-1, df.columns.get_loc("high")] = 204.0
+        df.iloc[-1, df.columns.get_loc("high")] = 202.0
         df.iloc[-1, df.columns.get_loc("low")] = 199.0
-        df.iloc[-1, df.columns.get_loc("close")] = 203.5
+        df.iloc[-1, df.columns.get_loc("close")] = 201.7
         df.iloc[-1, df.columns.get_loc("volume")] = 900_000.0
         df.iloc[-1, df.columns.get_loc("open_interest")] = prev_oi * (1 + oi_change_pct / 100)
         return df
@@ -354,12 +355,14 @@ class TestFuturesOI:
         # Bearish, properly-closed candle: (close-low)/(high-low) = 0.10,
         # well under MAX_UPPER_WICK_RATIO (0.20, reused as the bearish
         # wick-ratio cap too). Volume 900k vs a 500k baseline average is
-        # 1.8x, clearing FUTURES_VOLUME_MULTIPLIER (1.3x).
+        # 1.8x, clearing FUTURES_VOLUME_MULTIPLIER (1.3x). stop_loss is
+        # max(high=200.5, prev_high=201)=201; risk/entry = 3.5/197.5 = 1.8%,
+        # comfortably under FUTURES_MAX_RISK_PCT (2.5%).
         prev_oi = float(df["open_interest"].iloc[-1])
         df.iloc[-1, df.columns.get_loc("open")] = 200.0
-        df.iloc[-1, df.columns.get_loc("high")] = 201.0
-        df.iloc[-1, df.columns.get_loc("low")] = 196.0
-        df.iloc[-1, df.columns.get_loc("close")] = 196.5
+        df.iloc[-1, df.columns.get_loc("high")] = 200.5
+        df.iloc[-1, df.columns.get_loc("low")] = 197.5
+        df.iloc[-1, df.columns.get_loc("close")] = 198.0
         df.iloc[-1, df.columns.get_loc("volume")] = 900_000.0
         df.iloc[-1, df.columns.get_loc("open_interest")] = prev_oi * (1 + oi_change_pct / 100)
         return df
@@ -423,6 +426,30 @@ class TestFuturesOI:
         fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
         signals = futures_oi.scan({}, {"TESTCO": fut})
         assert signals == []
+
+    def test_no_signal_when_risk_too_wide(self):
+        # Same otherwise-valid Long Buildup setup as test_detects_long_buildup,
+        # but the structural stop is far enough from entry to exceed
+        # FUTURES_MAX_RISK_PCT (2.5%) - "low SL, quick momentum trades"
+        # means skipping a signal whose natural stop is this wide, not
+        # taking it with loosened risk.
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
+        fut.iloc[-1, fut.columns.get_loc("low")] = 180.0  # stop_loss=min(180, prev_low=199)=180; risk/entry = 22/202 = 10.9%
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
+    def test_note_includes_exit_by_date(self):
+        # The ~1-week holding intent (FUTURES_MAX_HOLDING_DAYS, enforced
+        # for real in the backtest) needs to be actionable from the live
+        # Telegram message alone, since nothing tracks open positions or
+        # posts a follow-up alert.
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+        assert "Exit by" in signals[0].note
+        assert "if neither hit" in signals[0].note
 
 
 class TestMonthlyBreakout:

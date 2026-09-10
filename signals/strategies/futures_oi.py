@@ -25,8 +25,14 @@ Beyond the quadrant itself, a signal also needs:
 Entry is a resting stop order at the signal candle's own high (long) or
 low (short) - the same buy-stop construction Daily Swing uses, mirrored
 for the short side. Stop-loss is the opposite extreme of the signal/
-previous candle; targets are risk-multiples of that entry-to-SL distance
-(FUTURES_RISK_REWARD_TARGETS).
+previous candle, capped at FUTURES_MAX_RISK_PCT of entry (futures move
+fast - this is meant to be a quick, tight momentum trade, not a
+multi-week swing; a signal whose natural structural stop is wider than
+that cap is skipped rather than taken with loosened risk). Targets are
+risk-multiples of that entry-to-SL distance (FUTURES_RISK_REWARD_TARGETS).
+A position still open after FUTURES_MAX_HOLDING_DAYS trading days from
+fill (~1 week) is force-closed at that day's close in the backtest, same
+"quick trade" intent - see backtest.simulate_forward's max_holding_days.
 
 Unlike the other three strategies, this one has NOT been backtested - a
 futures contract only carries its own ~2-3 month trading history (Upstox
@@ -132,6 +138,8 @@ def scan(daily_data: dict[str, pd.DataFrame], futures_data: dict[str, pd.DataFra
             risk = stop_loss - entry
         if risk <= 0:
             continue
+        if risk / entry > config.FUTURES_MAX_RISK_PCT:
+            continue  # structural stop is too wide for a quick, tight momentum trade
 
         target_mult_sign = 1 if direction == "long" else -1
         targets = [round(entry + target_mult_sign * risk * mult, 2) for mult in config.FUTURES_RISK_REWARD_TARGETS]
@@ -139,6 +147,14 @@ def scan(daily_data: dict[str, pd.DataFrame], futures_data: dict[str, pd.DataFra
         expiry = row.get("expiry")
         expiry_str = expiry.strftime("%d %b") if pd.notna(expiry) else "?"
         side = "BUY" if direction == "long" else "SELL"
+        # A live signal is a one-shot Telegram message - nothing here
+        # tracks open positions or posts a follow-up alert - so the
+        # ~1-week "quick trade" holding intent (FUTURES_MAX_HOLDING_DAYS,
+        # enforced for real in the backtest via simulate_forward's
+        # max_holding_days) needs to be actionable from this message
+        # alone: an explicit exit-by date, assuming the entry fills the
+        # next trading day (this can't know the real fill date in advance).
+        exit_by = (row.name + pd.tseries.offsets.BDay(config.FUTURES_MAX_HOLDING_DAYS)).strftime("%d %b")
 
         signals.append(
             Signal(
@@ -150,7 +166,7 @@ def scan(daily_data: dict[str, pd.DataFrame], futures_data: dict[str, pd.DataFra
                 sort_key=abs(oi_change_pct),
                 note=(
                     f"{side} | {buildup_type} | OI {oi_change_pct:+.1f}% | "
-                    f"Lot size {lot_size:.0f} | Expiry {expiry_str}"
+                    f"Lot size {lot_size:.0f} | Expiry {expiry_str} | Exit by {exit_by} if neither hit"
                 ),
                 candle_date=row.name.date(),
                 extra={"oi_change_pct": round(oi_change_pct, 2), "buildup_type": buildup_type},

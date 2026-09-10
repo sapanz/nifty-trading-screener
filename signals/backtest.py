@@ -105,7 +105,10 @@ class TradeResult:
     diagnostics: dict = field(default_factory=dict)
 
 
-def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
+def simulate_forward(
+    strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame,
+    max_holding_days: int | None = None,
+) -> TradeResult:
     """Walk the real daily price path after `signal_date` to see what happened.
 
     Direction-aware throughout: a long's resting entry sits above the
@@ -114,6 +117,21 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     stop-loss above entry, targets below). Every strategy but Futures OI
     Buildup only ever produces `direction="long"` signals, for which this
     is exactly the original long-only logic.
+
+    `max_holding_days`, when set (only Futures OI Buildup does), force-
+    exits at that day's close once this many TRADING days have elapsed
+    since the entry actually filled (not calendar days, and not from
+    signal_date - from the fill, since that's when the position actually
+    opens) without either the stop or a target firing first. Every other
+    strategy leaves this None (unlimited hold) - see the note in
+    signals/config.py about why a forcing time-stop is fine here but was a
+    real, measured mistake when tried for Weekly Range Breakout earlier
+    (it cut off winners that would have kept running): that was inferred
+    from observing holding-period outcomes after the fact, not a genuine
+    design requirement, and it caused a real regression (PF 1.03 -> 0.60).
+    This one is different in kind - an explicit "quick trade" design
+    constraint for a leveraged, fast-moving instrument, not a pattern
+    mined from a backtest.
     """
     future = daily_df[daily_df.index > signal_date]
     months_gap = signal.extra.get("months_gap")
@@ -137,7 +155,7 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             )
         future = future[future.index >= filled.index[0]]
 
-    for dt, row in future.iterrows():
+    for day_num, (dt, row) in enumerate(future.iterrows(), start=1):
         stopped = (row["high"] >= signal.stop_loss) if is_short else (row["low"] <= signal.stop_loss)
         if stopped:
             return TradeResult(
@@ -157,6 +175,15 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
+            )
+        if max_holding_days is not None and day_num >= max_holding_days:
+            exit_price = float(row["close"])
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="time_exit", exit_date=dt, exit_price=exit_price,
                 return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
                 holding_days=(dt - signal_date).days, direction=signal.direction,
                 months_gap=months_gap, diagnostics=diagnostics,
@@ -254,7 +281,12 @@ def run_backtest(
             # futures is already daily-only granularity so there's no
             # finer-resolution equity series to prefer here the way
             # weekly/monthly use daily bars below.
-            results["futures_oi"].append(simulate_forward("futures_oi", signal, asof, futures_data[signal.symbol]))
+            results["futures_oi"].append(
+                simulate_forward(
+                    "futures_oi", signal, asof, futures_data[signal.symbol],
+                    max_holding_days=config.FUTURES_MAX_HOLDING_DAYS,
+                )
+            )
 
     for asof in _dates_in_window(weekly_data, start, end):
         for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):

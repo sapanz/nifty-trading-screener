@@ -165,6 +165,22 @@ MONTHLY_MIN_GAP_MONTHS = 3
 FUTURES_VOLUME_MULTIPLIER = 1.3
 FUTURES_RISK_REWARD_TARGETS = (2, 3)
 
+# Explicit design direction (not backtest-derived, per the note above):
+# futures move fast, so this is meant to be a quick momentum trade, not a
+# multi-week swing - low SL, ~1 week holding. FUTURES_MAX_RISK_PCT caps how
+# wide the structural stop (signal/previous candle's opposite extreme) is
+# allowed to be, as a fraction of entry; a signal whose natural stop is
+# wider than this is skipped rather than taken with a loosened risk.
+# FUTURES_MAX_HOLDING_DAYS force-exits at that day's close if neither
+# target nor stop has fired within that many TRADING days of the entry
+# actually filling (not calendar days, and not from the signal date -
+# from the fill, since that's when the position actually opens) - 5
+# trading days is one trading week. Both are judgment calls sized for
+# "quick, tight, momentum-only", not tuned thresholds - there's no
+# historical F&O CSV to tune them against (see note above).
+FUTURES_MAX_RISK_PCT = 0.025
+FUTURES_MAX_HOLDING_DAYS = 5
+
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

@@ -6,7 +6,7 @@ levels to Telegram, on a schedule, for four strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
-| **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. The only strategy here that goes short. Not backtested the way the other three are - see [Known limitations](#known-limitations) |
+| **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. Explicitly a quick momentum trade, not a swing: stop-loss capped at `FUTURES_MAX_RISK_PCT` (2.5%) of entry, and a backtest position force-closes after `FUTURES_MAX_HOLDING_DAYS` (5 trading days, ~1 week) if neither target nor stop has fired. The only strategy here that goes short. Not backtested the way the other three are - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -284,11 +284,40 @@ them there rather than in the strategy code.
   `FUTURES_RISK_REWARD_TARGETS` (2R/3R by default) sets the risk-multiples,
   and it's the futures contract's own OHLC driving all of this, not the
   underlying equity's - futures tracks but doesn't exactly equal spot
-  price (basis/cost-of-carry). The Telegram message tags a short signal
-  explicitly (🔴 SHORT - untagged always means long) and reports lot size
-  and the contract's expiry date, since a futures position is sized in
-  lot multiples, not arbitrary share counts, and is time-bound in a way
-  an equity position isn't.
+  price (basis/cost-of-carry).
+
+  This is explicitly meant to be a quick, tight momentum trade, not a
+  multi-week swing - "futures move fast" was the direct ask. Two things
+  enforce that: `FUTURES_MAX_RISK_PCT` (2.5%) caps how wide the
+  structural stop is allowed to be as a fraction of entry - a signal
+  whose natural stop is wider than that is skipped rather than taken with
+  loosened risk, not widened to fit. And `FUTURES_MAX_HOLDING_DAYS` (5
+  trading days, ~1 week) force-closes a still-open backtest position at
+  that day's close if neither target nor stop has fired by then, counted
+  from the entry's actual fill (not the signal date). Since a live signal
+  is a one-shot Telegram message with nothing tracking open positions or
+  posting a follow-up alert, that same ~1-week intent is also surfaced
+  directly in the message as an explicit "exit by" date (computed from
+  the signal candle's own date, since the real fill date isn't known in
+  advance).
+
+  A forcing time-stop was tried for Weekly Range Breakout earlier and
+  reverted after a real regression (PF 1.03 -> 0.60, see git history) -
+  worth noting because it's the same *mechanism* here, but not the same
+  *decision*: that one was inferred from observing holding-period outcomes
+  after the fact and turned out to cut off winners that would have kept
+  running. This one is an explicit, upfront design requirement for a
+  leveraged, fast-moving instrument, not a pattern mined from a backtest -
+  a materially different justification, even though the code looks
+  similar. Neither `FUTURES_MAX_RISK_PCT` nor `FUTURES_MAX_HOLDING_DAYS`
+  is backtest-tuned (same reason as everything else in this strategy - no
+  historical F&O data to tune against): both are judgment calls sized for
+  "quick, tight, momentum-only."
+
+  The Telegram message tags a short signal explicitly (🔴 SHORT - untagged
+  always means long) and reports lot size and the contract's expiry date,
+  since a futures position is sized in lot multiples, not arbitrary share
+  counts, and is time-bound in a way an equity position isn't.
 - **Weekly Range Breakout**: entry is a resting buy-stop at the breakout
   candle's own **high** (like Daily Swing, not an immediate fill at its
   close) - the trade only enters once a later candle actually trades up
