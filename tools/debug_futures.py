@@ -8,8 +8,10 @@ Not part of the regular signals/backtest pipeline - run manually
 re-checking, e.g. if Upstox changes the instrument master's shape.
 
 Answers three open questions:
-  1. Does `name` (not `tradingsymbol`) actually hold the plain underlying
-     symbol for FUTSTK rows, matching our Nifty 500 list?
+  1. Does the underlying-symbol derivation actually match our Nifty 500
+     list? (Confirmed on the first real run: `name` holds the full company
+     name, not the trading symbol - fixed by stripping tradingsymbol's
+     trailing YYMMMFUT suffix instead; see fetch_fo_instrument_master.)
   2. Does historical-candle actually return a populated open_interest
      column for a futures instrument_key (equities never have one)?
   3. How far back does that history actually go? A stock futures contract

@@ -121,17 +121,24 @@ class UpstoxClient:
         instrument master file fetch_instrument_map uses for equities -
         confirmed live (2026-09-10, instrument_type value counts logged by
         fetch_instrument_map): 629 FUTSTK rows alongside 9700 EQUITY ones,
-        same file. Columns: name (the underlying symbol - NOT tradingsymbol,
-        which is the exchange-generated contract code like
-        "RELIANCE26SEPFUT"), instrument_key, expiry, lot_size. Multiple rows
-        per underlying, one per open expiry (near/next/far month) - see
-        signals.data.build_futures_instrument_map for picking the right one.
+        same file. Multiple rows per underlying, one per open expiry
+        (near/next/far month) - see signals.data.build_futures_instrument_map
+        for picking the right one.
 
-        `name`-as-underlying-symbol and `expiry`'s exact on-wire format
-        (string date vs epoch) are both unconfirmed assumptions - this
-        parses defensively and raises loudly rather than silently returning
-        a mismatched or all-NaT frame; check developer.upstox.com or the
-        raised error's sample rows if this ever trips.
+        `underlying_symbol` is derived from `tradingsymbol` (e.g.
+        "MOTHERSON26OCTFUT" -> "MOTHERSON" - the contract code stripped of
+        its trailing YYMMMFUT expiry suffix), NOT from `name`: confirmed
+        live that `name` holds the full company name ("SAMVRDHNA MTHRSN
+        INTL LTD"), not the plain NSE trading symbol the rest of this
+        codebase uses - build_futures_instrument_map's first real run
+        caught this (1/500 requested symbols matched) via the loud
+        near-zero-match-count check below, with real sample rows in the
+        error, rather than silently mismatching. `name` is kept in the
+        returned frame anyway since it's a reasonable display label for a
+        Telegram message. `expiry`'s on-wire format (string date vs epoch)
+        was NOT similarly wrong - confirmed live parsing directly as a date
+        string, no epoch-ms fallback needed - but the fallback stays in
+        case that changes.
         """
         df = self._fetch_instrument_master_df()
         required = {"name", "tradingsymbol", "instrument_key", "expiry", "lot_size", "instrument_type"}
@@ -160,12 +167,18 @@ class UpstoxClient:
                 "Upstox may use a different expiry encoding - check developer.upstox.com."
             )
         fo["expiry"] = expiry
+        # Strip the trailing <2-digit year><3-letter month>FUT suffix (e.g.
+        # "26OCTFUT") that every FUTSTK tradingsymbol carries, confirmed
+        # live against all 629 rows below via the match-count check in
+        # build_futures_instrument_map - this IS the plain NSE trading
+        # symbol, matching build_instrument_map's equity mapping exactly.
+        fo["underlying_symbol"] = fo["tradingsymbol"].str.replace(r"\d{2}[A-Z]{3}FUT$", "", regex=True)
         logger.info(
             "F&O instrument master: %d FUTSTK rows, %d unique underlyings, sample: %s",
-            len(fo), fo["name"].nunique(),
-            fo[["name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]].head(5).to_dict("records"),
+            len(fo), fo["underlying_symbol"].nunique(),
+            fo[["underlying_symbol", "name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]].head(5).to_dict("records"),
         )
-        return fo[["name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]]
+        return fo[["underlying_symbol", "name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]]
 
     def get_daily_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch daily OHLCV candles for one instrument.

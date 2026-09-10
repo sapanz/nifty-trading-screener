@@ -117,20 +117,20 @@ def build_futures_instrument_map(client: UpstoxClient, symbols: list[str]) -> di
     # with zero remaining unexpired rows (shouldn't happen day-to-day, but
     # possible right at a data refresh boundary) should just be absent
     # from the result, not raise.
-    fo = fo.sort_values("expiry").groupby("name", as_index=False).first()
+    fo = fo.sort_values("expiry").groupby("underlying_symbol", as_index=False).first()
 
     mapping = {
-        row["name"]: {"instrument_key": row["instrument_key"], "expiry": row["expiry"], "lot_size": row["lot_size"]}
+        row["underlying_symbol"]: {"instrument_key": row["instrument_key"], "expiry": row["expiry"], "lot_size": row["lot_size"]}
         for _, row in fo.iterrows()
-        if row["name"] in symbols
+        if row["underlying_symbol"] in symbols
     }
     matched = len(mapping)
     if matched < config.MIN_FO_MATCH_COUNT:
         raise RuntimeError(
             f"Only {matched} symbols matched a current F&O futures contract - expected at least "
             f"{config.MIN_FO_MATCH_COUNT}. Either the F&O universe genuinely shrank a lot, or "
-            f"fetch_fo_instrument_master's name-as-underlying-symbol assumption is wrong. "
-            f"Sample underlyings in the F&O master: {sorted(fo['name'].unique())[:20]}. "
+            f"fetch_fo_instrument_master's tradingsymbol-suffix-stripping assumption is wrong. "
+            f"Sample underlyings in the F&O master: {sorted(fo['underlying_symbol'].unique())[:20]}. "
             f"Sample requested symbols: {symbols[:20]}."
         )
     logger.info("F&O futures universe: %d/%d requested symbols have a current contract", matched, len(symbols))
