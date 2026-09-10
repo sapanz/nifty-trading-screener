@@ -51,6 +51,16 @@ def _net_return_pct(gross_return_pct: float) -> float:
     """Deduct the round-trip transaction cost from a gross price return."""
     return gross_return_pct - config.ROUND_TRIP_COST_PCT
 
+
+def _gross_return_pct(direction: str, entry: float, exit_price: float) -> float:
+    """% return on `entry`, direction-aware: a long profits as exit_price
+    rises above entry, a short profits as it falls below - both expressed
+    on the same entry-relative basis so long and short trades stay
+    comparable in the same CSV/summary."""
+    if direction == "short":
+        return (1 - exit_price / entry) * 100
+    return (exit_price / entry - 1) * 100
+
 # Diagnostic-only fields a strategy can stamp onto a signal's `extra` dict
 # (aside from months_gap, which has its own typed column) purely so a
 # backtest's trade CSV carries enough to mine for what actually
@@ -63,7 +73,7 @@ DIAGNOSTIC_KEYS = [
 ]
 
 CSV_FIELDS = [
-    "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
+    "strategy", "symbol", "direction", "signal_date", "entry", "stop_loss", "targets",
     "outcome", "exit_date", "exit_price", "return_pct", "holding_days", "months_gap",
     *DIAGNOSTIC_KEYS,
 ]
@@ -82,6 +92,9 @@ class TradeResult:
     exit_price: float
     return_pct: float
     holding_days: int
+    # "long" or "short" - see Signal.direction. Every strategy but Futures
+    # OI Buildup is always "long".
+    direction: str = "long"
     # Monthly ATH Breakout only: months spent below the prior all-time high
     # before this breakout (signal.extra["months_gap"]); None for every
     # other strategy, which doesn't set it.
@@ -93,43 +106,60 @@ class TradeResult:
 
 
 def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
-    """Walk the real daily price path after `signal_date` to see what happened."""
+    """Walk the real daily price path after `signal_date` to see what happened.
+
+    Direction-aware throughout: a long's resting entry sits above the
+    signal close (a buy-stop) and its stop-loss sits below entry, its
+    targets above; a short's are all mirrored (sell-stop below close,
+    stop-loss above entry, targets below). Every strategy but Futures OI
+    Buildup only ever produces `direction="long"` signals, for which this
+    is exactly the original long-only logic.
+    """
     future = daily_df[daily_df.index > signal_date]
     months_gap = signal.extra.get("months_gap")
     diagnostics = {k: v for k, v in signal.extra.items() if k != "months_gap"}
+    is_short = signal.direction == "short"
 
     as_of = daily_df[daily_df.index <= signal_date]
     signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
-    if signal.entry > signal_close:
-        # A resting buy-stop above the signal candle's own close (e.g. CIP's
-        # entry-above-high) isn't filled yet - find the first later day that
-        # actually trades up to it, and don't track outcomes before that.
-        filled = future[future["high"] >= signal.entry]
+    resting_unfilled = (signal.entry < signal_close) if is_short else (signal.entry > signal_close)
+    if resting_unfilled:
+        # A resting stop order beyond the signal candle's own close isn't
+        # filled yet - find the first later day that actually trades
+        # through it, and don't track outcomes before that.
+        filled = future[future["low"] <= signal.entry] if is_short else future[future["high"] >= signal.entry]
         if filled.empty:
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
-                return_pct=0.0, holding_days=0, months_gap=months_gap, diagnostics=diagnostics,
+                return_pct=0.0, holding_days=0, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
         future = future[future.index >= filled.index[0]]
 
     for dt, row in future.iterrows():
-        if row["low"] <= signal.stop_loss:
+        stopped = (row["high"] >= signal.stop_loss) if is_short else (row["low"] <= signal.stop_loss)
+        if stopped:
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
-                return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, signal.stop_loss)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
-        hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
+        if is_short:
+            hit = [i for i, target in enumerate(signal.targets) if row["low"] <= target]
+        else:
+            hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
         if hit:
-            idx = max(hit)  # the highest target actually reached that day
+            idx = max(hit)  # the target farthest from entry actually reached that day
             exit_price = signal.targets[idx]
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
-                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
 
     # Neither hit yet - still open as of the last available price.
@@ -142,8 +172,9 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     return TradeResult(
         strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
         outcome="open", exit_date=last_date, exit_price=last_close,
-        return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
-        holding_days=(last_date - signal_date).days, months_gap=months_gap, diagnostics=diagnostics,
+        return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, last_close)),
+        holding_days=(last_date - signal_date).days, direction=signal.direction,
+        months_gap=months_gap, diagnostics=diagnostics,
     )
 
 
@@ -307,7 +338,7 @@ def write_csv(all_trades: list[TradeResult], path: str) -> None:
         writer.writerow(CSV_FIELDS)
         for t in all_trades:
             writer.writerow([
-                t.strategy, t.symbol, t.signal_date.date(), t.entry, t.stop_loss,
+                t.strategy, t.symbol, t.direction, t.signal_date.date(), t.entry, t.stop_loss,
                 ";".join(str(x) for x in t.targets), t.outcome, t.exit_date.date(),
                 t.exit_price, round(t.return_pct, 2), t.holding_days,
                 t.months_gap if t.months_gap is not None else "",

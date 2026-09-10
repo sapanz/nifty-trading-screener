@@ -145,12 +145,13 @@ ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1,
 MONTHLY_MIN_GAP_MONTHS = 3
 
 # --- Futures OI buildup ---------------------------------------------------
-# Classic price+OI matrix: price up + OI up = Long Buildup (fresh longs
-# entering, bullish); price up + OI down = Short Covering (shorts being
-# forced out, also bullish - the covering itself is buying pressure). Both
-# quadrants are traded the same way here; the other two (Short Buildup,
-# Long Unwinding - price down either way) are bearish and not traded, since
-# this system only goes long. Day-over-day, the textbook definition, not an
+# Classic price+OI matrix, all four quadrants traded in their own
+# direction (the only strategy here that goes short - see
+# signals/models.py's Signal.direction): price up + OI up = Long Buildup
+# (fresh longs entering) or price up + OI down = Short Covering (shorts
+# forced out) -> long; price down + OI up = Short Buildup (fresh shorts)
+# or price down + OI down = Long Unwinding (longs exiting) -> short.
+# Day-over-day, the textbook definition, not an
 # N-day-smoothed variant - there's no historical F&O trade CSV to mine a
 # smoothing window from the way the other three strategies' thresholds
 # were tuned (see tools/debug_futures.py: Upstox only serves a contract's

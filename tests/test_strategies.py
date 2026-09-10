@@ -350,12 +350,58 @@ class TestFuturesOI:
         assert signals[0].extra["buildup_type"] == "Short Covering"
         assert "Short Covering" in signals[0].note
 
+    def _signal_row_short(self, df, oi_change_pct):
+        # Bearish, properly-closed candle: (close-low)/(high-low) = 0.10,
+        # well under MAX_UPPER_WICK_RATIO (0.20, reused as the bearish
+        # wick-ratio cap too). Volume 900k vs a 500k baseline average is
+        # 1.8x, clearing FUTURES_VOLUME_MULTIPLIER (1.3x).
+        prev_oi = float(df["open_interest"].iloc[-1])
+        df.iloc[-1, df.columns.get_loc("open")] = 200.0
+        df.iloc[-1, df.columns.get_loc("high")] = 201.0
+        df.iloc[-1, df.columns.get_loc("low")] = 196.0
+        df.iloc[-1, df.columns.get_loc("close")] = 196.5
+        df.iloc[-1, df.columns.get_loc("volume")] = 900_000.0
+        df.iloc[-1, df.columns.get_loc("open_interest")] = prev_oi * (1 + oi_change_pct / 100)
+        return df
+
+    def test_detects_short_buildup(self):
+        equity = self._equity_df(uptrend=False)  # downtrend context for a short
+        fut = self._signal_row_short(_futures_df(), oi_change_pct=5.0)  # price down + OI up
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.direction == "short"
+        # For a short: stop-loss above entry, targets below, both below stop.
+        assert sig.targets[1] < sig.targets[0] < sig.entry < sig.stop_loss
+        assert sig.entry == round(float(fut.iloc[-1]["low"]), 2)
+        assert sig.extra["buildup_type"] == "Short Buildup"
+        assert "SELL" in sig.note
+
+    def test_detects_long_unwinding(self):
+        equity = self._equity_df(uptrend=False)
+        fut = self._signal_row_short(_futures_df(), oi_change_pct=-5.0)  # price down + OI down
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+        assert signals[0].direction == "short"
+        assert signals[0].extra["buildup_type"] == "Long Unwinding"
+
+    def test_no_signal_short_when_equity_above_200sma(self):
+        # Same otherwise-valid bearish futures candle, but the equity is
+        # still in an uptrend - a short needs downtrend context, mirroring
+        # how a long needs an uptrend.
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row_short(_futures_df(), oi_change_pct=5.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
     def test_no_signal_when_price_down(self):
         equity = self._equity_df(uptrend=True)
         fut = _futures_df()
-        # Signal candle closes below the previous candle's close - neither
-        # bullish quadrant (Long Buildup/Short Covering) applies, whatever
-        # OI does.
+        # Price down with the equity still in an uptrend: the bearish
+        # quadrant this would classify as (Short Buildup, since OI is
+        # bumped up below) needs downtrend equity context, which isn't
+        # present here - rejected for that reason, not because "price
+        # down" has no quadrant at all (it does; see test_detects_short_buildup).
         fut.iloc[-1, fut.columns.get_loc("close")] = 197.0
         fut.iloc[-1, fut.columns.get_loc("open_interest")] = fut["open_interest"].iloc[-2] * 1.05
         signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})

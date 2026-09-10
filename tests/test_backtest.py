@@ -16,8 +16,11 @@ def _daily_df(closes: list[float]) -> pd.DataFrame:
     return df
 
 
-def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0), extra=None) -> Signal:
-    return Signal(symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets), extra=extra or {})
+def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0), extra=None, direction="long") -> Signal:
+    return Signal(
+        symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets),
+        extra=extra or {}, direction=direction,
+    )
 
 
 class TestSimulateForward:
@@ -124,6 +127,100 @@ class TestSimulateForward:
         signal_date = df.index[0]
         result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
         assert result.months_gap is None
+
+
+class TestSimulateForwardShort:
+    """Mirror of TestSimulateForward for direction="short" - stop-loss sits
+    above entry, targets below, and every OHLC comparison flips (a short
+    is stopped out by price rising, hits target as price falls)."""
+
+    def _short_signal(self, entry=100.0, stop_loss=105.0, targets=(90.0, 80.0)):
+        return _signal(entry=entry, stop_loss=stop_loss, targets=targets, direction="short")
+
+    def test_hits_target1_first(self):
+        df = _daily_df([100, 99, 98, 89, 88])  # day index 3 (close=89) -> low=88.11 crosses below 90
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        assert result.outcome == "target1"
+        assert result.exit_price == 90.0
+        assert result.return_pct > 0  # short profits as price falls
+
+    def test_return_is_net_of_round_trip_transaction_cost(self):
+        df = _daily_df([100, 99, 98, 89, 88])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        gross_return_pct = (1 - 90.0 / 100.0) * 100
+        assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
+
+    def test_hits_stop_loss_first(self):
+        df = _daily_df([100, 102, 106, 110])  # day index 2: high=106*1.01=107.06 >= stop 105
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        assert result.outcome == "stop_loss"
+        assert result.exit_price == 105.0
+        assert result.return_pct < 0  # short loses as price rises
+
+    def test_stop_loss_wins_when_both_hit_same_day(self):
+        # a single day whose range spans above stop and below target - stop
+        # is assumed to trigger first, same conservative assumption as long.
+        dates = pd.date_range("2024-01-01", periods=2, freq="B")
+        df = pd.DataFrame(
+            {"open": [100.0, 100.0], "high": [101.0, 110.0], "low": [99.0, 70.0], "close": [100.0, 95.0], "volume": [1000.0, 1000.0]},
+            index=dates,
+        )
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), dates[0], df)
+        assert result.outcome == "stop_loss"
+
+    def test_hits_farthest_target_reached_same_day(self):
+        dates = pd.date_range("2024-01-01", periods=2, freq="B")
+        df = pd.DataFrame(
+            {"open": [100.0, 95.0], "high": [101.0, 96.0], "low": [99.0, 75.0], "close": [100.0, 78.0], "volume": [1000.0, 1000.0]},
+            index=dates,
+        )
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), dates[0], df)
+        assert result.outcome == "target2"
+        assert result.exit_price == 80.0
+
+    def test_still_open_when_neither_hit(self):
+        df = _daily_df([100, 99, 98, 97])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        assert result.outcome == "open"
+        assert result.exit_price == df["close"].iloc[-1]
+        assert result.return_pct > 0  # price drifted down, favorable for a short
+
+    def test_resting_sell_stop_unfilled_when_never_reached(self):
+        # entry (94) sits below the signal candle's own close (100) - a
+        # resting sell-stop, not an immediate fill. Price never trades back
+        # down to 94, so this should never count as a real trade.
+        df = _daily_df([100, 101, 102, 103])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward(
+            "futures_oi", self._short_signal(entry=94.0, stop_loss=99.0, targets=(85.0,)), signal_date, df
+        )
+        assert result.outcome == "unfilled"
+        assert result.return_pct == 0.0
+        assert result.holding_days == 0
+
+    def test_resting_sell_stop_tracks_outcome_only_after_fill(self):
+        # entry=94 isn't reached until day 2 (low=93.06); before that, a
+        # stop-loss breach shouldn't count since the order wasn't live yet.
+        dates = pd.date_range("2024-01-01", periods=4, freq="B")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 110.0, 94.0, 94.0],
+                "high": [100.0, 111.0, 94.0, 106.0],  # day1 high=111 would look like a stop breach if checked too early
+                "low": [100.0, 109.0, 93.0, 92.0],
+                "close": [100.0, 110.0, 93.5, 105.0],
+                "volume": [1000.0] * 4,
+            },
+            index=dates,
+        )
+        result = backtest.simulate_forward(
+            "futures_oi", self._short_signal(entry=94.0, stop_loss=105.0), dates[0], df
+        )
+        assert result.outcome == "stop_loss"
+        assert result.exit_date == dates[3]
 
 
 class TestRunBacktest:

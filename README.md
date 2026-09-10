@@ -6,7 +6,7 @@ levels to Telegram, on a schedule, for four strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
-| **Futures OI Buildup** | Every trading day, 5pm IST | Underlying above its 200 SMA; the stock's current-month futures contract closed up day-over-day with open interest either rising (Long Buildup) or falling (Short Covering) the same day — the classic price+OI matrix, both bullish quadrants only — on a bullish, properly-closed candle with elevated volume. Not backtested the way the other three are - see [Known limitations](#known-limitations) |
+| **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. The only strategy here that goes short. Not backtested the way the other three are - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -250,20 +250,23 @@ them there rather than in the strategy code.
   `months_gap` correlates positively and almost monotonically with
   performance, and requiring it to be > 3 moved that backtest from
   PF 1.42 (1510 trades) to PF 1.66 (530 trades).
-- **Futures OI Buildup**: `signals/strategies/futures_oi.py`. The
-  underlying equity must be above its 200 SMA (long-term uptrend context -
-  a futures contract only carries ~2-3 months of its own history, nowhere
-  near enough for a 200-period anything, so this reuses the equity's deep
-  daily history instead). The contract's own price must have closed up
-  day-over-day, with open interest either rising (**Long Buildup** - fresh
-  longs entering) or falling (**Short Covering** - shorts being forced
-  out) the same day - the classic price+OI matrix, day-over-day per the
-  textbook definition, not a smoothed variant (see below for why). Both
-  quadrants are bullish and traded the same way; the other two (price
-  down either way - Short Buildup, Long Unwinding) are bearish and
-  skipped, since this system only goes long. On top of that: a bullish,
-  properly-closed candle on volume at least `FUTURES_VOLUME_MULTIPLIER`
-  (1.3x) its trailing average.
+- **Futures OI Buildup**: `signals/strategies/futures_oi.py`. The only
+  strategy here that trades both directions - see
+  `signals/models.py`'s `Signal.direction` ("long"/"short"; every other
+  strategy always leaves it at the "long" default). The contract's own
+  price+OI change, day-over-day per the textbook definition (not a
+  smoothed variant - see below for why), decides both the quadrant and
+  the trade direction: price up + OI up (**Long Buildup** - fresh longs)
+  or price up + OI down (**Short Covering** - shorts forced out) → long;
+  price down + OI up (**Short Buildup** - fresh shorts) or price down +
+  OI down (**Long Unwinding** - longs exiting) → short. The underlying
+  equity must be trending the same way - above its 200 SMA for a long,
+  below it for a short (long-term context from the equity's deep daily
+  history; a futures contract only carries ~2-3 months of its own,
+  nowhere near enough for a 200-period anything). On top of that: a
+  properly-closed candle in the signal's own direction (small upper wick
+  + bullish for a long, small lower wick + bearish for a short) on volume
+  at least `FUTURES_VOLUME_MULTIPLIER` (1.3x) its trailing average.
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the signal candle's **high** (a buy-stop
@@ -271,14 +274,21 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Futures OI Buildup**: same entry/SL/target construction as Daily
-  Swing (signal candle's high; lower of the signal/previous candle's low;
-  `FUTURES_RISK_REWARD_TARGETS`, 2R/3R by default) but on the futures
-  contract's own OHLC, not the underlying equity's - futures tracks but
-  doesn't exactly equal spot price (basis/cost-of-carry). The Telegram
-  message also reports lot size and the contract's expiry date, since a
-  futures position is sized in lot multiples, not arbitrary share counts,
-  and is time-bound in a way an equity position isn't.
+- **Futures OI Buildup**: a **long** signal mirrors Daily Swing exactly
+  (entry at the signal candle's high, a buy-stop; stop-loss the lower of
+  the signal/previous candle's low; targets above). A **short** signal
+  mirrors it in the opposite direction: entry is a resting **sell-stop**
+  at the signal candle's own **low** (filled only once a later candle
+  trades down through it); stop-loss is the **higher of the signal/
+  previous candle's high**; targets sit below entry. Either way,
+  `FUTURES_RISK_REWARD_TARGETS` (2R/3R by default) sets the risk-multiples,
+  and it's the futures contract's own OHLC driving all of this, not the
+  underlying equity's - futures tracks but doesn't exactly equal spot
+  price (basis/cost-of-carry). The Telegram message tags a short signal
+  explicitly (🔴 SHORT - untagged always means long) and reports lot size
+  and the contract's expiry date, since a futures position is sized in
+  lot multiples, not arbitrary share counts, and is time-bound in a way
+  an equity position isn't.
 - **Weekly Range Breakout**: entry is a resting buy-stop at the breakout
   candle's own **high** (like Daily Swing, not an immediate fill at its
   close) - the trade only enters once a later candle actually trades up
