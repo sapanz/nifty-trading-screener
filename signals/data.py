@@ -16,6 +16,17 @@ scraping turned out to do from GitHub Actions), grinding through all ~500
 symbols before giving up wastes hours. All three fetch functions below
 check the failure rate after a small sample and abort early if it looks
 systemic.
+
+`fetch_daily` additionally tops up each symbol with today's own candle
+via the intraday endpoint (_with_todays_candle) - Upstox's
+historical-candle is backward-looking only and never includes the
+current trading day, confirmed live even ~2 hours after market close, so
+without this every Daily Swing run would silently signal off yesterday's
+close. Weekly Range Breakout and Monthly ATH Breakout have the same
+underlying gap for their own still-forming current period (this week /
+this month), just less frequently visible since they only run once a
+week or month - not yet fixed the same way; see git history/PR notes if
+this becomes a live issue for them too.
 """
 from __future__ import annotations
 
@@ -25,11 +36,33 @@ from typing import Callable
 import pandas as pd
 
 from signals import config
+from signals.calendar_utils import ist_today
 from signals.upstox_client import UpstoxClient
 
 logger = logging.getLogger(__name__)
 
 _RESAMPLE_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+
+
+def _with_todays_candle(client: UpstoxClient, instrument_key: str, historical_df: pd.DataFrame) -> pd.DataFrame:
+    """Append today's candle from the intraday endpoint if historical_df
+    doesn't already reach today - see UpstoxClient.get_intraday_daily_candle
+    for why historical-candle alone never does, even run same-evening.
+    """
+    today = ist_today()
+    if not historical_df.empty and historical_df.index[-1].date() >= today:
+        return historical_df
+    try:
+        todays = client.get_intraday_daily_candle(instrument_key)
+    except Exception as exc:  # noqa: BLE001 - today's candle is a bonus, not worth failing the fetch over
+        logger.warning("Failed to fetch today's intraday candle for %s: %s", instrument_key, exc)
+        return historical_df
+    if todays.empty:
+        return historical_df
+    todays = todays[todays.index.normalize() == pd.Timestamp(today)]
+    if todays.empty:
+        return historical_df
+    return pd.concat([historical_df, todays]).sort_index()
 
 
 def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, str]:
@@ -142,10 +175,16 @@ def _fetch_history(
 
 
 def fetch_daily(client: UpstoxClient, instrument_map: dict[str, str]) -> dict[str, pd.DataFrame]:
-    """Fetch daily OHLCV for every symbol. Failures are logged and skipped."""
+    """Fetch daily OHLCV for every symbol, topped up with today's own
+    candle from the intraday endpoint since historical-candle never
+    includes the current trading day (see _with_todays_candle). Failures
+    are logged and skipped.
+    """
     return _fetch_history(
         instrument_map,
-        fetch_one=lambda key: client.get_daily_history(key, years=config.DAILY_HISTORY_YEARS),
+        fetch_one=lambda key: _with_todays_candle(
+            client, key, client.get_daily_history(key, years=config.DAILY_HISTORY_YEARS)
+        ),
         throttle=client.throttle,
         label="daily",
     )

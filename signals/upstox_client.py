@@ -31,6 +31,12 @@ month), so the extra fetch isn't paid on every run.
 Upstox's API has changed shape before; if historical-candle requests start
 failing with 4xx errors, check developer.upstox.com and adjust the URL
 building in ``_get_history`` / ``_get_history_v3`` accordingly.
+
+historical-candle is backward-looking only - it never includes the
+current trading day, confirmed live even ~2 hours after market close.
+``get_intraday_daily_candle`` hits the separate v3 intraday endpoint to
+get today's session same-evening; see signals.data for how it's merged
+onto the historical series.
 """
 from __future__ import annotations
 
@@ -212,6 +218,25 @@ class UpstoxClient:
         Uses the v3 endpoint - see get_weekly_history's docstring for why.
         """
         return self._get_history_v3(instrument_key, "months", 1, years)
+
+    def get_intraday_daily_candle(self, instrument_key: str) -> pd.DataFrame:
+        """Fetch *today's* daily candle (open/high/low/close/volume so far,
+        or final once the market's closed) via the v3 intraday endpoint.
+
+        historical-candle is backward-looking only and never includes the
+        current trading day, no matter how late in the day it's queried -
+        confirmed live: a run at 5:27pm IST, nearly two hours after market
+        close, still had no candle for that day from historical-candle.
+        Upstox appears to only add a session to historical-candle sometime
+        after that evening (observed the next day), not same-evening. This
+        is the only way to get "today" without waiting a full extra day for
+        every strategy that runs the same evening the market closed.
+
+        Returns an empty DataFrame if the market hasn't had any session
+        today yet (e.g. before the open, or a market holiday).
+        """
+        url = f"{config.UPSTOX_BASE_URL_V3}/historical-candle/intraday/{instrument_key}/days/1"
+        return self._request_candles(url, instrument_key)
 
     def _get_history(self, instrument_key: str, interval: str, years: int) -> pd.DataFrame:
         today = ist_today()
