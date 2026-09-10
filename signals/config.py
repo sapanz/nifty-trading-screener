@@ -206,6 +206,63 @@ FUTURES_MAX_HOLDING_DAYS = 10
 # historical F&O CSV to tune it against).
 FUTURES_MIN_OI_CHANGE_PCT = 2.0
 
+# --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
+# Runs on both daily and weekly candles (price_action_breakout.scan() is
+# called twice, once per timeframe, each with its own window sizes below -
+# a breakout worth trading looks the same shape at either zoom level).
+#
+# This detects a *tight prior consolidation* (a rectangle range, or the
+# tightened, about-to-break endgame of a triangle - a real trendline fit
+# isn't used to tell the two shapes apart, since what actually matters for
+# trading it is that the recent high/low band got tight, which both
+# patterns look like right before they break either way; the note field
+# still surfaces the raw range so a human can eyeball which shape it
+# was), followed by: a breakout candle closing above the consolidation's
+# high on clearly elevated volume, a pullback that comes back to retest
+# that broken level as support without ever closing convincingly back
+# below it, and finally a green, properly-closed candle (is_bullish +
+# is_proper_close - the existing "20%-wick" rule, left exactly as-is) that
+# closes back above the breakout level - that candle is the actual signal
+# trigger, not the breakout candle itself.
+#
+# Brand new strategy, not backtest-tuned yet (every number below is a
+# judgment call sized to what was asked for - a tight base, a genuinely
+# high-volume break, a real but not-too-deep retest - not a threshold
+# mined from a trade CSV the way the older strategies' numbers were).
+# Revisit once a real backtest CSV exists to mine instead of guessing.
+PRICE_ACTION_PATTERN_LOOKBACK_DAILY = 15    # candles forming the base, daily
+PRICE_ACTION_PATTERN_LOOKBACK_WEEKLY = 10   # candles forming the base, weekly
+PRICE_ACTION_BREAKOUT_WINDOW_DAILY = 10     # how many recent candles back a breakout may have happened, daily
+PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8     # same, weekly
+PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
+PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
+
+# The base itself must be tight - reuses Weekly Range Breakout's own 20%
+# convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
+# different-sounding number for the same idea ("is this actually a base,
+# not just a wide swing"), so this doesn't duplicate that value.
+PRICE_ACTION_RANGE_TIGHTNESS = BREAKOUT_RANGE_TIGHTNESS
+
+# "With high volumes" - the breakout day itself must clear a materially
+# higher bar than the other strategies' volume gates (1.3x), which are
+# meant to filter out clearly-quiet days rather than demand real
+# conviction behind the actual breakout.
+PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
+
+# How far the retest is allowed to undercut the breakout level and still
+# count as "held" (a small wick below it is normal noise; a close
+# meaningfully below it means the level failed, not that it's being
+# retested).
+PRICE_ACTION_RETEST_TOLERANCE = 0.02
+PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
+
+# Measured-move targets from the breakout level - the base's own height
+# projected upward, same idea as Weekly Range Breakout's own
+# BREAKOUT_RANGE_MULTIPLES (kept as a separate constant since this
+# strategy's base-height/target relationship hasn't been tuned the way
+# that one's was).
+PRICE_ACTION_TARGET_MULTIPLES = (1, 2)
+
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

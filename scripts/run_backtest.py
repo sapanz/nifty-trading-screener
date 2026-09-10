@@ -45,6 +45,8 @@ STRATEGY_LABELS = {
     "futures_oi": ("Futures OI Buildup", "⚡"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
+    "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
+    "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
 }
 
 

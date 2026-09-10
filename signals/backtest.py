@@ -34,6 +34,13 @@ arguments, same as a live run sees - the daily-resample fallback used
 when either is omitted won't exactly match live weekly candle
 boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
 genuinely deep history. See scripts/run_backtest.py for the live wiring.
+
+Price Action Breakout runs twice - "price_action_breakout_daily" off
+`daily_data` and "price_action_breakout_weekly" off `weekly_data` - kept
+as two separate result buckets rather than pooled together, since a
+daily-timeframe base/breakout/retest and a weekly one are different
+trades with different holding periods, not the same signal at two
+resolutions.
 """
 from __future__ import annotations
 
@@ -44,7 +51,7 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, futures_oi, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -264,12 +271,26 @@ def run_backtest(
         "futures_oi": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
+        "price_action_breakout_daily": [],
+        "price_action_breakout_weekly": [],
     }
 
     for asof in _dates_in_window(daily_data, start, end):
-        daily_signals = daily_swing.scan(_scan_as_of(daily_data, asof), _scan_as_of(weekly_data, asof))
+        sliced_daily = _scan_as_of(daily_data, asof)
+        daily_signals = daily_swing.scan(sliced_daily, _scan_as_of(weekly_data, asof))
         for signal in daily_signals:
             results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
+
+        pa_daily_signals = price_action_breakout.scan(
+            sliced_daily,
+            pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_DAILY,
+            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
+            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+        )
+        for signal in pa_daily_signals:
+            results["price_action_breakout_daily"].append(
+                simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
+            )
 
     for asof in _dates_in_window(futures_data, start, end):
         futures_signals = futures_oi.scan(_scan_as_of(daily_data, asof), _scan_as_of(futures_data, asof))
@@ -289,7 +310,8 @@ def run_backtest(
             )
 
     for asof in _dates_in_window(weekly_data, start, end):
-        for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
+        sliced_weekly = _scan_as_of(weekly_data, asof)
+        for signal in weekly_breakout.scan(sliced_weekly):
             # weekly_data may come from a separate fetch than daily_data (a
             # different set of symbols can fail between two independent
             # Upstox calls) - the exit walk-forward still needs daily bars,
@@ -298,6 +320,20 @@ def run_backtest(
             if signal.symbol not in daily_data:
                 continue
             results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+
+        pa_weekly_signals = price_action_breakout.scan(
+            sliced_weekly,
+            pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_WEEKLY,
+            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
+            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
+        )
+        for signal in pa_weekly_signals:
+            # Same reasoning as weekly_breakout above.
+            if signal.symbol not in daily_data:
+                continue
+            results["price_action_breakout_weekly"].append(
+                simulate_forward("price_action_breakout_weekly", signal, asof, daily_data[signal.symbol])
+            )
 
     for asof in _dates_in_window(monthly_data, start, end):
         for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
