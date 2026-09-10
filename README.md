@@ -259,7 +259,12 @@ them there rather than in the strategy code.
   the trade direction: price up + OI up (**Long Buildup** - fresh longs)
   or price up + OI down (**Short Covering** - shorts forced out) → long;
   price down + OI up (**Short Buildup** - fresh shorts) or price down +
-  OI down (**Long Unwinding** - longs exiting) → short. The underlying
+  OI down (**Long Unwinding** - longs exiting) → short - but only once OI
+  has moved by at least `FUTURES_MIN_OI_CHANGE_PCT` (2%) either way; a
+  smaller tick is noise, not a real quadrant move, and trading it anyway
+  is exactly what diluted this strategy's first live smoke test (667
+  signals in a 2-month window vs. 15-25 for the equity strategies, PF
+  0.59). The underlying
   equity must be trending the same way - above its 200 SMA for a long,
   below it for a short (long-term context from the equity's deep daily
   history; a futures contract only carries ~2-3 months of its own,

@@ -10,7 +10,12 @@ contract's own price change and open-interest change:
   - price down + OI down = **Long Unwinding**  (longs exiting)         -> short
 
 All four quadrants are traded, in the direction their quadrant implies -
-unlike the other three strategies here, which are long-only.
+unlike the other three strategies here, which are long-only. OI has to
+move by at least FUTURES_MIN_OI_CHANGE_PCT to count as a genuine
+quadrant move at all - a day-over-day tick of a fraction of a percent is
+noise, not a real buildup/covering/unwinding, and trading it anyway is
+exactly what diluted this strategy's first live smoke test (667 signals,
+PF 0.59 - see signals/config.py).
 
 Beyond the quadrant itself, a signal also needs:
   - the underlying equity trending the same way: above its 200 SMA for a
@@ -66,9 +71,12 @@ VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
 
 def _classify(price_up: bool, oi_change_pct: float) -> tuple[str, str] | None:
     """Map a (price direction, OI direction) pair to (trade direction,
-    buildup-type label), or None for the unchanged-OI case (neither
-    quadrant)."""
-    if oi_change_pct == 0:
+    buildup-type label), or None if OI didn't move enough to count as a
+    genuine quadrant move (FUTURES_MIN_OI_CHANGE_PCT - a day-over-day
+    OI tick of a fraction of a percent is noise, not a buildup/covering/
+    unwinding, and trading it anyway is exactly what diluted this
+    strategy's first live smoke test: 667 signals, PF 0.59)."""
+    if abs(oi_change_pct) < config.FUTURES_MIN_OI_CHANGE_PCT:
         return None
     if price_up:
         return ("long", "Long Buildup" if oi_change_pct > 0 else "Short Covering")

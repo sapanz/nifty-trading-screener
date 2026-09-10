@@ -181,6 +181,17 @@ FUTURES_RISK_REWARD_TARGETS = (2, 3)
 FUTURES_MAX_RISK_PCT = 0.025
 FUTURES_MAX_HOLDING_DAYS = 5
 
+# A day-over-day OI move of a fraction of a percent is noise, not a genuine
+# buildup/covering/unwinding - without a floor, this quadrant classifies
+# (and trades) essentially every up/down day regardless of whether OI
+# barely moved at all, which is exactly what a 2-month live smoke test
+# showed: 667 signals in a window where the equity strategies saw 15-25,
+# and a profit factor (0.59) well below 1. Requiring |oi_change_pct| >= 2%
+# before a day counts as a genuine quadrant move is a noise floor, not a
+# backtested threshold (same caveat as everything else here - no
+# historical F&O CSV to tune it against).
+FUTURES_MIN_OI_CHANGE_PCT = 2.0
+
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

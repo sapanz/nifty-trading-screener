@@ -416,6 +416,21 @@ class TestFuturesOI:
         signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
         assert signals == []
 
+    def test_no_signal_when_oi_change_below_noise_floor(self):
+        # A day-over-day OI tick of 1% is nonzero (would have counted as
+        # Long Buildup before FUTURES_MIN_OI_CHANGE_PCT existed), but it's
+        # below the 2% noise floor - not a genuine buildup.
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=1.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
+    def test_signal_fires_right_at_noise_floor(self):
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=2.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+
     def test_no_signal_when_equity_below_200sma(self):
         equity = self._equity_df(uptrend=False)
         fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
