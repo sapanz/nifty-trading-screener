@@ -195,7 +195,8 @@ def run_backtest(
     }
 
     for asof in _dates_in_window(daily_data, start, end):
-        for signal in daily_swing.scan(_scan_as_of(daily_data, asof)):
+        daily_signals = daily_swing.scan(_scan_as_of(daily_data, asof), _scan_as_of(weekly_data, asof))
+        for signal in daily_signals:
             results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
 
     for asof in _dates_in_window(weekly_data, start, end):

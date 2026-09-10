@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from signals import config
+from signals import config, data
 from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
 
 
@@ -214,13 +214,22 @@ def _append_support_row(df: pd.DataFrame, sma_period: int, freq_offset, low_mult
 
 
 class TestDailySwing:
+    def _scan(self, daily_data: dict, weekly_data: dict | None = None):
+        """Default weekly_data to a resample of daily_data itself (the same
+        thing run_signals.py does live) so most tests don't need to think
+        about the multi-timeframe filter at all - only the tests that
+        target it directly pass an explicit weekly_data."""
+        if weekly_data is None:
+            weekly_data = data.to_weekly(daily_data)
+        return daily_swing.scan(daily_data, weekly_data)
+
     def test_detects_confluence_support(self):
         # gentle continued drift (not dead-flat) so the 44 SMA is clearly
         # rising; small enough not to blow out the SMA44/lower-BB confluence
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
 
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
@@ -245,13 +254,40 @@ class TestDailySwing:
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
         assert signals == []
 
     def test_no_signal_when_sma44_declining(self):
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_weekly_sma30_not_rising(self):
+        # Same daily fixture as test_detects_confluence_support (every daily
+        # condition passes), but paired with a flat weekly series instead of
+        # a resample of it - the multi-timeframe confirmation should reject
+        # it even though the daily chart alone looks fine.
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+
+        n_weekly = config.BREAKOUT_TREND_SMA + config.SMA_SLOPE_LOOKBACK + 20
+        dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_weekly, freq="W-FRI")
+        flat_weekly = pd.DataFrame({"close": [150.0] * n_weekly}, index=dates)
+        flat_weekly["open"] = flat_weekly["close"]
+        flat_weekly["high"] = flat_weekly["close"] * 1.005
+        flat_weekly["low"] = flat_weekly["close"] * 0.995
+        flat_weekly["volume"] = 100_000.0
+
+        signals = daily_swing.scan({"TESTCO": df}, {"TESTCO": flat_weekly})
+        assert signals == []
+
+    def test_no_signal_when_weekly_data_missing(self):
+        # Same otherwise-valid daily fixture, but the symbol has no entry in
+        # weekly_data at all - fails closed rather than assuming confirmed.
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+        signals = daily_swing.scan({"TESTCO": df}, {})
         assert signals == []
 
 

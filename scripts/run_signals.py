@@ -64,7 +64,17 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - isolate strategies from each other
             failures.append((title, exc))
 
-    run(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, lambda: format_strategy_message(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, daily_swing.scan(daily), today))
+    # Daily Swing's weekly-trend confirmation (BREAKOUT_TREND_SMA rising)
+    # uses a resample of the daily fetch already in hand, not a separate
+    # native weekly fetch - it runs every day, and a fresh ~500-symbol
+    # Upstox weekly fetch daily (rather than just Fridays, like Weekly
+    # Range Breakout below) isn't worth the extra API load for a trend
+    # check that a resample answers just as well.
+    run(
+        DAILY_SWING_TITLE,
+        DAILY_SWING_EMOJI,
+        lambda: format_strategy_message(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, daily_swing.scan(daily, data.to_weekly(daily)), today),
+    )
 
     if today.weekday() == 4 or os.environ.get("FORCE_WEEKLY") == "true":
         def build_weekly():

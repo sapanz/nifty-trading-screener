@@ -83,6 +83,11 @@ BREAKOUT_RANGE_TIGHTNESS = 0.20  # (range_high - range_low) / range_low must be 
 # this faster 30-week SMA, which must itself be rising. (50-week was tried
 # and came back worse than no trend filter at all - PF 0.87 vs 0.91 - see
 # git history; 30-week at least matched baseline while cutting more noise.)
+#
+# Also used by Daily Swing as a multi-timeframe confirmation (the weekly
+# chart must be trending too, not just the daily pullback) - shared rather
+# than duplicated, since both strategies mean the same thing by "the weekly
+# trend SMA".
 BREAKOUT_TREND_SMA = 30
 
 # How far above the consolidation range's high the breakout candle's close

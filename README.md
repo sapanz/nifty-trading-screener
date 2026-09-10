@@ -220,9 +220,13 @@ them there rather than in the strategy code.
   backtest's diagnostic columns: below-average-volume pullbacks were net
   losers, and pullbacks still close to the 200 SMA underperformed ones with
   more established trend beneath them; requiring both moved that backtest
-  from PF 1.19 to PF 1.39. (44 was the original `SMA_SWING`; 50 tested
-  marginally better - PF 1.37 -> 1.41 - and was kept. Several other Daily
-  Swing designs - Darvas Box, CANSLIM overlays, ATH-proximity SMA-30
+  from PF 1.19 to PF 1.39. Finally, a multi-timeframe check: the weekly
+  `BREAKOUT_TREND_SMA` (30-week, the same trend SMA Weekly Range Breakout
+  uses) must itself be rising too, not just the daily one - a stock can
+  look fine on a daily pullback while its weekly chart is flat or rolling
+  over, and this rejects that case. (44 was the original `SMA_SWING`; 50
+  tested marginally better - PF 1.37 -> 1.41 - and was kept. Several other
+  Daily Swing designs - Darvas Box, CANSLIM overlays, ATH-proximity SMA-30
   support, Wyckoff-style base/breakout/retest, a volume-anomaly "pocket
   pivot" - were tried later and dropped without beating this original
   version; see git history.)

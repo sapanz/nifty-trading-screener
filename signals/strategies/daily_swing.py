@@ -15,6 +15,12 @@ A stock qualifies when, on the daily timeframe:
     losers, and pullbacks still close to the 200 SMA underperformed ones
     with more established trend beneath them
 
+...and, on the weekly timeframe:
+  - the weekly BREAKOUT_TREND_SMA (30-week) is itself rising - the same
+    trend-confirmation SMA Weekly Range Breakout uses, shared here as a
+    multi-timeframe check so Daily Swing doesn't buy a daily-chart pullback
+    the weekly chart itself isn't really trending on
+
 Entry is the signal candle's high; stop-loss is the lower of the signal
 candle's own low and the previous candle's low.
 """
@@ -40,12 +46,25 @@ from signals.models import Signal
 SMA_SWING = config.SMA_SWING
 
 
-def scan(daily_data: dict[str, pd.DataFrame]) -> list[Signal]:
+def scan(daily_data: dict[str, pd.DataFrame], weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
     signals: list[Signal] = []
 
     for symbol, raw_df in daily_data.items():
         df = raw_df.copy()
         if len(df) < config.SMA_LONG + 2:
+            continue
+
+        # Multi-timeframe confirmation: the weekly trend SMA must itself be
+        # rising, not just the daily one - a stock can look fine on a daily
+        # pullback while its weekly chart is actually flat or rolling over.
+        # Missing/short weekly data fails closed (skip), same as any other
+        # unconfirmed condition here.
+        weekly_df = weekly_data.get(symbol)
+        if weekly_df is None or weekly_df.empty:
+            continue
+        weekly_df = weekly_df.copy()
+        add_sma(weekly_df, config.BREAKOUT_TREND_SMA)
+        if not is_sma_rising(weekly_df, f"sma{config.BREAKOUT_TREND_SMA}"):
             continue
 
         add_sma(df, config.SMA_LONG)
