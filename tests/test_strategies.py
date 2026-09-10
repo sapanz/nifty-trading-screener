@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from signals import config, data
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -288,6 +288,94 @@ class TestDailySwing:
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
         signals = daily_swing.scan({"TESTCO": df}, {})
+        assert signals == []
+
+
+def _futures_df(n=30, base=200.0, volume=500_000.0, oi=1_000_000.0):
+    """Flat baseline futures series (own price/volume/OI, not the equity's)
+    with lot_size/expiry constant columns, matching what
+    data.fetch_futures_daily attaches - override the last row(s) to build a
+    specific signal/no-signal scenario."""
+    dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n, freq="B")
+    df = pd.DataFrame(
+        {
+            "open": base, "high": base * 1.005, "low": base * 0.995, "close": base,
+            "volume": volume, "open_interest": oi,
+        },
+        index=dates,
+    )
+    df["lot_size"] = 500.0
+    df["expiry"] = dates[-1] + pd.Timedelta(days=20)
+    return df
+
+
+class TestFuturesOI:
+    def _equity_df(self, uptrend=True):
+        if uptrend:
+            return _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200)
+        return _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
+
+    def _signal_row(self, df, oi_change_pct):
+        # Bullish, properly-closed candle: (high-close)/(high-low) = 0.10,
+        # well under MAX_UPPER_WICK_RATIO (0.20). Volume 900k vs a 500k
+        # baseline average is 1.8x, clearing FUTURES_VOLUME_MULTIPLIER (1.3x).
+        prev_oi = float(df["open_interest"].iloc[-1])
+        df.iloc[-1, df.columns.get_loc("open")] = 200.0
+        df.iloc[-1, df.columns.get_loc("high")] = 204.0
+        df.iloc[-1, df.columns.get_loc("low")] = 199.0
+        df.iloc[-1, df.columns.get_loc("close")] = 203.5
+        df.iloc[-1, df.columns.get_loc("volume")] = 900_000.0
+        df.iloc[-1, df.columns.get_loc("open_interest")] = prev_oi * (1 + oi_change_pct / 100)
+        return df
+
+    def test_detects_long_buildup(self):
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=5.0)  # price up + OI up
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+        sig = signals[0]
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert sig.entry == round(float(fut.iloc[-1]["high"]), 2)
+        assert "Long Buildup" in sig.note
+        assert "Lot size 500" in sig.note
+        assert sig.extra["buildup_type"] == "Long Buildup"
+        assert sig.extra["oi_change_pct"] == pytest.approx(5.0, abs=0.01)
+        assert sig.candle_date == fut.index[-1].date()
+
+    def test_detects_short_covering(self):
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=-5.0)  # price up + OI down
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert len(signals) == 1
+        assert signals[0].extra["buildup_type"] == "Short Covering"
+        assert "Short Covering" in signals[0].note
+
+    def test_no_signal_when_price_down(self):
+        equity = self._equity_df(uptrend=True)
+        fut = _futures_df()
+        # Signal candle closes below the previous candle's close - neither
+        # bullish quadrant (Long Buildup/Short Covering) applies, whatever
+        # OI does.
+        fut.iloc[-1, fut.columns.get_loc("close")] = 197.0
+        fut.iloc[-1, fut.columns.get_loc("open_interest")] = fut["open_interest"].iloc[-2] * 1.05
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
+    def test_no_signal_when_oi_unchanged(self):
+        equity = self._equity_df(uptrend=True)
+        fut = self._signal_row(_futures_df(), oi_change_pct=0.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
+    def test_no_signal_when_equity_below_200sma(self):
+        equity = self._equity_df(uptrend=False)
+        fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
+        signals = futures_oi.scan({"TESTCO": equity}, {"TESTCO": fut})
+        assert signals == []
+
+    def test_no_signal_when_symbol_missing_from_daily_data(self):
+        fut = self._signal_row(_futures_df(), oi_change_pct=5.0)
+        signals = futures_oi.scan({}, {"TESTCO": fut})
         assert signals == []
 
 

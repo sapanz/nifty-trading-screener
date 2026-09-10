@@ -1,11 +1,12 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for three strategies:
+levels to Telegram, on a schedule, for four strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
+| **Futures OI Buildup** | Every trading day, 5pm IST | Underlying above its 200 SMA; the stock's current-month futures contract closed up day-over-day with open interest either rising (Long Buildup) or falling (Short Covering) the same day — the classic price+OI matrix, both bullish quadrants only — on a bullish, properly-closed candle with elevated volume. Not backtested the way the other three are - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -249,6 +250,20 @@ them there rather than in the strategy code.
   `months_gap` correlates positively and almost monotonically with
   performance, and requiring it to be > 3 moved that backtest from
   PF 1.42 (1510 trades) to PF 1.66 (530 trades).
+- **Futures OI Buildup**: `signals/strategies/futures_oi.py`. The
+  underlying equity must be above its 200 SMA (long-term uptrend context -
+  a futures contract only carries ~2-3 months of its own history, nowhere
+  near enough for a 200-period anything, so this reuses the equity's deep
+  daily history instead). The contract's own price must have closed up
+  day-over-day, with open interest either rising (**Long Buildup** - fresh
+  longs entering) or falling (**Short Covering** - shorts being forced
+  out) the same day - the classic price+OI matrix, day-over-day per the
+  textbook definition, not a smoothed variant (see below for why). Both
+  quadrants are bullish and traded the same way; the other two (price
+  down either way - Short Buildup, Long Unwinding) are bearish and
+  skipped, since this system only goes long. On top of that: a bullish,
+  properly-closed candle on volume at least `FUTURES_VOLUME_MULTIPLIER`
+  (1.3x) its trailing average.
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the signal candle's **high** (a buy-stop
@@ -256,6 +271,14 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
+- **Futures OI Buildup**: same entry/SL/target construction as Daily
+  Swing (signal candle's high; lower of the signal/previous candle's low;
+  `FUTURES_RISK_REWARD_TARGETS`, 2R/3R by default) but on the futures
+  contract's own OHLC, not the underlying equity's - futures tracks but
+  doesn't exactly equal spot price (basis/cost-of-carry). The Telegram
+  message also reports lot size and the contract's expiry date, since a
+  futures position is sized in lot multiples, not arbitrary share counts,
+  and is time-bound in a way an equity position isn't.
 - **Weekly Range Breakout**: entry is a resting buy-stop at the breakout
   candle's own **high** (like Daily Swing, not an immediate fill at its
   close) - the trade only enters once a later candle actually trades up
@@ -334,6 +357,23 @@ all-time-high check isn't silently capped at 6 years.
   `signals/data.py`'s circuit breaker aborts the whole run early with a
   clear error (protects against a repeat of the NSE-blocking incident
   that motivated the switch to Upstox).
+- **Futures OI Buildup has NOT been backtested the way the other three
+  strategies were**, and this isn't a "haven't gotten to it yet" gap -
+  it's a real data-source limit. Upstox's instrument master only ever
+  lists currently-live F&O contracts (confirmed live, 2026-09-10 via
+  `tools/debug_futures.py`: 629 FUTSTK rows / ~210 unique underlyings =
+  exactly 3 rows each, i.e. near/next/far month only), and a contract's
+  own historical-candle data is capped at its own trading life (~2-3
+  months) no matter how much history is requested - there's no way to
+  discover an already-expired contract's `instrument_key` to fetch its
+  history at all. So there's no multi-year trade CSV to mine the way
+  `MONTHLY_MIN_GAP_MONTHS`, `DAILY_SWING_MIN_VOL_RATIO`, etc. were tuned;
+  `signals/strategies/futures_oi.py` stays close to the textbook price+OI
+  definition rather than being dressed up with unvalidated-but-precise-
+  looking thresholds. Validate this one by watching live signals
+  accumulate over time, not by trusting it's already tuned. (A real fix
+  would mean sourcing NSE's own historical F&O bhavcopy archives
+  separately - a distinct, substantial effort, not attempted here.)
 
 ## Backtesting
 
@@ -401,11 +441,12 @@ signals/
   upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
-  data.py            daily/weekly/monthly-ATH fetch orchestration, resampling fallbacks, circuit breaker
+  data.py            daily/weekly/monthly-ATH/futures fetch orchestration, resampling fallbacks, circuit breaker
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py      Daily Swing (SMA50/lower-BB confluence)
+    futures_oi.py       Futures OI Buildup (price+OI matrix, stock futures)
     weekly_breakout.py  Weekly Range Breakout
     monthly_breakout.py Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message
@@ -418,7 +459,8 @@ scripts/
   run_signals.py     the single daily entry point for the strategies
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
-.github/workflows/            the cron schedule, backtest workflow, and a test workflow
+tools/debug_futures.py          throwaway diagnostic: verify F&O data assumptions against the real API
+.github/workflows/            the cron schedule, backtest workflow, debug_futures workflow, and a test workflow
 tests/                         unit tests against synthetic OHLCV data
 ```
 

@@ -44,7 +44,7 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -59,7 +59,7 @@ def _net_return_pct(gross_return_pct: float) -> float:
 # a column blank wherever a given trade's signal didn't set it.
 DIAGNOSTIC_KEYS = [
     "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
-    "extension_pct", "tightness_pct",
+    "extension_pct", "tightness_pct", "oi_change_pct", "buildup_type",
 ]
 
 CSV_FIELDS = [
@@ -168,6 +168,7 @@ def run_backtest(
     months: int,
     weekly_data: dict[str, pd.DataFrame] | None = None,
     monthly_data: dict[str, pd.DataFrame] | None = None,
+    futures_data: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest all active strategies over the trailing `months` months.
 
@@ -179,6 +180,16 @@ def run_backtest(
     fine for a quick local backtest without the extra Upstox fetches but
     won't exactly match live candle boundaries (weekly) or reach past
     DAILY_HISTORY_YEARS (monthly).
+
+    `futures_data` (data.fetch_futures_daily) drives Futures OI Buildup -
+    unlike weekly/monthly there's no resample fallback (OI can't be
+    derived from equity daily bars), so omitting it just means zero
+    futures_oi signals rather than an approximation. Even when supplied,
+    this backtest window is inherently short: a futures contract only
+    carries its own ~2-3 month trading history (see
+    tools/debug_futures.py), so `months` beyond that doesn't reach further
+    back for this strategy the way it does for the equity ones - this is a
+    smoke test, not the same kind of multi-year validation.
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
@@ -187,9 +198,12 @@ def run_backtest(
         weekly_data = data.to_weekly(daily_data)
     if monthly_data is None:
         monthly_data = data.to_monthly(daily_data)
+    if futures_data is None:
+        futures_data = {}
 
     results: dict[str, list[TradeResult]] = {
         "daily_swing": [],
+        "futures_oi": [],
         "weekly_breakout": [],
         "monthly_breakout": [],
     }
@@ -198,6 +212,18 @@ def run_backtest(
         daily_signals = daily_swing.scan(_scan_as_of(daily_data, asof), _scan_as_of(weekly_data, asof))
         for signal in daily_signals:
             results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
+
+    for asof in _dates_in_window(futures_data, start, end):
+        futures_signals = futures_oi.scan(_scan_as_of(daily_data, asof), _scan_as_of(futures_data, asof))
+        for signal in futures_signals:
+            # Walk the exit forward on the futures contract's own daily
+            # bars, not the equity's - entry/SL/targets were all computed
+            # from futures OHLC, which tracks but doesn't exactly equal
+            # the underlying's spot price (basis/cost-of-carry), and
+            # futures is already daily-only granularity so there's no
+            # finer-resolution equity series to prefer here the way
+            # weekly/monthly use daily bars below.
+            results["futures_oi"].append(simulate_forward("futures_oi", signal, asof, futures_data[signal.symbol]))
 
     for asof in _dates_in_window(weekly_data, start, end):
         for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):

@@ -17,11 +17,15 @@ uploads the full trade-by-trade CSV as a workflow artifact.
 
 This fetches the same ~500-symbol universe as a live run and then re-scans
 it once per historical date, so it takes noticeably longer than a normal
-run (order of 10-20 minutes, not seconds). Three separate Upstox fetches,
+run (order of 10-20 minutes, not seconds). Four separate Upstox fetches,
 same split as a live run: daily (DAILY_HISTORY_YEARS) for Daily Swing,
-native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
+native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout,
 native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
-all-time-high check.
+all-time-high check, and a ~210-symbol F&O futures fetch for Futures OI
+Buildup - that last one has an inherently short backtest window (a
+futures contract only carries its own ~2-3 month history; see
+tools/debug_futures.py), so its results here are a smoke test, not the
+same kind of multi-year validation the other three strategies get.
 """
 import os
 import sys
@@ -38,6 +42,7 @@ FETCH_EMOJI = "🧪"
 
 STRATEGY_LABELS = {
     "daily_swing": ("Daily Swing (SMA44/BB Confluence)", "📈"),
+    "futures_oi": ("Futures OI Buildup", "⚡"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
 }
@@ -63,7 +68,14 @@ def main() -> None:
         # MONTHLY_ATH_HISTORY_YEARS in config.py).
         weekly = data.fetch_weekly_history(client, instrument_map)
         monthly = data.fetch_monthly_ath_history(client, instrument_map)
-        results = backtest.run_backtest(daily, months=months, weekly_data=weekly, monthly_data=monthly)
+        # Futures OI Buildup gets its own F&O instrument map + fetch, not a
+        # resample of `daily` - only ~210 of Nifty 500 have a futures
+        # contract at all, and OI simply doesn't exist on the equity series.
+        futures_map = data.build_futures_instrument_map(client, symbols)
+        futures = data.fetch_futures_daily(client, futures_map)
+        results = backtest.run_backtest(
+            daily, months=months, weekly_data=weekly, monthly_data=monthly, futures_data=futures,
+        )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise

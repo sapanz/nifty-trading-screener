@@ -144,6 +144,26 @@ ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1,
 # PF 1.42 (1510 trades) to PF 1.66 (530 trades).
 MONTHLY_MIN_GAP_MONTHS = 3
 
+# --- Futures OI buildup ---------------------------------------------------
+# Classic price+OI matrix: price up + OI up = Long Buildup (fresh longs
+# entering, bullish); price up + OI down = Short Covering (shorts being
+# forced out, also bullish - the covering itself is buying pressure). Both
+# quadrants are traded the same way here; the other two (Short Buildup,
+# Long Unwinding - price down either way) are bearish and not traded, since
+# this system only goes long. Day-over-day, the textbook definition, not an
+# N-day-smoothed variant - there's no historical F&O trade CSV to mine a
+# smoothing window from the way the other three strategies' thresholds
+# were tuned (see tools/debug_futures.py: Upstox only serves a contract's
+# own ~2-3 month life, no expired-contract history), so this stays close
+# to the standard definition rather than adding unvalidated parameters.
+# Reuses RISK_REWARD_TARGETS/WEEKLY_VOLUME_MULTIPLIER's *values* below
+# rather than inventing different-sounding "tuned for leverage" numbers
+# that would misrepresent this as tuned when it hasn't been backtested at
+# all - validate this one forward (paper-track live signals) rather than
+# against history, since history isn't available.
+FUTURES_VOLUME_MULTIPLIER = 1.3
+FUTURES_RISK_REWARD_TARGETS = (2, 3)
+
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

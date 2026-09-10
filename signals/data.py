@@ -216,6 +216,37 @@ def fetch_monthly_ath_history(client: UpstoxClient, instrument_map: dict[str, st
     )
 
 
+def fetch_futures_daily(client: UpstoxClient, futures_map: dict[str, dict]) -> dict[str, pd.DataFrame]:
+    """Fetch daily OHLCV+open_interest for each symbol's current futures
+    contract (see build_futures_instrument_map). `years` is a generous
+    upper bound, not a real depth guarantee - confirmed live (2026-09-10,
+    tools/debug_futures.py) that Upstox only ever returns a contract's own
+    trading history (~2-3 months for a front-month contract), regardless
+    of how far back is requested; there's no way to fetch an
+    already-expired contract's history at all, since the instrument
+    master only lists currently-live ones. lot_size is attached as a
+    constant column on each frame (from futures_map) so a strategy can
+    report it without a second lookup.
+
+    Unlike fetch_daily, this does NOT top up today's candle via the
+    intraday endpoint (_with_todays_candle) - that path is unverified for
+    F&O instrument_keys, and this strategy runs paper-tracked-forward
+    rather than depending on same-day freshness the way Daily Swing does;
+    revisit if a 1-day-stale candle turns out to matter in practice.
+    """
+    instrument_map = {symbol: info["instrument_key"] for symbol, info in futures_map.items()}
+    result = _fetch_history(
+        instrument_map,
+        fetch_one=lambda key: client.get_daily_history(key, years=1),
+        throttle=client.throttle,
+        label="futures",
+    )
+    for symbol, df in result.items():
+        df["lot_size"] = futures_map[symbol]["lot_size"]
+        df["expiry"] = futures_map[symbol]["expiry"]
+    return result
+
+
 def _resample(daily_df: pd.DataFrame, rule: str) -> pd.DataFrame:
     if daily_df.empty:
         return daily_df
