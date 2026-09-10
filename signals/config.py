@@ -167,19 +167,33 @@ FUTURES_RISK_REWARD_TARGETS = (2, 3)
 
 # Explicit design direction (not backtest-derived, per the note above):
 # futures move fast, so this is meant to be a quick momentum trade, not a
-# multi-week swing - low SL, ~1 week holding. FUTURES_MAX_RISK_PCT caps how
+# multi-week swing - low SL, quick holding. FUTURES_MAX_RISK_PCT caps how
 # wide the structural stop (signal/previous candle's opposite extreme) is
 # allowed to be, as a fraction of entry; a signal whose natural stop is
 # wider than this is skipped rather than taken with a loosened risk.
 # FUTURES_MAX_HOLDING_DAYS force-exits at that day's close if neither
 # target nor stop has fired within that many TRADING days of the entry
 # actually filling (not calendar days, and not from the signal date -
-# from the fill, since that's when the position actually opens) - 5
-# trading days is one trading week. Both are judgment calls sized for
-# "quick, tight, momentum-only", not tuned thresholds - there's no
-# historical F&O CSV to tune them against (see note above).
+# from the fill, since that's when the position actually opens).
+#
+# Originally 5 (one trading week) as a pure judgment call. Loosened to 10
+# (two trading weeks) after inspecting an actual backtest CSV: with the
+# 5-day cap, the 86 trades that got force-exited (never hit target or stop
+# within the window) were the *second-best*-performing outcome bucket -
+# 67% still positive at exit, avg +0.50%, PF 2.77 - clearly better than
+# stop_loss (0% win, avg -2.02%) and better than the overall average
+# (avg -0.29%). Only 16% of them were already more than halfway to
+# target1 when cut off, meaning most were still-progressing trades closed
+# before they had a real chance to either reach target or genuinely
+# reverse. That's the opposite problem from the earlier Weekly Range
+# Breakout time-stop mistake (PF 1.03 -> 0.60): there, forcing an exit
+# cut off trades that were already right to keep running; here, the
+# forced exits were themselves outperforming, suggesting the cap was too
+# tight rather than too loose. stop_loss trades are unaffected by this
+# change either way - they exit before any time cap is reached, whichever
+# value it's set to.
 FUTURES_MAX_RISK_PCT = 0.025
-FUTURES_MAX_HOLDING_DAYS = 5
+FUTURES_MAX_HOLDING_DAYS = 10
 
 # A day-over-day OI move of a fraction of a percent is noise, not a genuine
 # buildup/covering/unwinding - without a floor, this quadrant classifies

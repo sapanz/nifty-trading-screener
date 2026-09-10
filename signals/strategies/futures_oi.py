@@ -36,17 +36,22 @@ multi-week swing; a signal whose natural structural stop is wider than
 that cap is skipped rather than taken with loosened risk). Targets are
 risk-multiples of that entry-to-SL distance (FUTURES_RISK_REWARD_TARGETS).
 A position still open after FUTURES_MAX_HOLDING_DAYS trading days from
-fill (~1 week) is force-closed at that day's close in the backtest, same
-"quick trade" intent - see backtest.simulate_forward's max_holding_days.
+fill (~2 weeks) is force-closed at that day's close in the backtest, same
+"quick trade" intent - see backtest.simulate_forward's max_holding_days
+and the note in signals/config.py on why this was loosened from an
+original 1-week cap after inspecting a real trade CSV.
 
-Unlike the other three strategies, this one has NOT been backtested - a
-futures contract only carries its own ~2-3 month trading history (Upstox
-has no way to serve an expired contract's history, confirmed live via
-tools/debug_futures.py), so there's no multi-year trade CSV to validate
-against the way the equity strategies were tuned. This is deliberately
-close to the textbook price+OI definition rather than dressed up with
-unvalidated thresholds - see signals/config.py. Validate by watching live
-signals accumulate, not by trusting these levels are already tuned.
+Unlike the other three strategies, this one has NOT been backtested the
+way they were - a futures contract only carries its own ~2-3 month
+trading history (Upstox has no way to serve an expired contract's
+history, confirmed live via tools/debug_futures.py), so there's no
+multi-year trade CSV to validate against. Short-window (2-month) CSVs
+have been useful for catching real, sizable problems anyway (the
+FUTURES_MIN_OI_CHANGE_PCT floor and FUTURES_MAX_HOLDING_DAYS both came
+from inspecting one directly) - just not for the kind of "flip a
+threshold, backtest 5 years, compare PF" tuning the equity strategies
+got. Validate the overall strategy by watching live signals accumulate,
+not by trusting it's fully tuned.
 """
 from __future__ import annotations
 
@@ -157,7 +162,7 @@ def scan(daily_data: dict[str, pd.DataFrame], futures_data: dict[str, pd.DataFra
         side = "BUY" if direction == "long" else "SELL"
         # A live signal is a one-shot Telegram message - nothing here
         # tracks open positions or posts a follow-up alert - so the
-        # ~1-week "quick trade" holding intent (FUTURES_MAX_HOLDING_DAYS,
+        # ~2-week "quick trade" holding intent (FUTURES_MAX_HOLDING_DAYS,
         # enforced for real in the backtest via simulate_forward's
         # max_holding_days) needs to be actionable from this message
         # alone: an explicit exit-by date, assuming the entry fills the
