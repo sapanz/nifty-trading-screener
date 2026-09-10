@@ -151,6 +151,15 @@ UPSTOX_MAX_RETRIES = 3
 # symbols - fail loudly instead of quietly scanning nothing.
 MIN_INSTRUMENT_MATCH_RATIO = 0.5
 
+# --- F&O (stock futures) ---------------------------------------------------
+# Only ~150-220 of Nifty 500 actually have futures listed - unlike equities,
+# a low match ratio against the full 500-symbol list is expected here, so
+# this is a floor on the absolute count, not a fraction (see
+# data.build_futures_instrument_map). Confirmed live (2026-09-10): 629
+# FUTSTK rows / ~210 unique underlyings in the same instrument master file
+# used for equities.
+MIN_FO_MATCH_COUNT = 100
+
 # Daily-history depth for Daily Swing (the only strategy left resampling
 # off of it). 6 years comfortably covers its SMA200 lookback with margin.
 DAILY_HISTORY_YEARS = 6

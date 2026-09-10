@@ -67,14 +67,21 @@ class UpstoxClient:
             }
         )
 
-    def fetch_instrument_map(self) -> dict[str, str]:
-        """Return {trading_symbol: instrument_key} for NSE equities."""
+    def _fetch_instrument_master_df(self) -> pd.DataFrame:
+        """Download and parse the raw NSE instrument master (shared by
+        fetch_instrument_map for equities and fetch_fo_instrument_master for
+        stock futures/options - same file, both segments listed in it)."""
         resp = requests.get(config.UPSTOX_INSTRUMENTS_URL, timeout=60)
         resp.raise_for_status()
         raw = gzip.decompress(resp.content)
         df = pd.read_csv(io.BytesIO(raw))
         df.columns = [c.strip().lower() for c in df.columns]
         logger.info("Instrument master: %d rows, columns=%s", len(df), list(df.columns))
+        return df
+
+    def fetch_instrument_map(self) -> dict[str, str]:
+        """Return {trading_symbol: instrument_key} for NSE equities."""
+        df = self._fetch_instrument_master_df()
 
         symbol_col = next((c for c in ("tradingsymbol", "trading_symbol") if c in df.columns), None)
         key_col = next((c for c in ("instrument_key", "instrumentkey") if c in df.columns), None)
@@ -102,6 +109,57 @@ class UpstoxClient:
         logger.info("Sample %s/%s pairs: %s", symbol_col, key_col, df[[symbol_col, key_col]].head(5).to_dict("records"))
 
         return dict(zip(df[symbol_col].astype(str).str.strip(), df[key_col].astype(str).str.strip()))
+
+    def fetch_fo_instrument_master(self) -> pd.DataFrame:
+        """Return raw stock-futures (FUTSTK) rows from the same NSE
+        instrument master file fetch_instrument_map uses for equities -
+        confirmed live (2026-09-10, instrument_type value counts logged by
+        fetch_instrument_map): 629 FUTSTK rows alongside 9700 EQUITY ones,
+        same file. Columns: name (the underlying symbol - NOT tradingsymbol,
+        which is the exchange-generated contract code like
+        "RELIANCE26SEPFUT"), instrument_key, expiry, lot_size. Multiple rows
+        per underlying, one per open expiry (near/next/far month) - see
+        signals.data.build_futures_instrument_map for picking the right one.
+
+        `name`-as-underlying-symbol and `expiry`'s exact on-wire format
+        (string date vs epoch) are both unconfirmed assumptions - this
+        parses defensively and raises loudly rather than silently returning
+        a mismatched or all-NaT frame; check developer.upstox.com or the
+        raised error's sample rows if this ever trips.
+        """
+        df = self._fetch_instrument_master_df()
+        required = {"name", "tradingsymbol", "instrument_key", "expiry", "lot_size", "instrument_type"}
+        missing = required - set(df.columns)
+        if missing:
+            raise UpstoxError(
+                f"Instrument master is missing expected F&O columns {missing}. "
+                f"Actual columns: {list(df.columns)}. Upstox may have changed the file format."
+            )
+
+        fo = df[df["instrument_type"].astype(str).str.upper() == "FUTSTK"].copy()
+        if fo.empty:
+            value_counts = df["instrument_type"].astype(str).value_counts().head(10).to_dict()
+            raise UpstoxError(
+                f"Zero FUTSTK rows in the instrument master. Actual instrument_type values seen: "
+                f"{value_counts}. Upstox may have renamed the stock-futures type."
+            )
+
+        expiry = pd.to_datetime(fo["expiry"], errors="coerce")
+        if expiry.isna().mean() > 0.5:  # likely epoch milliseconds, not a date string
+            expiry = pd.to_datetime(fo["expiry"], errors="coerce", unit="ms")
+        if expiry.isna().mean() > 0.5:
+            raise UpstoxError(
+                f"Could not parse FUTSTK expiry as a date either way (string or epoch-ms). "
+                f"Sample raw expiry values: {fo['expiry'].head(5).tolist()}. "
+                "Upstox may use a different expiry encoding - check developer.upstox.com."
+            )
+        fo["expiry"] = expiry
+        logger.info(
+            "F&O instrument master: %d FUTSTK rows, %d unique underlyings, sample: %s",
+            len(fo), fo["name"].nunique(),
+            fo[["name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]].head(5).to_dict("records"),
+        )
+        return fo[["name", "tradingsymbol", "instrument_key", "expiry", "lot_size"]]
 
     def get_daily_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch daily OHLCV candles for one instrument.
@@ -203,9 +261,17 @@ class UpstoxClient:
         df = pd.DataFrame(candles, columns=CANDLE_COLUMNS[: len(candles[0])])
         df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
         df = df.sort_values("timestamp").set_index("timestamp")
+        columns = ["open", "high", "low", "close", "volume"]
+        # F&O instrument_keys carry a 7th open_interest field that equity
+        # candles don't - the CANDLE_COLUMNS[: len(candles[0])] slice above
+        # already labels it correctly when present; equity candles simply
+        # never have this column, so this stays a no-op for them.
+        if "open_interest" in df.columns:
+            columns.append("open_interest")
+            df["open_interest"] = pd.to_numeric(df["open_interest"], errors="coerce")
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        return df[["open", "high", "low", "close", "volume"]]
+        return df[columns]
 
     def throttle(self) -> None:
         time.sleep(config.UPSTOX_REQUEST_DELAY_SECONDS)
