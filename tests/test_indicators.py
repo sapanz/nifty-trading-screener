@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 
 from signals import indicators
 
@@ -173,65 +172,3 @@ def test_add_rsi_nan_before_period_elapses():
     df = pd.DataFrame({"close": [100.0 + i for i in range(10)]})
     indicators.add_rsi(df, period=14)
     assert pd.isna(df["rsi14"].iloc[-1])
-
-
-def test_add_money_flow_volume_positive_when_closing_near_high():
-    # Every candle closes at its own high (pure buying pressure) - CMF
-    # should sit at its maximum, +1.
-    df = pd.DataFrame({
-        "high": [110.0] * 25,
-        "low": [100.0] * 25,
-        "close": [110.0] * 25,
-        "volume": [1000.0] * 25,
-    })
-    indicators.add_money_flow_volume(df, period=20)
-    assert df["cmf20"].iloc[-1] == pytest.approx(1.0)
-
-
-def test_add_money_flow_volume_negative_when_closing_near_low():
-    df = pd.DataFrame({
-        "high": [110.0] * 25,
-        "low": [100.0] * 25,
-        "close": [100.0] * 25,
-        "volume": [1000.0] * 25,
-    })
-    indicators.add_money_flow_volume(df, period=20)
-    assert df["cmf20"].iloc[-1] == pytest.approx(-1.0)
-
-
-def test_add_money_flow_volume_zero_when_closing_at_midpoint():
-    df = pd.DataFrame({
-        "high": [110.0] * 25,
-        "low": [100.0] * 25,
-        "close": [105.0] * 25,
-        "volume": [1000.0] * 25,
-    })
-    indicators.add_money_flow_volume(df, period=20)
-    assert df["cmf20"].iloc[-1] == pytest.approx(0.0)
-
-
-def test_add_money_flow_volume_weights_by_volume():
-    # Two candles: one closes at its high on heavy volume, the other at
-    # its low on light volume - CMF should be dominated by the heavier one,
-    # not a simple unweighted average of +1 and -1 (which would be 0).
-    df = pd.DataFrame({
-        "high": [110.0, 110.0],
-        "low": [100.0, 100.0],
-        "close": [110.0, 100.0],  # closes at high, then at low
-        "volume": [900.0, 100.0],  # heavy volume on the up day, light on the down day
-    })
-    indicators.add_money_flow_volume(df, period=2)
-    assert df["cmf2"].iloc[-1] == pytest.approx((900.0 - 100.0) / 1000.0)
-
-
-def test_add_money_flow_volume_safe_on_flat_candle():
-    # high == low (no range at all) would divide by zero - should come
-    # back NaN for that candle rather than raising or producing inf.
-    df = pd.DataFrame({
-        "high": [100.0] * 5,
-        "low": [100.0] * 5,
-        "close": [100.0] * 5,
-        "volume": [1000.0] * 5,
-    })
-    indicators.add_money_flow_volume(df, period=3)
-    assert pd.isna(df["mfv"].iloc[-1])

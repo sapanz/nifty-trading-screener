@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from signals import config, data
-from signals.strategies import daily_swing, futures_oi, money_flow_accumulation, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -681,98 +681,4 @@ class TestPriceActionBreakout:
         base_end = -3
         df.iloc[base_start:base_end, df.columns.get_loc("high")] = 310.0
         df.iloc[base_start:base_end, df.columns.get_loc("low")] = 200.0  # (310-200)/200 = 55%, well past 20%
-        assert self._scan(df) == []
-
-
-class TestMoneyFlowAccumulation:
-    def _base_df(
-        self,
-        phase_b_accumulates: bool = True,
-        today_close_below_sma: bool = False,
-        today_bearish: bool = False,
-    ) -> pd.DataFrame:
-        """Long uptrend -> ~40 days of net-distribution drift near 295
-        (closes near each candle's own low, pulling CMF negative) -> ~9
-        days of net-accumulation (closes near each candle's own high,
-        pulling CMF up and, with `phase_b_accumulates=False`, kept as more
-        distribution instead so CMF never turns positive/rising) -> a
-        final candle whose low tests the SMA50 support built up by that
-        drift. Defaults produce a valid signal; each test overrides
-        exactly the field it's checking."""
-        n_ramp = config.SMA_LONG + 10
-        dates = pd.date_range(end=pd.Timestamp.today().normalize() - pd.Timedelta(days=60), periods=n_ramp, freq="B")
-        closes = [100.0 + (295.0 - 100.0) * i / n_ramp for i in range(n_ramp)]
-        ramp = pd.DataFrame({"close": closes}, index=dates)
-        ramp["open"] = ramp["close"]
-        ramp["high"] = ramp["close"] * 1.005
-        ramp["low"] = ramp["close"] * 0.995
-        ramp["volume"] = 100_000.0
-
-        phase_a_dates = pd.bdate_range(start=dates[-1] + pd.Timedelta(days=1), periods=40)
-        phase_a = pd.DataFrame(
-            {"open": 295.5, "high": 296.0, "low": 293.5, "close": 294.0, "volume": 100_000.0}, index=phase_a_dates
-        )
-
-        phase_b_dates = pd.bdate_range(start=phase_a_dates[-1] + pd.Timedelta(days=1), periods=9)
-        if phase_b_accumulates:
-            phase_b = pd.DataFrame(
-                {"open": 294.5, "high": 296.0, "low": 294.0, "close": 295.7, "volume": 100_000.0}, index=phase_b_dates
-            )
-        else:
-            phase_b = pd.DataFrame(
-                {"open": 295.5, "high": 296.0, "low": 293.5, "close": 294.0, "volume": 100_000.0}, index=phase_b_dates
-            )
-
-        today_date = phase_b_dates[-1] + pd.Timedelta(days=1)
-        while today_date.weekday() >= 5:
-            today_date += pd.Timedelta(days=1)
-        pre = pd.concat([ramp, phase_a, phase_b])
-        sma50_pre = float(pre["close"].rolling(config.SMA_SWING).mean().iloc[-1])
-
-        low = sma50_pre * 0.995
-        close = 296.0
-        open_ = 294.5
-        if today_close_below_sma:
-            close = sma50_pre - 1.0
-            open_ = close - 0.5
-        if today_bearish:
-            open_, close = close, open_  # swap so close < open
-        today = pd.DataFrame(
-            {"open": [open_], "high": [max(open_, close) + 0.5], "low": [low], "close": [close], "volume": [110_000.0]},
-            index=[today_date],
-        )
-        return pd.concat([pre, today])
-
-    def _scan(self, df: pd.DataFrame) -> list:
-        return money_flow_accumulation.scan({"TESTCO": df})
-
-    def test_detects_accumulation_at_support(self):
-        df = self._base_df()
-        signals = self._scan(df)
-        assert len(signals) == 1
-        sig = signals[0]
-
-        # Entry is the signal candle's own high (buy-stop), stop-loss the
-        # lower of the signal/previous candle's low.
-        assert sig.entry == round(float(df["high"].iloc[-1]), 2)
-        assert sig.stop_loss == round(min(float(df["low"].iloc[-1]), float(df["low"].iloc[-2])), 2)
-        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
-        assert sig.candle_date == df.index[-1].date()
-        assert sig.extra["cmf"] > 0
-        assert "CMF" in sig.note and "Support SMA" in sig.note
-
-    def test_no_signal_when_cmf_never_turns_positive_and_rising(self):
-        # Money flow stays net-distribution throughout - no accumulation
-        # signature for the strategy to find.
-        df = self._base_df(phase_b_accumulates=False)
-        assert self._scan(df) == []
-
-    def test_no_signal_when_today_closes_below_support(self):
-        # The support level didn't hold - a failed test, not a genuine
-        # accumulation-at-support signal.
-        df = self._base_df(today_close_below_sma=True)
-        assert self._scan(df) == []
-
-    def test_no_signal_when_today_is_bearish(self):
-        df = self._base_df(today_bearish=True)
         assert self._scan(df) == []

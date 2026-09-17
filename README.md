@@ -1,7 +1,7 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for seven strategies:
+levels to Telegram, on a schedule, for six strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
@@ -9,7 +9,6 @@ levels to Telegram, on a schedule, for seven strategies:
 | **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. Explicitly a quick momentum trade, not a swing: stop-loss capped at `FUTURES_MAX_RISK_PCT` (2.5%) of entry, and a backtest position force-closes after `FUTURES_MAX_HOLDING_DAYS` (10 trading days, ~2 weeks) if neither target nor stop has fired. The only strategy here that goes short. Not backtested the way the other three equity strategies are - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Daily)** | Every trading day, 5pm IST | Above 200 SMA; a tight prior base (15 daily candles, accumulation-biased) breaks out on clearly elevated volume (2x average), price later pulls back to retest that broken level without closing convincingly below it, and today closes green, properly closed, and back above the level - that candle is the actual trigger. Entry is a resting buy-stop at today's high; targets are a measured move off the base's own height. Brand new, not backtest-tuned - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout → retest → green-confirmation logic as the daily leg above, run on weekly candles instead (10-week base) - a separate, independently tracked signal, not a duplicate of the daily one |
-| **Money Flow Accumulation** | Every trading day, 5pm IST | Above 200 SMA, testing support at the 50 SMA; Chaikin Money Flow (a real, documented volume-weighted buying/selling-pressure proxy - see [Known limitations](#known-limitations)) is net positive and itself rising over the pullback - money still flowing in while price is soft, not out - plus a bullish, properly-closed candle. Entry is a resting buy-stop at the signal candle's high; stop-loss and targets follow Daily Swing's construction. Brand new, not backtest-tuned |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -26,11 +25,10 @@ the work on a cron schedule and posts straight to Telegram:
   deliberately odd minute, not the round 11:30 - see caveat below). It
   first logs into Upstox automatically (`scripts/login_upstox.py`, via
   TOTP), then `scripts/run_signals.py` fetches daily OHLCV **once** and
-  always runs the daily swing screener, Price Action Breakout's daily
-  leg, and Money Flow Accumulation (all three off that same fetch),
-  additionally runs the weekly range breakout and Price Action Breakout's
-  weekly leg on Fridays (sharing one native-weekly fetch between them),
-  and additionally runs the monthly
+  always runs the daily swing screener and Price Action Breakout's daily
+  leg (both off that same fetch), additionally runs the weekly range
+  breakout and Price Action Breakout's weekly leg on Fridays (sharing one
+  native-weekly fetch between them), and additionally runs the monthly
   ATH breakout on the last trading day of the month — one Upstox pass per
   timeframe serves every strategy that fires that day, whatever the day.
 
@@ -312,22 +310,6 @@ them there rather than in the strategy code.
   judgment call, not something mined from a backtest CSV the way the
   older strategies' numbers were; see
   [Known limitations](#known-limitations).
-- **Money Flow Accumulation**: `signals/strategies/money_flow_accumulation.py`.
-  Inspired by a YouTube demo of a proprietary tool's volume-delta-style
-  histogram marking price reversals - but built from a real, documented
-  indicator instead of guessing at that tool's actual (undocumented)
-  formula, since a screenshot alone isn't enough to reverse-engineer it
-  honestly. Above the 200 SMA, testing support at `SMA_SWING` (the same
-  pullback SMA Daily Swing tests - low within `MONEY_FLOW_SUPPORT_TOLERANCE`
-  of it, closing back above), with **Chaikin Money Flow** (`indicators.
-  add_money_flow_volume`; CMF, summed over `MFV_LOOKBACK` candles) net
-  positive (`CMF_MIN_VALUE`) and itself rising (`CMF_SLOPE_LOOKBACK`) - a
-  Wyckoff-style accumulation signature: money still flowing in while price
-  pulls back, not out. On top of that, the same bullish-properly-closed-
-  candle rule from the table above, on volume at least
-  `MONEY_FLOW_VOLUME_MULTIPLIER` (1.0x, i.e. not below its own average).
-  Brand new strategy, not backtest-tuned - same caveat as Price Action
-  Breakout, see [Known limitations](#known-limitations).
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the signal candle's **high** (a buy-stop
@@ -419,17 +401,12 @@ them there rather than in the strategy code.
   (`PRICE_ACTION_TARGET_MULTIPLES`, 1x/2x) - the base's own height
   projected up from the breakout level, the same idea as Weekly Range
   Breakout's `BREAKOUT_RANGE_MULTIPLES` off its own range height.
-- **Money Flow Accumulation**: identical construction to Daily Swing -
-  entry at the signal candle's high, stop-loss the lower of the signal/
-  previous candle's low, targets at `RISK_REWARD_TARGETS` (2R/3R) off
-  that risk.
 
-Daily Swing, Price Action Breakout's daily leg, and Money Flow
-Accumulation share the daily fetch (`data.fetch_daily`, the "day"
-interval, once per run) - the second and third are free, not extra
-Upstox calls. Weekly Range Breakout, Price Action Breakout's weekly leg,
-and Monthly ATH Breakout each fetch their own native interval directly
-instead of resampling that daily data:
+Daily Swing and Price Action Breakout's daily leg share the daily fetch
+(`data.fetch_daily`, the "day" interval, once per run) - the second one is
+free, not an extra Upstox call. Weekly Range Breakout, Price Action
+Breakout's weekly leg, and Monthly ATH Breakout each fetch their own
+native interval directly instead of resampling that daily data:
 `data.fetch_weekly_history` ("week", shared between both weekly
 strategies) and `data.fetch_monthly_ath_history` ("month"), each only on
 the day its strategy actually runs (Fridays / month-end). Weekly's native
@@ -510,18 +487,6 @@ all-time-high check isn't silently capped at 6 years.
   one the same way as Futures OI Buildup: by watching live (and
   backtested, once enough history exists) signals accumulate, not by
   trusting the numbers are already right.
-- **Money Flow Accumulation's indicator is a proxy, not literal buy/sell
-  volume.** It was inspired by a YouTube demo of a proprietary charting
-  tool's volume-delta-style histogram - but that tool's exact formula
-  isn't public, and Upstox only exposes OHLCV (no tick-level trade
-  classification), so there's no way to compute a genuine buy-side vs.
-  sell-side volume split here regardless of which tool's version is being
-  approximated. `indicators.add_money_flow_volume` computes Chaikin Money
-  Flow instead - a real, well-documented indicator (close position within
-  its own candle's range, scaled by volume) that produces a similar
-  accumulation/distribution signature, honestly labeled as a proxy rather
-  than a replica. Brand new strategy, same not-backtest-tuned caveat as
-  Price Action Breakout above.
 
 ## Backtesting
 
@@ -590,15 +555,14 @@ signals/
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
   data.py            daily/weekly/monthly-ATH/futures fetch orchestration, resampling fallbacks, circuit breaker
-  indicators.py      SMA, volume avg, money flow volume/CMF, candle-quality checks
+  indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
-    daily_swing.py               Daily Swing (SMA50/lower-BB confluence)
-    futures_oi.py                Futures OI Buildup (price+OI matrix, stock futures)
-    price_action_breakout.py     Price Action Breakout (base -> high-volume breakout -> retest -> green confirmation; run on both daily and weekly candles)
-    money_flow_accumulation.py   Money Flow Accumulation (Chaikin Money Flow accumulation-at-support)
-    weekly_breakout.py           Weekly Range Breakout
-    monthly_breakout.py          Monthly ATH Breakout
+    daily_swing.py            Daily Swing (SMA50/lower-BB confluence)
+    futures_oi.py             Futures OI Buildup (price+OI matrix, stock futures)
+    price_action_breakout.py  Price Action Breakout (base -> high-volume breakout -> retest -> green confirmation; run on both daily and weekly candles)
+    weekly_breakout.py        Weekly Range Breakout
+    monthly_breakout.py       Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram

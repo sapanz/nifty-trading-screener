@@ -263,33 +263,6 @@ PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout leve
 # that one's was).
 PRICE_ACTION_TARGET_MULTIPLES = (1, 2)
 
-# --- Money Flow Accumulation -----------------------------------------------
-# Inspired by a YouTube demo (TradeFinder.in/Option Apex's "SMF Option
-# Buying Strategy") showing a volume-delta-style histogram marking price
-# reversals - but built from a real, documented, honestly-computable
-# indicator rather than guessing at that tool's actual (proprietary,
-# undocumented) formula: Chaikin Money Flow / Money Flow Volume (see
-# indicators.add_money_flow_volume). Upstox only exposes OHLCV, not
-# tick-level buy/sell trade data, so this is a real proxy for buying/
-# selling pressure (close position within its own range, scaled by
-# volume), not literal trade-classified volume delta the way a
-# proprietary order-flow tool might compute it.
-#
-# The idea: a stock in a long-term uptrend pulls back to test support,
-# but money is still net flowing IN during that pullback (CMF positive
-# and strengthening) rather than out - buyers absorbing the dip rather
-# than distributing into it, a classic Wyckoff-style accumulation
-# signature - then a bullish, properly-closed candle confirms the dip is
-# being bought. Brand new strategy, not backtest-tuned - every number
-# below is a judgment call, same caveat as Price Action Breakout got.
-MFV_LOOKBACK = 20        # candles Chaikin Money Flow (CMF) sums over
-CMF_SLOPE_LOOKBACK = 5   # how far back "is CMF rising" compares against
-CMF_MIN_VALUE = 0.0      # CMF must be net positive - accumulation, not distribution
-# Reuses SMA_SWING (the same "pullback support" SMA Daily Swing tests)
-# rather than inventing a second moving average with a similar meaning.
-MONEY_FLOW_SUPPORT_TOLERANCE = 0.02
-MONEY_FLOW_VOLUME_MULTIPLIER = 1.0   # at/above average volume - not a thin, illiquid bounce
-
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
 # intraday), where brokerage is genuinely 0 at every major Indian discount

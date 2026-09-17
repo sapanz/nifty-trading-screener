@@ -2,8 +2,8 @@
 """Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
 Fetches daily OHLCV via Upstox for Daily Swing (always runs), then:
-  - also runs Price Action Breakout's daily leg and Money Flow
-    Accumulation every day, off the same daily fetch (no extra Upstox call)
+  - also runs Price Action Breakout's daily leg every day, off the same
+    daily fetch (no extra Upstox call)
   - also runs Futures OI Buildup every day, with its own F&O instrument
     map + current-contract candle fetch (~210 symbols, not the full 500 -
     most of Nifty 500 has no futures contract at all)
@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signals import config, data, runtime, universe  # noqa: E402
 from signals.calendar_utils import ist_today, is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.strategies import daily_swing, futures_oi, money_flow_accumulation, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, price_action_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
 DAILY_SWING_TITLE = "Daily Swing (SMA44/BB Confluence)"
@@ -51,8 +51,6 @@ MONTHLY_EMOJI = "🏔️"
 PRICE_ACTION_DAILY_TITLE = "Price Action Breakout (Daily)"
 PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
 PRICE_ACTION_EMOJI = "🎯"
-MONEY_FLOW_TITLE = "Money Flow Accumulation"
-MONEY_FLOW_EMOJI = "💰"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
 
@@ -108,13 +106,6 @@ def main() -> None:
             ),
             today,
         ),
-    )
-
-    # Money Flow Accumulation also reuses `daily` - no extra fetch.
-    run(
-        MONEY_FLOW_TITLE,
-        MONEY_FLOW_EMOJI,
-        lambda: format_strategy_message(MONEY_FLOW_TITLE, MONEY_FLOW_EMOJI, money_flow_accumulation.scan(daily), today),
     )
 
     def build_futures_oi():

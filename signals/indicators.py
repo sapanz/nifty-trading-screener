@@ -35,31 +35,6 @@ def add_avg_volume(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return df
 
 
-def add_money_flow_volume(df: pd.DataFrame, period: int) -> pd.DataFrame:
-    """Money Flow Volume per candle - the calculation behind the Chaikin
-    Money Flow / Accumulation-Distribution Line - and its `period`-candle
-    rolling sum normalized into Chaikin Money Flow (CMF, -1 to +1).
-
-    money_flow_multiplier = ((close-low) - (high-close)) / (high-low): +1
-    when the candle closed at its high (pure buying pressure), -1 at its
-    low (pure selling pressure). money_flow_volume scales that by the
-    candle's own volume, and CMF is the `period`-candle sum of that volume
-    divided by the `period`-candle sum of raw volume - net accumulation
-    (positive) or distribution (negative) over the window, not just one
-    candle's own close position.
-
-    This is a real, honestly-computable proxy for buying/selling pressure,
-    not literal buy-side/sell-side volume - Upstox only exposes OHLCV, not
-    tick-level trade classification, so there's no true volume delta to
-    compute here the way a proprietary order-flow tool might show.
-    """
-    candle_range = df["high"] - df["low"]
-    money_flow_multiplier = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / candle_range.replace(0, float("nan"))
-    df["mfv"] = money_flow_multiplier * df["volume"]
-    df[f"cmf{period}"] = df["mfv"].rolling(period).sum() / df["volume"].rolling(period).sum()
-    return df
-
-
 def add_rsi(df: pd.DataFrame, period: int = 14, column: str = "close") -> pd.DataFrame:
     """Wilder's RSI - a diagnostic, not currently gated on by any strategy.
     Logged alongside each signal purely so a backtest's trade CSV can be

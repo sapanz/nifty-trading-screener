@@ -41,9 +41,6 @@ as two separate result buckets rather than pooled together, since a
 daily-timeframe base/breakout/retest and a weekly one are different
 trades with different holding periods, not the same signal at two
 resolutions.
-
-Money Flow Accumulation is daily-only, off `daily_data` alongside Daily
-Swing and Price Action Breakout's daily leg.
 """
 from __future__ import annotations
 
@@ -54,14 +51,7 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import (
-    daily_swing,
-    futures_oi,
-    money_flow_accumulation,
-    monthly_breakout,
-    price_action_breakout,
-    weekly_breakout,
-)
+from signals.strategies import daily_swing, futures_oi, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -86,7 +76,7 @@ def _gross_return_pct(direction: str, entry: float, exit_price: float) -> float:
 # a column blank wherever a given trade's signal didn't set it.
 DIAGNOSTIC_KEYS = [
     "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
-    "extension_pct", "tightness_pct", "oi_change_pct", "buildup_type", "cmf",
+    "extension_pct", "tightness_pct", "oi_change_pct", "buildup_type",
 ]
 
 CSV_FIELDS = [
@@ -283,7 +273,6 @@ def run_backtest(
         "monthly_breakout": [],
         "price_action_breakout_daily": [],
         "price_action_breakout_weekly": [],
-        "money_flow_accumulation": [],
     }
 
     for asof in _dates_in_window(daily_data, start, end):
@@ -301,11 +290,6 @@ def run_backtest(
         for signal in pa_daily_signals:
             results["price_action_breakout_daily"].append(
                 simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
-            )
-
-        for signal in money_flow_accumulation.scan(sliced_daily):
-            results["money_flow_accumulation"].append(
-                simulate_forward("money_flow_accumulation", signal, asof, daily_data[signal.symbol])
             )
 
     for asof in _dates_in_window(futures_data, start, end):
