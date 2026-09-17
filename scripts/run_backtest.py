@@ -47,6 +47,7 @@ STRATEGY_LABELS = {
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
     "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
     "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
+    "money_flow_accumulation": ("Money Flow Accumulation", "💰"),
 }
 
 
