@@ -8,7 +8,7 @@ on:
         type: number
         default: 3
       strategies:
-        description: "Comma-separated strategy keys to backtest (blank = all). 'price_action_breakout' covers all 3 of its timeframe legs."
+        description: "Comma-separated strategy keys to backtest (blank = all). 'price_action_breakout' covers both of its timeframe legs."
         type: string
         default: ""
 

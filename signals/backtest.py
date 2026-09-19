@@ -35,12 +35,14 @@ when either is omitted won't exactly match live weekly candle
 boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
 genuinely deep history. See scripts/run_backtest.py for the live wiring.
 
-Price Action Breakout runs three times - "price_action_breakout_daily" off
-`daily_data`, "_weekly" off `weekly_data`, and "_monthly" off
-`monthly_data` - kept as three separate result buckets rather than pooled
-together, since a daily-timeframe base/breakout/retest, a weekly one, and
-a monthly one are different trades with different holding periods, not
-the same signal at three resolutions.
+Price Action Breakout runs twice - "price_action_breakout_daily" off
+`daily_data` and "_weekly" off `weekly_data` - kept as two separate result
+buckets rather than pooled together, since a daily-timeframe
+base/breakout/retest and a weekly one are different trades with different
+holding periods, not the same signal at two resolutions. No monthly leg -
+a 5-year backtest showed it never fired at all (too little monthly
+history per stock to form a base this strict), and Monthly ATH Breakout
+already covers that timeframe.
 """
 from __future__ import annotations
 
@@ -231,7 +233,7 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 
 ALL_STRATEGIES = frozenset({
     "daily_swing", "futures_oi", "weekly_breakout", "monthly_breakout",
-    "price_action_breakout_daily", "price_action_breakout_weekly", "price_action_breakout_monthly",
+    "price_action_breakout_daily", "price_action_breakout_weekly",
 })
 
 
@@ -356,32 +358,13 @@ def run_backtest(
                         simulate_forward("price_action_breakout_weekly", signal, asof, daily_data[signal.symbol])
                     )
 
-    if "monthly_breakout" in wanted or "price_action_breakout_monthly" in wanted:
+    if "monthly_breakout" in wanted:
         for asof in _dates_in_window(monthly_data, start, end):
-            sliced_monthly = _scan_as_of(monthly_data, asof)
-
-            if "monthly_breakout" in wanted:
-                for signal in monthly_breakout.scan(sliced_monthly):
-                    # Same reasoning as weekly_data above.
-                    if signal.symbol not in daily_data:
-                        continue
-                    results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
-
-            if "price_action_breakout_monthly" in wanted:
-                pa_monthly_signals = price_action_breakout.scan(
-                    sliced_monthly,
-                    pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY,
-                    pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY,
-                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY,
-                    volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY,
-                )
-                for signal in pa_monthly_signals:
-                    # Same reasoning as weekly_data above.
-                    if signal.symbol not in daily_data:
-                        continue
-                    results["price_action_breakout_monthly"].append(
-                        simulate_forward("price_action_breakout_monthly", signal, asof, daily_data[signal.symbol])
-                    )
+            for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
+                # Same reasoning as weekly_data above.
+                if signal.symbol not in daily_data:
+                    continue
+                results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
 
     return results
 

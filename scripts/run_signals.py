@@ -10,9 +10,11 @@ Fetches daily OHLCV via Upstox for Daily Swing (always runs), then:
   - also runs the weekly range breakout and Price Action Breakout's weekly
     leg on Fridays (or FORCE_WEEKLY=true), sharing one native-weekly
     Upstox fetch between them
-  - also runs the monthly ATH breakout and Price Action Breakout's monthly
-    leg on the last trading day of the month (or FORCE_MONTHLY=true),
-    sharing one native-monthly Upstox fetch between them
+  - also runs the monthly ATH breakout on the last trading day of the
+    month (or FORCE_MONTHLY=true), off its own native-monthly Upstox
+    fetch. Price Action Breakout has no monthly leg - a 5-year backtest
+    showed it never fires under these thresholds, and Monthly ATH
+    Breakout already covers this timeframe.
 
 Weekly Range Breakout and Monthly ATH Breakout each fetch their own
 interval directly rather than resampling the daily fetch - weekly so its
@@ -51,7 +53,6 @@ MONTHLY_TITLE = "Monthly ATH Breakout"
 MONTHLY_EMOJI = "🏔️"
 PRICE_ACTION_DAILY_TITLE = "Price Action Breakout (Daily)"
 PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
-PRICE_ACTION_MONTHLY_TITLE = "Price Action Breakout (Monthly)"
 PRICE_ACTION_EMOJI = "🎯"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
@@ -173,22 +174,6 @@ def main() -> None:
                 MONTHLY_TITLE,
                 MONTHLY_EMOJI,
                 lambda: format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today),
-            )
-            run(
-                PRICE_ACTION_MONTHLY_TITLE,
-                PRICE_ACTION_EMOJI,
-                lambda: format_strategy_message(
-                    PRICE_ACTION_MONTHLY_TITLE,
-                    PRICE_ACTION_EMOJI,
-                    price_action_breakout.scan(
-                        monthly,
-                        pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY,
-                        pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY,
-                        breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY,
-                        volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY,
-                    ),
-                    today,
-                ),
             )
 
     if failures:

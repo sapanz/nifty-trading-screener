@@ -1,7 +1,7 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for eight strategies:
+levels to Telegram, on a schedule, for seven strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
@@ -9,7 +9,6 @@ levels to Telegram, on a schedule, for eight strategies:
 | **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. Explicitly a quick momentum trade, not a swing: stop-loss capped at `FUTURES_MAX_RISK_PCT` (2.5%) of entry, and a backtest position force-closes after `FUTURES_MAX_HOLDING_DAYS` (10 trading days, ~2 weeks) if neither target nor stop has fired. The only strategy here that goes short. Not backtested the way the other three equity strategies are - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Daily)** | Every trading day, 5pm IST | Above 200 SMA; the *longest* tight prior base found (8-40 daily candles, whatever the data actually supports, accumulation-biased) breaks out on clearly elevated volume (2x average), price later pulls back to retest that broken level without closing convincingly below it, and today closes green, properly closed, and back above the level - that candle is the actual trigger. The base's shape (Range, Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge) is labeled from the slope of its highs and lows - a heuristic, not real geometric pattern recognition. Entry is a resting buy-stop at today's high; targets are a measured move off the base's own height; signals sort by the base's own range %, largest first. Brand new, not backtest-tuned - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout → retest → green-confirmation logic as the daily leg above, run on weekly candles instead (5-20 week base) - a separate, independently tracked signal, not a duplicate of the daily one |
-| **Price Action Breakout (Monthly)** | Last trading day of the month, 5pm IST | Same logic again, run on monthly candles (4-15 month base) - a third independently tracked signal |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first |
 
@@ -30,10 +29,10 @@ the work on a cron schedule and posts straight to Telegram:
   leg (both off that same fetch), additionally runs the weekly range
   breakout and Price Action Breakout's weekly leg on Fridays (sharing one
   native-weekly fetch between them), and additionally runs the monthly
-  ATH breakout and Price Action Breakout's monthly leg on the last trading
-  day of the month (sharing one native-monthly fetch between them) — one
-  Upstox pass per timeframe serves every strategy that fires that day,
-  whatever the day.
+  ATH breakout on the last trading day of the month, off its own
+  native-monthly fetch (Price Action Breakout has no monthly leg - see
+  below) — one Upstox pass per timeframe serves every strategy that fires
+  that day, whatever the day.
 
   **GitHub Actions' `schedule` trigger is best-effort, not exact** - a
   cron time is a request, not a guarantee, and GitHub can delay a
@@ -280,9 +279,11 @@ them there rather than in the strategy code.
   + bullish for a long, small lower wick + bearish for a short) on volume
   at least `FUTURES_VOLUME_MULTIPLIER` (1.3x) its trailing average.
 - **Price Action Breakout**: `signals/strategies/price_action_breakout.py`,
-  run three times (daily, weekly, monthly - see the `PRICE_ACTION_*_DAILY`
-  / `_WEEKLY` / `_MONTHLY` families in config.py for the three sets of
-  window sizes `scan()` is called with). Above the 200 SMA, then a
+  run twice (daily, weekly - see the `PRICE_ACTION_*_DAILY` / `_WEEKLY`
+  families in config.py for the two sets of window sizes `scan()` is
+  called with; no monthly leg - a 5-year backtest showed it never fired
+  under these thresholds, and Monthly ATH Breakout already covers that
+  timeframe). Above the 200 SMA, then a
   four-stage sequence: (1) a **base** - `_detect_base` walks backward from
   a candidate breakout candle looking for the *longest* window (between
   each timeframe's `PRICE_ACTION_PATTERN_MIN_LOOKBACK_*` and
@@ -424,8 +425,8 @@ Daily Swing and Price Action Breakout's daily leg share the daily fetch
 (`data.fetch_daily`, the "day" interval, once per run) - the second one is
 free, not an extra Upstox call. Weekly Range Breakout and Price Action
 Breakout's weekly leg share one native-weekly fetch (Fridays); Monthly ATH
-Breakout and Price Action Breakout's monthly leg share one native-monthly
-fetch (month-end) - `data.fetch_weekly_history` ("week") and
+Breakout gets its own native-monthly fetch (month-end, no Price Action
+Breakout leg to share it with) - `data.fetch_weekly_history` ("week") and
 `data.fetch_monthly_ath_history` ("month"), each only on the day its
 strategies actually run. Weekly's native
 fetch was originally motivated by candle accuracy rather than depth (each
@@ -491,29 +492,43 @@ all-time-high check isn't silently capped at 6 years.
   accumulate over time, not by trusting it's already tuned. (A real fix
   would mean sourcing NSE's own historical F&O bhavcopy archives
   separately - a distinct, substantial effort, not attempted here.)
-- **Price Action Breakout is brand new and not backtest-tuned at all** -
-  unlike Futures OI Buildup this has no data-source excuse, it's simply
-  new: every threshold in `signals/config.py`'s Price Action Breakout
+- **Price Action Breakout has now been backtested over 5 years (daily +
+  weekly), and the edge is thin, not strong.** Daily: 2,654 signals, 48%
+  win rate, profit factor 1.13. Weekly: 190 signals, 63% win rate but
+  losses running much bigger than wins (avg loss -8.1% vs avg win +5.3%),
+  profit factor 1.10. Both are barely above breakeven after transaction
+  costs - real, mechanically-working strategies, but not a strong edge on
+  either timeframe. The monthly leg was dropped entirely after that same
+  backtest showed it produced **zero signals across the full 5 years**
+  under these thresholds (too little monthly history per stock to form a
+  base this strict) - Monthly ATH Breakout already covers the monthly
+  timeframe, so this wasn't worth loosening the thresholds to force. Every
+  remaining threshold in `signals/config.py`'s Price Action Breakout
   section (the base's min/max length, its tightness, the breakout's volume
   multiplier, the retest tolerance and invalidation floor, the target
-  multiples, the shape classifier's flat-slope cutoff) is a judgment call
-  sized to what was asked for, not a number mined from a historical trade
-  CSV the way the older strategies' thresholds were. The shape label
+  multiples, the shape classifier's flat-slope cutoff) is still a judgment
+  call, not a number mined from the backtest CSV the way the older
+  strategies' thresholds were - that CSV exists now and could be mined the
+  same way if this strategy is worth tightening further. The shape label
   (Range/Triangle/Wedge) is a genuine classification - it's computed from
   real slopes fit through the base's highs and lows - but it's a
   heuristic, not real trendline-touch-point geometry the way a human
   chartist or a dedicated pattern-recognition library would do it; treat
-  it as a useful label, not a rigorous one. Validate this strategy the
-  same way as Futures OI Buildup: by watching live (and backtested, once
-  enough history exists) signals accumulate, not by trusting the numbers
-  are already right.
+  it as a useful label, not a rigorous one.
 
 ## Backtesting
 
 Go to the **Actions** tab → **Backtest** → **Run workflow**, set **months**
-(default 3), and run it. `scripts/run_backtest.py` fetches the same ~500
-symbol universe as a live run, then for every historical date in that
-window reconstructs what each strategy would have signalled using only
+(default 3), optionally set **strategies** (comma-separated strategy keys,
+blank = all seven; `price_action_breakout` is a shorthand for both of its
+timeframe legs) to skip strategies you don't need validated - useful for a
+long lookback window, since each excluded strategy's scan (and its own
+Upstox fetch, for futures_oi) is skipped entirely rather than just
+filtered from the output, which is what made a full 5-year backtest
+practical to run at all - and run it. `scripts/run_backtest.py` fetches
+the same ~500 symbol universe as a live run, then for every historical
+date in that window reconstructs what each strategy would have signalled
+using only
 data available up to that date — the same `scan()` functions the live
 screener uses, unmodified, so there's no separate backtest logic that
 could silently drift out of sync with what actually runs Monday-Friday.
@@ -580,7 +595,7 @@ signals/
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py            Daily Swing (SMA50/lower-BB confluence)
     futures_oi.py             Futures OI Buildup (price+OI matrix, stock futures)
-    price_action_breakout.py  Price Action Breakout (detected-length base -> high-volume breakout -> retest -> green confirmation, with a shape classifier; run on daily, weekly, and monthly candles)
+    price_action_breakout.py  Price Action Breakout (detected-length base -> high-volume breakout -> retest -> green confirmation, with a shape classifier; run on daily and weekly candles)
     weekly_breakout.py        Weekly Range Breakout
     monthly_breakout.py       Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

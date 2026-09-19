@@ -13,7 +13,7 @@ Usage:
   # Scope to specific strategies only - skips their scan() calls entirely
   # (genuinely cheaper, not just filtered after the fact), and skips the
   # futures fetch too when futures_oi isn't requested. "price_action_breakout"
-  # is a shorthand for all three of its timeframe legs.
+  # is a shorthand for both of its timeframe legs (daily + weekly).
   BACKTEST_MONTHS=60 BACKTEST_STRATEGIES=price_action_breakout python scripts/run_backtest.py
 
 Requires the same env vars as scripts/run_signals.py (UPSTOX_ACCESS_TOKEN,
@@ -55,15 +55,12 @@ STRATEGY_LABELS = {
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
     "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
     "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
-    "price_action_breakout_monthly": ("Price Action Breakout (Monthly)", "🎯"),
 }
 
-# "price_action_breakout" alone means all three of its timeframe legs -
+# "price_action_breakout" alone means both of its timeframe legs -
 # a convenient shorthand since they're always the same underlying strategy.
 STRATEGY_SHORTHANDS = {
-    "price_action_breakout": {
-        "price_action_breakout_daily", "price_action_breakout_weekly", "price_action_breakout_monthly",
-    },
+    "price_action_breakout": {"price_action_breakout_daily", "price_action_breakout_weekly"},
 }
 
 

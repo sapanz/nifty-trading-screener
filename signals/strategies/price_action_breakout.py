@@ -1,8 +1,11 @@
 """Price Action Breakout: base -> high-volume breakout -> retest -> green
-confirmation candle. Runs on daily, weekly, AND monthly candles (see
+confirmation candle. Runs on daily AND weekly candles (see
 scripts/run_signals.py and signals/backtest.py, which each call scan()
-three times with a different set of window sizes below - the same shape
-of setup, just zoomed to a different timeframe).
+twice with a different set of window sizes below - the same shape of
+setup, just zoomed to a different timeframe). No monthly leg - a 5-year
+backtest showed it never fired under these thresholds (too little
+monthly history per stock to form a base this strict), and Monthly ATH
+Breakout already covers that timeframe.
 
 A stock qualifies when:
   - it is above its own 200-period SMA (long-term uptrend, same baseline

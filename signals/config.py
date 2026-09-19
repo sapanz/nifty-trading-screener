@@ -207,10 +207,12 @@ FUTURES_MAX_HOLDING_DAYS = 10
 FUTURES_MIN_OI_CHANGE_PCT = 2.0
 
 # --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
-# Runs on daily, weekly, AND monthly candles (price_action_breakout.scan()
-# is called three times, once per timeframe, each with its own window
-# sizes below - a breakout worth trading looks the same shape at any zoom
-# level).
+# Runs on daily AND weekly candles (price_action_breakout.scan() is called
+# twice, once per timeframe, each with its own window sizes below - a
+# breakout worth trading looks the same shape at any zoom level). No
+# monthly leg - a 5-year backtest showed it never fires at all under these
+# thresholds (too little monthly history per stock to form a base this
+# strict), and Monthly ATH Breakout already covers the monthly timeframe.
 #
 # The base's length is DETECTED, not fixed: for a candidate breakout
 # candle, _detect_base walks backward from it looking for the LONGEST
@@ -243,14 +245,10 @@ PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY = 8      # shortest window that still co
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY = 40     # longest window _detect_base will consider, daily
 PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY = 5
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY = 20
-PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY = 4
-PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY = 15
 PRICE_ACTION_BREAKOUT_WINDOW_DAILY = 10     # how many recent candles back a breakout may have happened, daily
 PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8     # same, weekly
-PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY = 6    # same, monthly
 PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
 PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
-PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY = 6
 
 # The base itself must be tight - reuses Weekly Range Breakout's own 20%
 # convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
