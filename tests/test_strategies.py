@@ -775,7 +775,10 @@ class TestDetectBase:
     def test_finds_the_longest_qualifying_base(self):
         base_lows = [95.0] * 15  # flat, tight (100 vs 95 = 5.3%, within 20%)
         df, breakout_idx = self._df(lead_in_level=50.0, base_lows=base_lows, base_high=100.0)
-        result = price_action_breakout._detect_base(df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25)
+        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
+        result = price_action_breakout._detect_base(
+            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
+        )
         assert result is not None
         pattern, pattern_high, pattern_low = result
         # Longest window that still qualifies is exactly the 15 base
@@ -788,5 +791,8 @@ class TestDetectBase:
     def test_returns_none_when_nothing_qualifies(self):
         base_lows = [50.0] * 15  # (100-50)/50 = 100%, nowhere near tight
         df, breakout_idx = self._df(lead_in_level=50.0, base_lows=base_lows, base_high=100.0)
-        result = price_action_breakout._detect_base(df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25)
+        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
+        result = price_action_breakout._detect_base(
+            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
+        )
         assert result is None

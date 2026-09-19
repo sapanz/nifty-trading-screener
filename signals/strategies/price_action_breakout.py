@@ -102,8 +102,32 @@ def _classify_shape(pattern: pd.DataFrame) -> str:
     return "Range"  # e.g. one line widening away from the other - not one of the six named shapes
 
 
+def _rolling_bands(
+    df: pd.DataFrame, pattern_min_lookback: int, pattern_max_lookback: int
+) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
+    """Precompute, once per symbol, each candidate base length's rolling
+    high-max / low-min as plain arrays - `highs[length][i]` is the max high
+    over df.iloc[i-length+1:i+1] (so a base ending right before index
+    `breakout_idx` reads index `breakout_idx - 1`). _detect_base is tried
+    for up to `breakout_window` breakout candidates per symbol, and without
+    this its per-length high/low band got re-sliced-and-aggregated from
+    scratch on every one of those tries even though the windows overlap
+    heavily - a real cost once the base-length search itself got wider."""
+    highs = {}
+    lows = {}
+    for length in range(pattern_min_lookback, pattern_max_lookback + 1):
+        highs[length] = df["high"].rolling(length).max().to_numpy()
+        lows[length] = df["low"].rolling(length).min().to_numpy()
+    return highs, lows
+
+
 def _detect_base(
-    df: pd.DataFrame, breakout_idx: int, pattern_min_lookback: int, pattern_max_lookback: int
+    df: pd.DataFrame,
+    breakout_idx: int,
+    pattern_min_lookback: int,
+    pattern_max_lookback: int,
+    high_bands: dict[int, np.ndarray],
+    low_bands: dict[int, np.ndarray],
 ) -> tuple[pd.DataFrame, float, float] | None:
     """Find the longest tight base ending right before `breakout_idx`,
     between `pattern_min_lookback` and `pattern_max_lookback` candles long.
@@ -113,16 +137,16 @@ def _detect_base(
         start = breakout_idx - length
         if start < 0:
             continue
-        pattern = df.iloc[start:breakout_idx]
-        pattern_high = float(pattern["high"].max())
-        pattern_low = float(pattern["low"].min())
-        if pattern_low <= 0:
+        pattern_high = high_bands[length][breakout_idx - 1]
+        pattern_low = low_bands[length][breakout_idx - 1]
+        if pd.isna(pattern_high) or pd.isna(pattern_low) or pattern_low <= 0:
             continue
         if (pattern_high - pattern_low) / pattern_low > config.PRICE_ACTION_RANGE_TIGHTNESS:
             continue
+        pattern = df.iloc[start:breakout_idx]
         if not is_accumulation_range(pattern):
             continue
-        return pattern, pattern_high, pattern_low
+        return pattern, float(pattern_high), float(pattern_low)
     return None
 
 
@@ -155,12 +179,14 @@ def scan(
         if not (is_bullish(today) and is_proper_close(today)):
             continue  # the actual trigger: today must itself be the green confirmation candle
 
+        high_bands, low_bands = _rolling_bands(df, pattern_min_lookback, pattern_max_lookback)
+
         best = None
         for b in range(today_idx - 1, today_idx - 1 - breakout_window, -1):
             if b - pattern_min_lookback < 0:
                 break
 
-            base = _detect_base(df, b, pattern_min_lookback, pattern_max_lookback)
+            base = _detect_base(df, b, pattern_min_lookback, pattern_max_lookback, high_bands, low_bands)
             if base is None:
                 continue
             pattern, pattern_high, pattern_low = base
