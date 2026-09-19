@@ -207,35 +207,50 @@ FUTURES_MAX_HOLDING_DAYS = 10
 FUTURES_MIN_OI_CHANGE_PCT = 2.0
 
 # --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
-# Runs on both daily and weekly candles (price_action_breakout.scan() is
-# called twice, once per timeframe, each with its own window sizes below -
-# a breakout worth trading looks the same shape at either zoom level).
+# Runs on daily, weekly, AND monthly candles (price_action_breakout.scan()
+# is called three times, once per timeframe, each with its own window
+# sizes below - a breakout worth trading looks the same shape at any zoom
+# level).
 #
-# This detects a *tight prior consolidation* (a rectangle range, or the
-# tightened, about-to-break endgame of a triangle - a real trendline fit
-# isn't used to tell the two shapes apart, since what actually matters for
-# trading it is that the recent high/low band got tight, which both
-# patterns look like right before they break either way; the note field
-# still surfaces the raw range so a human can eyeball which shape it
-# was), followed by: a breakout candle closing above the consolidation's
-# high on clearly elevated volume, a pullback that comes back to retest
-# that broken level as support without ever closing convincingly back
-# below it, and finally a green, properly-closed candle (is_bullish +
-# is_proper_close - the existing "20%-wick" rule, left exactly as-is) that
-# closes back above the breakout level - that candle is the actual signal
-# trigger, not the breakout candle itself.
+# The base's length is DETECTED, not fixed: for a candidate breakout
+# candle, _detect_base walks backward from it looking for the LONGEST
+# window (between the per-timeframe MIN/MAX bounds below) whose high-low
+# band still stays within PRICE_ACTION_RANGE_TIGHTNESS - real bases vary
+# in how long they take to form, and reporting that actual length (rather
+# than a fixed number that's the same for every stock) is the point of
+# surfacing it at all. Once the base is found, a lightweight shape
+# classifier (_classify_shape) fits a straight line through its highs and
+# another through its lows and labels the combination of slopes (flat/
+# rising/falling) as Range, Ascending/Descending/Symmetrical Triangle, or
+# Rising/Falling Wedge - a real classification, but a heuristic one (slope
+# sign and magnitude, not genuine trendline/touch-point geometry), labeled
+# as such rather than dressed up as more rigorous than it is.
+#
+# Beyond the base itself: a breakout candle closing above the
+# consolidation's high on clearly elevated volume, a pullback that comes
+# back to retest that broken level as support without ever closing
+# convincingly back below it, and finally a green, properly-closed candle
+# (is_bullish + is_proper_close - the existing "20%-wick" rule, left
+# exactly as-is) that closes back above the breakout level - that candle
+# is the actual signal trigger, not the breakout candle itself.
 #
 # Brand new strategy, not backtest-tuned yet (every number below is a
 # judgment call sized to what was asked for - a tight base, a genuinely
 # high-volume break, a real but not-too-deep retest - not a threshold
 # mined from a trade CSV the way the older strategies' numbers were).
 # Revisit once a real backtest CSV exists to mine instead of guessing.
-PRICE_ACTION_PATTERN_LOOKBACK_DAILY = 15    # candles forming the base, daily
-PRICE_ACTION_PATTERN_LOOKBACK_WEEKLY = 10   # candles forming the base, weekly
+PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY = 8      # shortest window that still counts as a real base, daily
+PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY = 40     # longest window _detect_base will consider, daily
+PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY = 5
+PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY = 20
+PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY = 4
+PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY = 15
 PRICE_ACTION_BREAKOUT_WINDOW_DAILY = 10     # how many recent candles back a breakout may have happened, daily
 PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8     # same, weekly
+PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY = 6    # same, monthly
 PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
 PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
+PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY = 6
 
 # The base itself must be tight - reuses Weekly Range Breakout's own 20%
 # convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
@@ -262,6 +277,12 @@ PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout leve
 # strategy's base-height/target relationship hasn't been tuned the way
 # that one's was).
 PRICE_ACTION_TARGET_MULTIPLES = (1, 2)
+
+# _classify_shape's slope-flatness cutoff: a trendline through the base's
+# highs (or lows) moving less than this many % per candle counts as
+# "flat" rather than genuinely rising/falling. Sized to filter out normal
+# noise-level drift within an otherwise tight base, not derived from data.
+PRICE_ACTION_FLAT_SLOPE_PCT = 0.15
 
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never

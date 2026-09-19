@@ -35,12 +35,12 @@ when either is omitted won't exactly match live weekly candle
 boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
 genuinely deep history. See scripts/run_backtest.py for the live wiring.
 
-Price Action Breakout runs twice - "price_action_breakout_daily" off
-`daily_data` and "price_action_breakout_weekly" off `weekly_data` - kept
-as two separate result buckets rather than pooled together, since a
-daily-timeframe base/breakout/retest and a weekly one are different
-trades with different holding periods, not the same signal at two
-resolutions.
+Price Action Breakout runs three times - "price_action_breakout_daily" off
+`daily_data`, "_weekly" off `weekly_data`, and "_monthly" off
+`monthly_data` - kept as three separate result buckets rather than pooled
+together, since a daily-timeframe base/breakout/retest, a weekly one, and
+a monthly one are different trades with different holding periods, not
+the same signal at three resolutions.
 """
 from __future__ import annotations
 
@@ -77,6 +77,7 @@ def _gross_return_pct(direction: str, entry: float, exit_price: float) -> float:
 DIAGNOSTIC_KEYS = [
     "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
     "extension_pct", "tightness_pct", "oi_change_pct", "buildup_type",
+    "breakout_type", "base_candles", "base_start", "base_end",
 ]
 
 CSV_FIELDS = [
@@ -273,6 +274,7 @@ def run_backtest(
         "monthly_breakout": [],
         "price_action_breakout_daily": [],
         "price_action_breakout_weekly": [],
+        "price_action_breakout_monthly": [],
     }
 
     for asof in _dates_in_window(daily_data, start, end):
@@ -283,7 +285,8 @@ def run_backtest(
 
         pa_daily_signals = price_action_breakout.scan(
             sliced_daily,
-            pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_DAILY,
+            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
         )
@@ -323,7 +326,8 @@ def run_backtest(
 
         pa_weekly_signals = price_action_breakout.scan(
             sliced_weekly,
-            pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_WEEKLY,
+            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
+            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
         )
@@ -336,11 +340,27 @@ def run_backtest(
             )
 
     for asof in _dates_in_window(monthly_data, start, end):
-        for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
+        sliced_monthly = _scan_as_of(monthly_data, asof)
+        for signal in monthly_breakout.scan(sliced_monthly):
             # Same reasoning as weekly_data above.
             if signal.symbol not in daily_data:
                 continue
             results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
+
+        pa_monthly_signals = price_action_breakout.scan(
+            sliced_monthly,
+            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY,
+            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY,
+            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY,
+            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY,
+        )
+        for signal in pa_monthly_signals:
+            # Same reasoning as weekly_data above.
+            if signal.symbol not in daily_data:
+                continue
+            results["price_action_breakout_monthly"].append(
+                simulate_forward("price_action_breakout_monthly", signal, asof, daily_data[signal.symbol])
+            )
 
     return results
 

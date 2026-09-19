@@ -10,8 +10,9 @@ Fetches daily OHLCV via Upstox for Daily Swing (always runs), then:
   - also runs the weekly range breakout and Price Action Breakout's weekly
     leg on Fridays (or FORCE_WEEKLY=true), sharing one native-weekly
     Upstox fetch between them
-  - also runs the monthly ATH breakout on the last trading day of the
-    month (or FORCE_MONTHLY=true), with its own native-monthly fetch
+  - also runs the monthly ATH breakout and Price Action Breakout's monthly
+    leg on the last trading day of the month (or FORCE_MONTHLY=true),
+    sharing one native-monthly Upstox fetch between them
 
 Weekly Range Breakout and Monthly ATH Breakout each fetch their own
 interval directly rather than resampling the daily fetch - weekly so its
@@ -50,6 +51,7 @@ MONTHLY_TITLE = "Monthly ATH Breakout"
 MONTHLY_EMOJI = "🏔️"
 PRICE_ACTION_DAILY_TITLE = "Price Action Breakout (Daily)"
 PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
+PRICE_ACTION_MONTHLY_TITLE = "Price Action Breakout (Monthly)"
 PRICE_ACTION_EMOJI = "🎯"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
@@ -100,7 +102,8 @@ def main() -> None:
             PRICE_ACTION_EMOJI,
             price_action_breakout.scan(
                 daily,
-                pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_DAILY,
+                pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+                pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
                 breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
                 volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
             ),
@@ -145,7 +148,8 @@ def main() -> None:
                     PRICE_ACTION_EMOJI,
                     price_action_breakout.scan(
                         weekly,
-                        pattern_lookback=config.PRICE_ACTION_PATTERN_LOOKBACK_WEEKLY,
+                        pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
+                        pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
                         breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                         volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
                     ),
@@ -154,15 +158,38 @@ def main() -> None:
             )
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
-        def build_monthly():
-            # Its own native monthly fetch, not resampled from `daily` -
-            # the daily fetch is capped at DAILY_HISTORY_YEARS and an
-            # all-time-high check needs a much deeper lookback than that
-            # (see MONTHLY_ATH_HISTORY_YEARS in config.py).
+        # Fetched once, outside either strategy's own error isolation, same
+        # reasoning as the shared weekly fetch above.
+        try:
+            # Its own native monthly fetch, not resampled from `daily` - the
+            # daily fetch is capped at DAILY_HISTORY_YEARS and an all-time-
+            # high check needs a much deeper lookback than that (see
+            # MONTHLY_ATH_HISTORY_YEARS in config.py).
             monthly = data.fetch_monthly_ath_history(client, instrument_map)
-            return format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today)
-
-        run(MONTHLY_TITLE, MONTHLY_EMOJI, build_monthly)
+        except Exception as exc:  # noqa: BLE001 - isolate from the daily/weekly strategies above
+            failures.append(("Monthly fetch", exc))
+        else:
+            run(
+                MONTHLY_TITLE,
+                MONTHLY_EMOJI,
+                lambda: format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today),
+            )
+            run(
+                PRICE_ACTION_MONTHLY_TITLE,
+                PRICE_ACTION_EMOJI,
+                lambda: format_strategy_message(
+                    PRICE_ACTION_MONTHLY_TITLE,
+                    PRICE_ACTION_EMOJI,
+                    price_action_breakout.scan(
+                        monthly,
+                        pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_MONTHLY,
+                        pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_MONTHLY,
+                        breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_MONTHLY,
+                        volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_MONTHLY,
+                    ),
+                    today,
+                ),
+            )
 
     if failures:
         raise RuntimeError(f"{len(failures)} strategy run(s) failed: {failures}")

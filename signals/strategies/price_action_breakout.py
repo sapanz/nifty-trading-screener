@@ -1,17 +1,23 @@
 """Price Action Breakout: base -> high-volume breakout -> retest -> green
-confirmation candle. Runs on both daily and weekly candles (see
+confirmation candle. Runs on daily, weekly, AND monthly candles (see
 scripts/run_signals.py and signals/backtest.py, which each call scan()
-twice with a different set of window sizes below - the same shape of
-setup, just zoomed to a different timeframe).
+three times with a different set of window sizes below - the same shape
+of setup, just zoomed to a different timeframe).
 
 A stock qualifies when:
   - it is above its own 200-period SMA (long-term uptrend, same baseline
     filter every other strategy here uses)
   - looking back from a candle within the last `breakout_window` candles,
-    the `pattern_lookback` candles right before it formed a tight base
-    (high-low band within PRICE_ACTION_RANGE_TIGHTNESS) with more volume
-    on its up (green) candles than its down ones - accumulation, not mere
-    drift (is_accumulation_range)
+    _detect_base finds a **base**: the longest window (between
+    `pattern_min_lookback` and `pattern_max_lookback`) ending right before
+    it whose high-low band stays within PRICE_ACTION_RANGE_TIGHTNESS, with
+    more volume on its up (green) candles than its down ones -
+    accumulation, not mere drift (is_accumulation_range). The base's
+    actual detected length varies per stock/signal - it isn't a fixed
+    number - and _classify_shape labels its shape (Range, Ascending/
+    Descending/Symmetrical Triangle, Rising/Falling Wedge) from the slopes
+    of lines fit through its highs and lows; see the caveat on that in
+    signals/config.py.
   - that candle itself ("the breakout candle") closed above the base's
     high, bullish and properly closed, on clearly elevated volume
     (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER) - the "high volumes" the
@@ -25,19 +31,14 @@ A stock qualifies when:
     breakout level - the actual signal trigger; everything above it is
     context this candle confirms
 
-This deliberately doesn't fit trendlines to tell a rectangle range apart
-from a triangle's converging sides - what matters for trading it is that
-the base got tight right before it broke, which is true of both shapes at
-that point, and a real geometric classifier is a lot more machinery for a
-label that doesn't change the trade. The note field still reports the raw
-base high/low so a human can eyeball the shape themselves.
-
 Entry is a resting buy-stop at the confirmation candle's own high, same
 construction every other strategy here uses - the trade only fills once a
 later candle actually trades up through it. Stop-loss is the lower of the
 retest's own low and the confirmation candle's low (the support just
 demonstrated holding). Targets are a measured move: the base's own height
-projected up from the breakout level.
+projected up from the breakout level. Signals sort by the base's own
+range (high-low as a % of low), largest first - not by volume or
+proximity, per explicit request.
 
 Brand new strategy - every threshold in signals/config.py's Price Action
 Breakout section is a judgment call, not something mined from a backtest
@@ -47,6 +48,7 @@ rather than trusting these numbers are already tuned.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from signals import config
@@ -62,15 +64,78 @@ from signals.indicators import (
 from signals.models import Signal
 
 
+def _classify_shape(pattern: pd.DataFrame) -> str:
+    """Label a base's shape from the slopes of straight lines fit through
+    its highs and its lows - flat/rising/falling per line, per
+    PRICE_ACTION_FLAT_SLOPE_PCT. A heuristic (slope sign/magnitude), not
+    genuine trendline-touch-point geometry - see the caveat in
+    signals/config.py."""
+    n = len(pattern)
+    x = np.arange(n)
+    avg_price = float(pattern["close"].mean())
+    if avg_price <= 0 or n < 2:
+        return "Range"
+
+    upper_slope = float(np.polyfit(x, pattern["high"].to_numpy(), 1)[0])
+    lower_slope = float(np.polyfit(x, pattern["low"].to_numpy(), 1)[0])
+    upper_pct = upper_slope / avg_price * 100
+    lower_pct = lower_slope / avg_price * 100
+
+    def direction(pct: float) -> str:
+        if abs(pct) < config.PRICE_ACTION_FLAT_SLOPE_PCT:
+            return "flat"
+        return "rising" if pct > 0 else "falling"
+
+    upper_dir, lower_dir = direction(upper_pct), direction(lower_pct)
+    if upper_dir == "flat" and lower_dir == "flat":
+        return "Range"
+    if upper_dir == "flat" and lower_dir == "rising":
+        return "Ascending Triangle"
+    if upper_dir == "falling" and lower_dir == "flat":
+        return "Descending Triangle"
+    if upper_dir == "falling" and lower_dir == "rising":
+        return "Symmetrical Triangle"
+    if upper_dir == "rising" and lower_dir == "rising":
+        return "Rising Wedge"
+    if upper_dir == "falling" and lower_dir == "falling":
+        return "Falling Wedge"
+    return "Range"  # e.g. one line widening away from the other - not one of the six named shapes
+
+
+def _detect_base(
+    df: pd.DataFrame, breakout_idx: int, pattern_min_lookback: int, pattern_max_lookback: int
+) -> tuple[pd.DataFrame, float, float] | None:
+    """Find the longest tight base ending right before `breakout_idx`,
+    between `pattern_min_lookback` and `pattern_max_lookback` candles long.
+    Checked longest-first so the reported base length is the base's real
+    extent, not just the shortest window that happens to qualify."""
+    for length in range(pattern_max_lookback, pattern_min_lookback - 1, -1):
+        start = breakout_idx - length
+        if start < 0:
+            continue
+        pattern = df.iloc[start:breakout_idx]
+        pattern_high = float(pattern["high"].max())
+        pattern_low = float(pattern["low"].min())
+        if pattern_low <= 0:
+            continue
+        if (pattern_high - pattern_low) / pattern_low > config.PRICE_ACTION_RANGE_TIGHTNESS:
+            continue
+        if not is_accumulation_range(pattern):
+            continue
+        return pattern, pattern_high, pattern_low
+    return None
+
+
 def scan(
     price_data: dict[str, pd.DataFrame],
-    pattern_lookback: int,
+    pattern_min_lookback: int,
+    pattern_max_lookback: int,
     breakout_window: int,
     volume_lookback: int,
 ) -> list[Signal]:
     signals: list[Signal] = []
     vol_col = f"avg_vol{volume_lookback}"
-    min_len = config.SMA_LONG + pattern_lookback + breakout_window + 2
+    min_len = config.SMA_LONG + pattern_max_lookback + breakout_window + 2
 
     for symbol, raw_df in price_data.items():
         df = raw_df.copy()
@@ -92,18 +157,13 @@ def scan(
 
         best = None
         for b in range(today_idx - 1, today_idx - 1 - breakout_window, -1):
-            if b - pattern_lookback < 0:
+            if b - pattern_min_lookback < 0:
                 break
 
-            pattern = df.iloc[b - pattern_lookback : b]
-            pattern_high = float(pattern["high"].max())
-            pattern_low = float(pattern["low"].min())
-            if pattern_low <= 0:
+            base = _detect_base(df, b, pattern_min_lookback, pattern_max_lookback)
+            if base is None:
                 continue
-            if (pattern_high - pattern_low) / pattern_low > config.PRICE_ACTION_RANGE_TIGHTNESS:
-                continue  # not a tight enough base
-            if not is_accumulation_range(pattern):
-                continue  # sellers outweighed buyers while the base built
+            pattern, pattern_high, pattern_low = base
 
             breakout_row = df.iloc[b]
             if not breakout_row["close"] > pattern_high:
@@ -127,13 +187,13 @@ def scan(
             if not today["close"] > pattern_high:
                 continue  # today must reclaim the breakout level, not just be green somewhere below it
 
-            best = (b, pattern_high, pattern_low, retest_low, breakout_row)
+            best = (b, pattern, pattern_high, pattern_low, retest_low, breakout_row)
             break  # most recent valid breakout wins
 
         if best is None:
             continue
 
-        b, pattern_high, pattern_low, retest_low, breakout_row = best
+        b, pattern, pattern_high, pattern_low, retest_low, breakout_row = best
         entry = float(today["high"])
         stop_loss = float(min(retest_low, today["low"]))
         risk = entry - stop_loss
@@ -147,6 +207,11 @@ def scan(
 
         vol_ratio = float(breakout_row["volume"] / breakout_row[vol_col])
         candles_since_breakout = today_idx - b
+        base_len = len(pattern)
+        base_start = pattern.index[0].date()
+        base_end = pattern.index[-1].date()
+        range_pct = pattern_height / pattern_low * 100
+        shape = _classify_shape(pattern)
 
         signals.append(
             Signal(
@@ -154,15 +219,20 @@ def scan(
                 entry=round(entry, 2),
                 stop_loss=round(stop_loss, 2),
                 targets=targets,
-                sort_key=vol_ratio,
+                sort_key=range_pct,
                 note=(
+                    f"{shape} | Base {base_len} candles ({base_start} to {base_end}), range {range_pct:.1f}% | "
                     f"Breakout {breakout_row['close']:.2f} ({candles_since_breakout} candles ago, {vol_ratio:.1f}x vol) | "
-                    f"Retest held {pattern_high:.2f} | Base {pattern_low:.2f}-{pattern_high:.2f}"
+                    f"Retest held {pattern_high:.2f}"
                 ),
                 candle_date=today.name.date(),
                 extra={
                     "vol_ratio": round(vol_ratio, 2),
-                    "tightness_pct": round((pattern_high - pattern_low) / pattern_low * 100, 2),
+                    "tightness_pct": round(range_pct, 2),
+                    "breakout_type": shape,
+                    "base_candles": base_len,
+                    "base_start": base_start.isoformat(),
+                    "base_end": base_end.isoformat(),
                 },
             )
         )
