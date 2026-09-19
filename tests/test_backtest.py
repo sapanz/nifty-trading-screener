@@ -337,6 +337,33 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert results["weekly_breakout"] == []  # too little history to signal, but no error
 
+    def test_strategies_filter_limits_which_keys_come_back(self):
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(
+            daily_data, months=1, strategies={"price_action_breakout_daily", "futures_oi"},
+        )
+        assert set(results) == {"price_action_breakout_daily", "futures_oi"}
+
+    def test_strategies_filter_skips_excluded_strategies_scan_entirely(self, monkeypatch):
+        # Not just filtered from the output - the excluded strategy's scan()
+        # should never even be called, since that's the actual point of
+        # scoping (skipping its per-date compute, not just its Telegram line).
+        from signals.strategies import daily_swing as ds
+
+        called = []
+        monkeypatch.setattr(ds, "scan", lambda *a, **k: called.append(1) or [])
+
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1, strategies={"price_action_breakout_daily"})
+
+        assert called == []
+        assert "daily_swing" not in results
+
+    def test_strategies_none_runs_everything_same_as_before(self):
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1)
+        assert set(results) == backtest.ALL_STRATEGIES
+
 
 class TestWriteCsv:
     def test_months_gap_column(self, tmp_path):

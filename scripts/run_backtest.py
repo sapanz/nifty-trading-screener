@@ -10,6 +10,12 @@ each trade would have hit a target or its stop-loss first.
 Usage:
   BACKTEST_MONTHS=3 python scripts/run_backtest.py
 
+  # Scope to specific strategies only - skips their scan() calls entirely
+  # (genuinely cheaper, not just filtered after the fact), and skips the
+  # futures fetch too when futures_oi isn't requested. "price_action_breakout"
+  # is a shorthand for all three of its timeframe legs.
+  BACKTEST_MONTHS=60 BACKTEST_STRATEGIES=price_action_breakout python scripts/run_backtest.py
+
 Requires the same env vars as scripts/run_signals.py (UPSTOX_ACCESS_TOKEN,
 TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Intended to be triggered manually via
 .github/workflows/backtest.yml, which handles the Upstox TOTP login and
@@ -25,7 +31,9 @@ all-time-high check, and a ~210-symbol F&O futures fetch for Futures OI
 Buildup - that last one has an inherently short backtest window (a
 futures contract only carries its own ~2-3 month history; see
 tools/debug_futures.py), so its results here are a smoke test, not the
-same kind of multi-year validation the other three strategies get.
+same kind of multi-year validation the other three strategies get. The
+futures fetch is skipped entirely (not just its scan) when
+BACKTEST_STRATEGIES excludes futures_oi.
 """
 import os
 import sys
@@ -50,10 +58,39 @@ STRATEGY_LABELS = {
     "price_action_breakout_monthly": ("Price Action Breakout (Monthly)", "🎯"),
 }
 
+# "price_action_breakout" alone means all three of its timeframe legs -
+# a convenient shorthand since they're always the same underlying strategy.
+STRATEGY_SHORTHANDS = {
+    "price_action_breakout": {
+        "price_action_breakout_daily", "price_action_breakout_weekly", "price_action_breakout_monthly",
+    },
+}
+
+
+def _parse_strategies(raw: str | None) -> set[str] | None:
+    """None (env var unset) means "run everything", same as before this
+    existed. A set (even one strategy) scopes both which scan() calls run
+    and which Upstox fetches happen at all - see run_backtest()'s
+    `strategies` docstring for why that's a genuine cost saving, not just
+    filtered output."""
+    if not raw:
+        return None
+    wanted: set[str] = set()
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        wanted |= STRATEGY_SHORTHANDS.get(token, {token})
+    unknown = wanted - set(STRATEGY_LABELS)
+    if unknown:
+        raise ValueError(f"Unknown BACKTEST_STRATEGIES entries: {sorted(unknown)}")
+    return wanted
+
 
 def main() -> None:
     runtime.setup_logging()
     months = int(os.environ.get("BACKTEST_MONTHS", "3"))
+    strategies = _parse_strategies(os.environ.get("BACKTEST_STRATEGIES"))
 
     token = runtime.get_env("TELEGRAM_BOT_TOKEN")
     chat_id = runtime.get_env("TELEGRAM_CHAT_ID")
@@ -74,10 +111,16 @@ def main() -> None:
         # Futures OI Buildup gets its own F&O instrument map + fetch, not a
         # resample of `daily` - only ~210 of Nifty 500 have a futures
         # contract at all, and OI simply doesn't exist on the equity series.
-        futures_map = data.build_futures_instrument_map(client, symbols)
-        futures = data.fetch_futures_daily(client, futures_map)
+        # Skipped entirely when futures_oi wasn't asked for - no point
+        # spending an extra Upstox round-trip on data nothing will scan.
+        if strategies is None or "futures_oi" in strategies:
+            futures_map = data.build_futures_instrument_map(client, symbols)
+            futures = data.fetch_futures_daily(client, futures_map)
+        else:
+            futures = {}
         results = backtest.run_backtest(
             daily, months=months, weekly_data=weekly, monthly_data=monthly, futures_data=futures,
+            strategies=strategies,
         )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
