@@ -144,68 +144,6 @@ ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1,
 # PF 1.42 (1510 trades) to PF 1.66 (530 trades).
 MONTHLY_MIN_GAP_MONTHS = 3
 
-# --- Futures OI buildup ---------------------------------------------------
-# Classic price+OI matrix, all four quadrants traded in their own
-# direction (the only strategy here that goes short - see
-# signals/models.py's Signal.direction): price up + OI up = Long Buildup
-# (fresh longs entering) or price up + OI down = Short Covering (shorts
-# forced out) -> long; price down + OI up = Short Buildup (fresh shorts)
-# or price down + OI down = Long Unwinding (longs exiting) -> short.
-# Day-over-day, the textbook definition, not an
-# N-day-smoothed variant - there's no historical F&O trade CSV to mine a
-# smoothing window from the way the other three strategies' thresholds
-# were tuned (see tools/debug_futures.py: Upstox only serves a contract's
-# own ~2-3 month life, no expired-contract history), so this stays close
-# to the standard definition rather than adding unvalidated parameters.
-# Reuses RISK_REWARD_TARGETS/WEEKLY_VOLUME_MULTIPLIER's *values* below
-# rather than inventing different-sounding "tuned for leverage" numbers
-# that would misrepresent this as tuned when it hasn't been backtested at
-# all - validate this one forward (paper-track live signals) rather than
-# against history, since history isn't available.
-FUTURES_VOLUME_MULTIPLIER = 1.3
-FUTURES_RISK_REWARD_TARGETS = (2, 3)
-
-# Explicit design direction (not backtest-derived, per the note above):
-# futures move fast, so this is meant to be a quick momentum trade, not a
-# multi-week swing - low SL, quick holding. FUTURES_MAX_RISK_PCT caps how
-# wide the structural stop (signal/previous candle's opposite extreme) is
-# allowed to be, as a fraction of entry; a signal whose natural stop is
-# wider than this is skipped rather than taken with a loosened risk.
-# FUTURES_MAX_HOLDING_DAYS force-exits at that day's close if neither
-# target nor stop has fired within that many TRADING days of the entry
-# actually filling (not calendar days, and not from the signal date -
-# from the fill, since that's when the position actually opens).
-#
-# Originally 5 (one trading week) as a pure judgment call. Loosened to 10
-# (two trading weeks) after inspecting an actual backtest CSV: with the
-# 5-day cap, the 86 trades that got force-exited (never hit target or stop
-# within the window) were the *second-best*-performing outcome bucket -
-# 67% still positive at exit, avg +0.50%, PF 2.77 - clearly better than
-# stop_loss (0% win, avg -2.02%) and better than the overall average
-# (avg -0.29%). Only 16% of them were already more than halfway to
-# target1 when cut off, meaning most were still-progressing trades closed
-# before they had a real chance to either reach target or genuinely
-# reverse. That's the opposite problem from the earlier Weekly Range
-# Breakout time-stop mistake (PF 1.03 -> 0.60): there, forcing an exit
-# cut off trades that were already right to keep running; here, the
-# forced exits were themselves outperforming, suggesting the cap was too
-# tight rather than too loose. stop_loss trades are unaffected by this
-# change either way - they exit before any time cap is reached, whichever
-# value it's set to.
-FUTURES_MAX_RISK_PCT = 0.025
-FUTURES_MAX_HOLDING_DAYS = 10
-
-# A day-over-day OI move of a fraction of a percent is noise, not a genuine
-# buildup/covering/unwinding - without a floor, this quadrant classifies
-# (and trades) essentially every up/down day regardless of whether OI
-# barely moved at all, which is exactly what a 2-month live smoke test
-# showed: 667 signals in a window where the equity strategies saw 15-25,
-# and a profit factor (0.59) well below 1. Requiring |oi_change_pct| >= 2%
-# before a day counts as a genuine quadrant move is a noise floor, not a
-# backtested threshold (same caveat as everything else here - no
-# historical F&O CSV to tune it against).
-FUTURES_MIN_OI_CHANGE_PCT = 2.0
-
 # --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
 # Runs on daily AND weekly candles (price_action_breakout.scan() is called
 # twice, once per timeframe, each with its own window sizes below - a
@@ -332,15 +270,6 @@ UPSTOX_MAX_RETRIES = 3
 # master's column values changed shape) rather than a handful of unlisted
 # symbols - fail loudly instead of quietly scanning nothing.
 MIN_INSTRUMENT_MATCH_RATIO = 0.5
-
-# --- F&O (stock futures) ---------------------------------------------------
-# Only ~150-220 of Nifty 500 actually have futures listed - unlike equities,
-# a low match ratio against the full 500-symbol list is expected here, so
-# this is a floor on the absolute count, not a fraction (see
-# data.build_futures_instrument_map). Confirmed live (2026-09-10): 629
-# FUTSTK rows / ~210 unique underlyings in the same instrument master file
-# used for equities.
-MIN_FO_MATCH_COUNT = 100
 
 # Daily-history depth for Daily Swing (the only strategy left resampling
 # off of it). 6 years comfortably covers its SMA200 lookback with margin.

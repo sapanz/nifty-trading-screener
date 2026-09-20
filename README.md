@@ -1,12 +1,11 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for seven strategies:
+levels to Telegram, on a schedule, for six strategies:
 
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
-| **Futures OI Buildup** | Every trading day, 5pm IST | The stock's current-month futures contract's price+OI matrix, all four quadrants, traded in the quadrant's own direction: price up + OI up (Long Buildup) or price up + OI down (Short Covering) → **long**; price down + OI up (Short Buildup) or price down + OI down (Long Unwinding) → **short**. Underlying equity must be trending the same way (above/below its 200 SMA), plus a properly-closed candle in that direction on elevated volume. Explicitly a quick momentum trade, not a swing: stop-loss capped at `FUTURES_MAX_RISK_PCT` (2.5%) of entry, and a backtest position force-closes after `FUTURES_MAX_HOLDING_DAYS` (10 trading days, ~2 weeks) if neither target nor stop has fired. The only strategy here that goes short. Not backtested the way the other three equity strategies are - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Daily)** | Every trading day, 5pm IST | Above 200 SMA; the *longest* tight prior base found (8-40 daily candles, whatever the data actually supports, accumulation-biased) breaks out on clearly elevated volume (2x average), price later pulls back to retest that broken level without closing convincingly below it, and today closes green, properly closed, and back above the level - that candle is the actual trigger. The base's shape (Range, Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge) is labeled from the slope of its highs and lows - a heuristic, not real geometric pattern recognition. Entry is a resting buy-stop at today's high; targets are a measured move off the base's own height; signals sort by the base's own range %, largest first. Brand new, not backtest-tuned - see [Known limitations](#known-limitations) |
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout → retest → green-confirmation logic as the daily leg above, run on weekly candles instead (5-20 week base) - a separate, independently tracked signal, not a duplicate of the daily one |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
@@ -256,28 +255,6 @@ them there rather than in the strategy code.
   `months_gap` correlates positively and almost monotonically with
   performance, and requiring it to be > 3 moved that backtest from
   PF 1.42 (1510 trades) to PF 1.66 (530 trades).
-- **Futures OI Buildup**: `signals/strategies/futures_oi.py`. The only
-  strategy here that trades both directions - see
-  `signals/models.py`'s `Signal.direction` ("long"/"short"; every other
-  strategy always leaves it at the "long" default). The contract's own
-  price+OI change, day-over-day per the textbook definition (not a
-  smoothed variant - see below for why), decides both the quadrant and
-  the trade direction: price up + OI up (**Long Buildup** - fresh longs)
-  or price up + OI down (**Short Covering** - shorts forced out) → long;
-  price down + OI up (**Short Buildup** - fresh shorts) or price down +
-  OI down (**Long Unwinding** - longs exiting) → short - but only once OI
-  has moved by at least `FUTURES_MIN_OI_CHANGE_PCT` (2%) either way; a
-  smaller tick is noise, not a real quadrant move, and trading it anyway
-  is exactly what diluted this strategy's first live smoke test (667
-  signals in a 2-month window vs. 15-25 for the equity strategies, PF
-  0.59). The underlying
-  equity must be trending the same way - above its 200 SMA for a long,
-  below it for a short (long-term context from the equity's deep daily
-  history; a futures contract only carries ~2-3 months of its own,
-  nowhere near enough for a 200-period anything). On top of that: a
-  properly-closed candle in the signal's own direction (small upper wick
-  + bullish for a long, small lower wick + bearish for a short) on volume
-  at least `FUTURES_VOLUME_MULTIPLIER` (1.3x) its trailing average.
 - **Price Action Breakout**: `signals/strategies/price_action_breakout.py`,
   run twice (daily, weekly - see the `PRICE_ACTION_*_DAILY` / `_WEEKLY`
   families in config.py for the two sets of window sizes `scan()` is
@@ -336,56 +313,6 @@ them there rather than in the strategy code.
   **lower of the signal candle's own low and the previous candle's low**.
   Targets are risk-multiples of that entry-to-SL distance
   (`RISK_REWARD_TARGETS`, 2R/3R by default).
-- **Futures OI Buildup**: a **long** signal mirrors Daily Swing exactly
-  (entry at the signal candle's high, a buy-stop; stop-loss the lower of
-  the signal/previous candle's low; targets above). A **short** signal
-  mirrors it in the opposite direction: entry is a resting **sell-stop**
-  at the signal candle's own **low** (filled only once a later candle
-  trades down through it); stop-loss is the **higher of the signal/
-  previous candle's high**; targets sit below entry. Either way,
-  `FUTURES_RISK_REWARD_TARGETS` (2R/3R by default) sets the risk-multiples,
-  and it's the futures contract's own OHLC driving all of this, not the
-  underlying equity's - futures tracks but doesn't exactly equal spot
-  price (basis/cost-of-carry).
-
-  This is explicitly meant to be a quick, tight momentum trade, not a
-  multi-week swing - "futures move fast" was the direct ask. Two things
-  enforce that: `FUTURES_MAX_RISK_PCT` (2.5%) caps how wide the
-  structural stop is allowed to be as a fraction of entry - a signal
-  whose natural stop is wider than that is skipped rather than taken with
-  loosened risk, not widened to fit. And `FUTURES_MAX_HOLDING_DAYS` (10
-  trading days, ~2 weeks) force-closes a still-open backtest position at
-  that day's close if neither target nor stop has fired by then, counted
-  from the entry's actual fill (not the signal date). Since a live signal
-  is a one-shot Telegram message with nothing tracking open positions or
-  posting a follow-up alert, that same ~2-week intent is also surfaced
-  directly in the message as an explicit "exit by" date (computed from
-  the signal candle's own date, since the real fill date isn't known in
-  advance).
-
-  A forcing time-stop was tried for Weekly Range Breakout earlier and
-  reverted after a real regression (PF 1.03 -> 0.60, see git history) -
-  worth noting because it's the same *mechanism* here, but wasn't the same
-  *situation*: that one was inferred from observing holding-period outcomes
-  after the fact and turned out to cut off winners that would have kept
-  running. `FUTURES_MAX_HOLDING_DAYS` started the same way here - an
-  explicit upfront design requirement, originally set to 5 trading days
-  (~1 week) as a judgment call, not mined from a backtest. But inspecting
-  an actual 2-month trade CSV afterward told the opposite story from
-  Weekly's: the 86 trades that got force-exited at the 5-day cap were the
-  *second-best*-performing outcome bucket (67% still positive at exit,
-  avg +0.50%, PF 2.77) - clearly better than stop_loss (0% win, avg
-  -2.02%) and better than the overall average (avg -0.29%), with only 16%
-  of them already more than halfway to target1 when cut off. That's
-  evidence the 5-day cap was too tight, not too loose, so it was loosened
-  to 10 - a real, if short-window, backtest finding this time, not a
-  second guess in the dark. `FUTURES_MAX_RISK_PCT` remains untested either
-  way (no historical F&O data reaches back far enough to tune it against).
-
-  The Telegram message tags a short signal explicitly (🔴 SHORT - untagged
-  always means long) and reports lot size and the contract's expiry date,
-  since a futures position is sized in lot multiples, not arbitrary share
-  counts, and is time-bound in a way an equity position isn't.
 - **Weekly Range Breakout**: entry is a resting buy-stop at the breakout
   candle's own **high** (like Daily Swing, not an immediate fill at its
   close) - the trade only enters once a later candle actually trades up
@@ -475,23 +402,6 @@ all-time-high check isn't silently capped at 6 years.
   `signals/data.py`'s circuit breaker aborts the whole run early with a
   clear error (protects against a repeat of the NSE-blocking incident
   that motivated the switch to Upstox).
-- **Futures OI Buildup has NOT been backtested the way the other three
-  strategies were**, and this isn't a "haven't gotten to it yet" gap -
-  it's a real data-source limit. Upstox's instrument master only ever
-  lists currently-live F&O contracts (confirmed live, 2026-09-10 via
-  `tools/debug_futures.py`: 629 FUTSTK rows / ~210 unique underlyings =
-  exactly 3 rows each, i.e. near/next/far month only), and a contract's
-  own historical-candle data is capped at its own trading life (~2-3
-  months) no matter how much history is requested - there's no way to
-  discover an already-expired contract's `instrument_key` to fetch its
-  history at all. So there's no multi-year trade CSV to mine the way
-  `MONTHLY_MIN_GAP_MONTHS`, `DAILY_SWING_MIN_VOL_RATIO`, etc. were tuned;
-  `signals/strategies/futures_oi.py` stays close to the textbook price+OI
-  definition rather than being dressed up with unvalidated-but-precise-
-  looking thresholds. Validate this one by watching live signals
-  accumulate over time, not by trusting it's already tuned. (A real fix
-  would mean sourcing NSE's own historical F&O bhavcopy archives
-  separately - a distinct, substantial effort, not attempted here.)
 - **Price Action Breakout has now been backtested over 5 years (daily +
   weekly), and the edge is thin, not strong.** Daily: 2,654 signals, 48%
   win rate, profit factor 1.13. Weekly: 190 signals, 63% win rate but
@@ -520,12 +430,12 @@ all-time-high check isn't silently capped at 6 years.
 
 Go to the **Actions** tab → **Backtest** → **Run workflow**, set **months**
 (default 3), optionally set **strategies** (comma-separated strategy keys,
-blank = all seven; `price_action_breakout` is a shorthand for both of its
+blank = all six; `price_action_breakout` is a shorthand for both of its
 timeframe legs) to skip strategies you don't need validated - useful for a
-long lookback window, since each excluded strategy's scan (and its own
-Upstox fetch, for futures_oi) is skipped entirely rather than just
-filtered from the output, which is what made a full 5-year backtest
-practical to run at all - and run it. `scripts/run_backtest.py` fetches
+long lookback window, since each excluded strategy's scan is skipped
+entirely rather than just filtered from the output, which is what made a
+full 5-year backtest practical to run at all - and run it.
+`scripts/run_backtest.py` fetches
 the same ~500 symbol universe as a live run, then for every historical
 date in that window reconstructs what each strategy would have signalled
 using only
@@ -594,12 +504,11 @@ signals/
   upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
-  data.py            daily/weekly/monthly-ATH/futures fetch orchestration, resampling fallbacks, circuit breaker
+  data.py            daily/weekly/monthly-ATH fetch orchestration, resampling fallbacks, circuit breaker
   indicators.py      SMA, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py            Daily Swing (SMA50/lower-BB confluence)
-    futures_oi.py             Futures OI Buildup (price+OI matrix, stock futures)
     price_action_breakout.py  Price Action Breakout (detected-length base -> high-volume breakout -> retest -> green confirmation, with a shape classifier; run on daily and weekly candles)
     weekly_breakout.py        Weekly Range Breakout
     monthly_breakout.py       Monthly ATH Breakout
@@ -613,8 +522,7 @@ scripts/
   run_signals.py     the single daily entry point for the strategies
   run_backtest.py    on-demand historical backtest (see Backtesting below)
 tools/refresh_upstox_token.py   manual fallback: local one-tap daily token refresh
-tools/debug_futures.py          throwaway diagnostic: verify F&O data assumptions against the real API
-.github/workflows/            the cron schedule, backtest workflow, debug_futures workflow, and a test workflow
+.github/workflows/            the cron schedule, backtest workflow, and a test workflow
 tests/                         unit tests against synthetic OHLCV data
 ```
 

@@ -54,7 +54,7 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, futures_oi, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -79,7 +79,7 @@ def _gross_return_pct(direction: str, entry: float, exit_price: float) -> float:
 # a column blank wherever a given trade's signal didn't set it.
 DIAGNOSTIC_KEYS = [
     "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
-    "extension_pct", "tightness_pct", "oi_change_pct", "buildup_type",
+    "extension_pct", "tightness_pct",
     "breakout_type", "base_candles", "base_start", "base_end",
 ]
 
@@ -103,8 +103,8 @@ class TradeResult:
     exit_price: float
     return_pct: float
     holding_days: int
-    # "long" or "short" - see Signal.direction. Every strategy but Futures
-    # OI Buildup is always "long".
+    # "long" or "short" - see Signal.direction. No current strategy
+    # produces "short".
     direction: str = "long"
     # Monthly ATH Breakout only: months spent below the prior all-time high
     # before this breakout (signal.extra["months_gap"]); None for every
@@ -125,23 +125,23 @@ def simulate_forward(
     Direction-aware throughout: a long's resting entry sits above the
     signal close (a buy-stop) and its stop-loss sits below entry, its
     targets above; a short's are all mirrored (sell-stop below close,
-    stop-loss above entry, targets below). Every strategy but Futures OI
-    Buildup only ever produces `direction="long"` signals, for which this
-    is exactly the original long-only logic.
+    stop-loss above entry, targets below). No current strategy produces a
+    `direction="short"` signal, so this is exactly the original long-only
+    logic in practice - kept direction-aware since it's cheap infra to
+    carry forward for whichever future strategy needs it.
 
-    `max_holding_days`, when set (only Futures OI Buildup does), force-
-    exits at that day's close once this many TRADING days have elapsed
-    since the entry actually filled (not calendar days, and not from
-    signal_date - from the fill, since that's when the position actually
-    opens) without either the stop or a target firing first. Every other
-    strategy leaves this None (unlimited hold) - see the note in
-    signals/config.py about why a forcing time-stop is fine here but was a
-    real, measured mistake when tried for Weekly Range Breakout earlier
-    (it cut off winners that would have kept running): that was inferred
-    from observing holding-period outcomes after the fact, not a genuine
-    design requirement, and it caused a real regression (PF 1.03 -> 0.60).
-    This one is different in kind - an explicit "quick trade" design
-    constraint for a leveraged, fast-moving instrument, not a pattern
+    `max_holding_days`, when set, force-exits at that day's close once
+    this many TRADING days have elapsed since the entry actually filled
+    (not calendar days, and not from signal_date - from the fill, since
+    that's when the position actually opens) without either the stop or a
+    target firing first. Every current strategy leaves this None
+    (unlimited hold) - a forcing time-stop was tried for Weekly Range
+    Breakout early on and reverted after a real, measured regression
+    (PF 1.03 -> 0.60, see git history): it cut off winners that would have
+    kept running, inferred from observing holding-period outcomes after
+    the fact rather than a genuine upfront design requirement. This
+    parameter exists for a different kind of case - an explicit "quick
+    trade" design constraint for a fast-moving instrument, not a pattern
     mined from a backtest.
     """
     future = daily_df[daily_df.index > signal_date]
@@ -233,7 +233,7 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 
 
 ALL_STRATEGIES = frozenset({
-    "daily_swing", "futures_oi", "weekly_breakout", "monthly_breakout",
+    "daily_swing", "weekly_breakout", "monthly_breakout",
     "price_action_breakout_daily", "price_action_breakout_weekly",
 })
 
@@ -243,7 +243,6 @@ def run_backtest(
     months: int,
     weekly_data: dict[str, pd.DataFrame] | None = None,
     monthly_data: dict[str, pd.DataFrame] | None = None,
-    futures_data: dict[str, pd.DataFrame] | None = None,
     strategies: set[str] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest active strategies over the trailing `months` months.
@@ -257,21 +256,11 @@ def run_backtest(
     won't exactly match live candle boundaries (weekly) or reach past
     DAILY_HISTORY_YEARS (monthly).
 
-    `futures_data` (data.fetch_futures_daily) drives Futures OI Buildup -
-    unlike weekly/monthly there's no resample fallback (OI can't be
-    derived from equity daily bars), so omitting it just means zero
-    futures_oi signals rather than an approximation. Even when supplied,
-    this backtest window is inherently short: a futures contract only
-    carries its own ~2-3 month trading history (see
-    tools/debug_futures.py), so `months` beyond that doesn't reach further
-    back for this strategy the way it does for the equity ones - this is a
-    smoke test, not the same kind of multi-year validation.
-
     `strategies`, when given, limits which of ALL_STRATEGIES' keys actually
     get scanned - the skipped ones' scan() calls (and every historical
     date's worth of forward-walk simulation for them) never run at all,
     not just their output being discarded, so a run scoped to e.g. only
-    the three Price Action Breakout legs is genuinely cheaper, not just
+    the two Price Action Breakout legs is genuinely cheaper, not just
     quieter. None (the default) runs everything, same as before this
     parameter existed.
     """
@@ -283,8 +272,6 @@ def run_backtest(
         weekly_data = data.to_weekly(daily_data)
     if monthly_data is None:
         monthly_data = data.to_monthly(daily_data)
-    if futures_data is None:
-        futures_data = {}
 
     results: dict[str, list[TradeResult]] = {key: [] for key in wanted}
 
@@ -309,24 +296,6 @@ def run_backtest(
                     results["price_action_breakout_daily"].append(
                         simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
                     )
-
-    if "futures_oi" in wanted:
-        for asof in _dates_in_window(futures_data, start, end):
-            futures_signals = futures_oi.scan(_scan_as_of(daily_data, asof), _scan_as_of(futures_data, asof))
-            for signal in futures_signals:
-                # Walk the exit forward on the futures contract's own daily
-                # bars, not the equity's - entry/SL/targets were all computed
-                # from futures OHLC, which tracks but doesn't exactly equal
-                # the underlying's spot price (basis/cost-of-carry), and
-                # futures is already daily-only granularity so there's no
-                # finer-resolution equity series to prefer here the way
-                # weekly/monthly use daily bars below.
-                results["futures_oi"].append(
-                    simulate_forward(
-                        "futures_oi", signal, asof, futures_data[signal.symbol],
-                        max_holding_days=config.FUTURES_MAX_HOLDING_DAYS,
-                    )
-                )
 
     if "weekly_breakout" in wanted or "price_action_breakout_weekly" in wanted:
         for asof in _dates_in_window(weekly_data, start, end):

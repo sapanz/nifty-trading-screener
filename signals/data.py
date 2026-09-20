@@ -95,48 +95,6 @@ def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, 
     return mapping
 
 
-def build_futures_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, dict]:
-    """Map NSE trading symbols to their current (nearest-unexpired-month)
-    stock-futures contract: {symbol: {"instrument_key", "expiry", "lot_size"}}.
-
-    Only ~150-220 of Nifty 500 actually have futures listed at all - a low
-    match ratio against the full 500-symbol list is normal here, unlike
-    build_instrument_map's equity mapping (which should match nearly
-    everything). What would signal a broken parse instead is a near-zero
-    absolute count - the F&O universe size is stable enough that under
-    config.MIN_FO_MATCH_COUNT genuinely matched symbols means something
-    upstream changed shape (see fetch_fo_instrument_master's own defensive
-    parsing for the more common single-column/format failure modes).
-    """
-    fo = client.fetch_fo_instrument_master()
-    today = pd.Timestamp(ist_today())
-    fo = fo[fo["expiry"] >= today]
-    # Nearest unexpired expiry per underlying = the current (near-month)
-    # contract - the one with real liquidity and OI right now. Falling
-    # back to sort+groupby.first() rather than idxmin() since a symbol
-    # with zero remaining unexpired rows (shouldn't happen day-to-day, but
-    # possible right at a data refresh boundary) should just be absent
-    # from the result, not raise.
-    fo = fo.sort_values("expiry").groupby("underlying_symbol", as_index=False).first()
-
-    mapping = {
-        row["underlying_symbol"]: {"instrument_key": row["instrument_key"], "expiry": row["expiry"], "lot_size": row["lot_size"]}
-        for _, row in fo.iterrows()
-        if row["underlying_symbol"] in symbols
-    }
-    matched = len(mapping)
-    if matched < config.MIN_FO_MATCH_COUNT:
-        raise RuntimeError(
-            f"Only {matched} symbols matched a current F&O futures contract - expected at least "
-            f"{config.MIN_FO_MATCH_COUNT}. Either the F&O universe genuinely shrank a lot, or "
-            f"fetch_fo_instrument_master's tradingsymbol-suffix-stripping assumption is wrong. "
-            f"Sample underlyings in the F&O master: {sorted(fo['underlying_symbol'].unique())[:20]}. "
-            f"Sample requested symbols: {symbols[:20]}."
-        )
-    logger.info("F&O futures universe: %d/%d requested symbols have a current contract", matched, len(symbols))
-    return mapping
-
-
 def _fetch_history(
     instrument_map: dict[str, str], fetch_one: Callable[[str], pd.DataFrame], throttle: Callable[[], None], label: str
 ) -> dict[str, pd.DataFrame]:
@@ -214,37 +172,6 @@ def fetch_monthly_ath_history(client: UpstoxClient, instrument_map: dict[str, st
         throttle=client.throttle,
         label="monthly ATH",
     )
-
-
-def fetch_futures_daily(client: UpstoxClient, futures_map: dict[str, dict]) -> dict[str, pd.DataFrame]:
-    """Fetch daily OHLCV+open_interest for each symbol's current futures
-    contract (see build_futures_instrument_map). `years` is a generous
-    upper bound, not a real depth guarantee - confirmed live (2026-09-10,
-    tools/debug_futures.py) that Upstox only ever returns a contract's own
-    trading history (~2-3 months for a front-month contract), regardless
-    of how far back is requested; there's no way to fetch an
-    already-expired contract's history at all, since the instrument
-    master only lists currently-live ones. lot_size is attached as a
-    constant column on each frame (from futures_map) so a strategy can
-    report it without a second lookup.
-
-    Unlike fetch_daily, this does NOT top up today's candle via the
-    intraday endpoint (_with_todays_candle) - that path is unverified for
-    F&O instrument_keys, and this strategy runs paper-tracked-forward
-    rather than depending on same-day freshness the way Daily Swing does;
-    revisit if a 1-day-stale candle turns out to matter in practice.
-    """
-    instrument_map = {symbol: info["instrument_key"] for symbol, info in futures_map.items()}
-    result = _fetch_history(
-        instrument_map,
-        fetch_one=lambda key: client.get_daily_history(key, years=1),
-        throttle=client.throttle,
-        label="futures",
-    )
-    for symbol, df in result.items():
-        df["lot_size"] = futures_map[symbol]["lot_size"]
-        df["expiry"] = futures_map[symbol]["expiry"]
-    return result
 
 
 def _resample(daily_df: pd.DataFrame, rule: str) -> pd.DataFrame:

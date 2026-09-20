@@ -12,9 +12,10 @@ class Signal:
     stop_loss: float
     targets: list[float]
     # "long" (buy - stop_loss below entry, targets above) or "short" (sell -
-    # stop_loss above entry, targets below). Every strategy but Futures OI
-    # Buildup only ever produces "long"; this defaults to it so none of
-    # them need to think about direction at all.
+    # stop_loss above entry, targets below). No current strategy produces
+    # "short" - this defaults to "long" so none of them need to think
+    # about direction at all; kept generic (rather than long-only) since
+    # simulate_forward, format_strategy_message, etc. already support it.
     direction: str = "long"
     sort_key: float = 0.0   # higher = shown first within its strategy section
     note: str = ""          # extra context, e.g. "breakout after 2y 3m"

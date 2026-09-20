@@ -43,11 +43,13 @@ projected up from the breakout level. Signals sort by the base's own
 range (high-low as a % of low), largest first - not by volume or
 proximity, per explicit request.
 
-Brand new strategy - every threshold in signals/config.py's Price Action
-Breakout section is a judgment call, not something mined from a backtest
-CSV the way the older strategies' numbers were. Validate by watching
-signals accumulate, the same way Futures OI Buildup is being validated,
-rather than trusting these numbers are already tuned.
+Now backtested over 5 years (daily: 2,654 signals, 48% win rate, profit
+factor 1.13; weekly: 190 signals, 63% win rate, profit factor 1.10 - a
+real but thin edge on both timeframes, not a strong one). Every threshold
+in signals/config.py's Price Action Breakout section is still a judgment
+call, not something mined from that backtest CSV the way the older
+strategies' numbers were - that CSV exists now and could be mined the
+same way if this strategy is worth tightening further.
 """
 from __future__ import annotations
 

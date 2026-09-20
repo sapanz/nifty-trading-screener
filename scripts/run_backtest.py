@@ -11,8 +11,7 @@ Usage:
   BACKTEST_MONTHS=3 python scripts/run_backtest.py
 
   # Scope to specific strategies only - skips their scan() calls entirely
-  # (genuinely cheaper, not just filtered after the fact), and skips the
-  # futures fetch too when futures_oi isn't requested. "price_action_breakout"
+  # (genuinely cheaper, not just filtered after the fact). "price_action_breakout"
   # is a shorthand for both of its timeframe legs (daily + weekly).
   BACKTEST_MONTHS=60 BACKTEST_STRATEGIES=price_action_breakout python scripts/run_backtest.py
 
@@ -23,17 +22,11 @@ uploads the full trade-by-trade CSV as a workflow artifact.
 
 This fetches the same ~500-symbol universe as a live run and then re-scans
 it once per historical date, so it takes noticeably longer than a normal
-run (order of 10-20 minutes, not seconds). Four separate Upstox fetches,
+run (order of 10-20 minutes, not seconds). Three separate Upstox fetches,
 same split as a live run: daily (DAILY_HISTORY_YEARS) for Daily Swing,
-native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout,
+native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
 native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
-all-time-high check, and a ~210-symbol F&O futures fetch for Futures OI
-Buildup - that last one has an inherently short backtest window (a
-futures contract only carries its own ~2-3 month history; see
-tools/debug_futures.py), so its results here are a smoke test, not the
-same kind of multi-year validation the other three strategies get. The
-futures fetch is skipped entirely (not just its scan) when
-BACKTEST_STRATEGIES excludes futures_oi.
+all-time-high check.
 """
 import os
 import sys
@@ -50,7 +43,6 @@ FETCH_EMOJI = "🧪"
 
 STRATEGY_LABELS = {
     "daily_swing": ("Daily Swing (SMA44/BB Confluence)", "📈"),
-    "futures_oi": ("Futures OI Buildup", "⚡"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
     "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
@@ -105,18 +97,8 @@ def main() -> None:
         # MONTHLY_ATH_HISTORY_YEARS in config.py).
         weekly = data.fetch_weekly_history(client, instrument_map)
         monthly = data.fetch_monthly_ath_history(client, instrument_map)
-        # Futures OI Buildup gets its own F&O instrument map + fetch, not a
-        # resample of `daily` - only ~210 of Nifty 500 have a futures
-        # contract at all, and OI simply doesn't exist on the equity series.
-        # Skipped entirely when futures_oi wasn't asked for - no point
-        # spending an extra Upstox round-trip on data nothing will scan.
-        if strategies is None or "futures_oi" in strategies:
-            futures_map = data.build_futures_instrument_map(client, symbols)
-            futures = data.fetch_futures_daily(client, futures_map)
-        else:
-            futures = {}
         results = backtest.run_backtest(
-            daily, months=months, weekly_data=weekly, monthly_data=monthly, futures_data=futures,
+            daily, months=months, weekly_data=weekly, monthly_data=monthly,
             strategies=strategies,
         )
     except Exception as exc:

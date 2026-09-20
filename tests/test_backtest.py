@@ -140,7 +140,7 @@ class TestSimulateForwardShort:
     def test_hits_target1_first(self):
         df = _daily_df([100, 99, 98, 89, 88])  # day index 3 (close=89) -> low=88.11 crosses below 90
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
         assert result.outcome == "target1"
         assert result.exit_price == 90.0
         assert result.return_pct > 0  # short profits as price falls
@@ -148,14 +148,14 @@ class TestSimulateForwardShort:
     def test_return_is_net_of_round_trip_transaction_cost(self):
         df = _daily_df([100, 99, 98, 89, 88])
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
         gross_return_pct = (1 - 90.0 / 100.0) * 100
         assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
 
     def test_hits_stop_loss_first(self):
         df = _daily_df([100, 102, 106, 110])  # day index 2: high=106*1.01=107.06 >= stop 105
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
         assert result.outcome == "stop_loss"
         assert result.exit_price == 105.0
         assert result.return_pct < 0  # short loses as price rises
@@ -168,7 +168,7 @@ class TestSimulateForwardShort:
             {"open": [100.0, 100.0], "high": [101.0, 110.0], "low": [99.0, 70.0], "close": [100.0, 95.0], "volume": [1000.0, 1000.0]},
             index=dates,
         )
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), dates[0], df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), dates[0], df)
         assert result.outcome == "stop_loss"
 
     def test_hits_farthest_target_reached_same_day(self):
@@ -177,14 +177,14 @@ class TestSimulateForwardShort:
             {"open": [100.0, 95.0], "high": [101.0, 96.0], "low": [99.0, 75.0], "close": [100.0, 78.0], "volume": [1000.0, 1000.0]},
             index=dates,
         )
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), dates[0], df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), dates[0], df)
         assert result.outcome == "target2"
         assert result.exit_price == 80.0
 
     def test_still_open_when_neither_hit(self):
         df = _daily_df([100, 99, 98, 97])
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", self._short_signal(), signal_date, df)
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
         assert result.outcome == "open"
         assert result.exit_price == df["close"].iloc[-1]
         assert result.return_pct > 0  # price drifted down, favorable for a short
@@ -196,7 +196,7 @@ class TestSimulateForwardShort:
         df = _daily_df([100, 101, 102, 103])
         signal_date = df.index[0]
         result = backtest.simulate_forward(
-            "futures_oi", self._short_signal(entry=94.0, stop_loss=99.0, targets=(85.0,)), signal_date, df
+            "generic_short", self._short_signal(entry=94.0, stop_loss=99.0, targets=(85.0,)), signal_date, df
         )
         assert result.outcome == "unfilled"
         assert result.return_pct == 0.0
@@ -217,16 +217,17 @@ class TestSimulateForwardShort:
             index=dates,
         )
         result = backtest.simulate_forward(
-            "futures_oi", self._short_signal(entry=94.0, stop_loss=105.0), dates[0], df
+            "generic_short", self._short_signal(entry=94.0, stop_loss=105.0), dates[0], df
         )
         assert result.outcome == "stop_loss"
         assert result.exit_date == dates[3]
 
 
 class TestSimulateForwardMaxHoldingDays:
-    """max_holding_days - Futures OI Buildup's "quick trade, ~1 week hold"
-    forced exit. Every other strategy passes None (the default), for which
-    this never fires - see the other TestSimulateForward* classes."""
+    """max_holding_days - a "quick trade, forced exit after N trading days"
+    option no current strategy uses (they all pass None, the default, for
+    which this never fires - see the other TestSimulateForward* classes),
+    kept as generic infra since simulate_forward supports it directly."""
 
     def test_force_exits_at_close_after_max_holding_days(self):
         # Drifts gently upward, never touching the stop (95) or target (110)
@@ -234,7 +235,7 @@ class TestSimulateForwardMaxHoldingDays:
         # than keep riding as "open".
         df = _daily_df([100, 100.5, 101, 101.5, 108, 109])
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", _signal(), signal_date, df, max_holding_days=3)
+        result = backtest.simulate_forward("generic_short", _signal(), signal_date, df, max_holding_days=3)
         assert result.outcome == "time_exit"
         assert result.exit_date == df.index[3]  # 3rd trading day after signal_date
         assert result.exit_price == 101.5
@@ -244,12 +245,12 @@ class TestSimulateForwardMaxHoldingDays:
         # cap should never come into play.
         df = _daily_df([100, 101, 111, 101, 101])
         signal_date = df.index[0]
-        result = backtest.simulate_forward("futures_oi", _signal(), signal_date, df, max_holding_days=3)
+        result = backtest.simulate_forward("generic_short", _signal(), signal_date, df, max_holding_days=3)
         assert result.outcome == "target1"
 
     def test_no_forced_exit_when_max_holding_days_is_none(self):
-        # The default for every strategy but Futures OI Buildup - drifting
-        # sideways for a long time should stay "open", not force-exit.
+        # The default for every current strategy - drifting sideways for a
+        # long time should stay "open", not force-exit.
         df = _daily_df([100, 100.5, 101, 101.2, 101.4, 101.6, 101.8, 102])
         signal_date = df.index[0]
         result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
@@ -272,7 +273,7 @@ class TestSimulateForwardMaxHoldingDays:
             index=dates,
         )
         result = backtest.simulate_forward(
-            "futures_oi", _signal(entry=106.0), dates[0], df, max_holding_days=2,
+            "generic_short", _signal(entry=106.0), dates[0], df, max_holding_days=2,
         )
         assert result.outcome == "time_exit"
         assert result.exit_date == dates[3]  # 2nd trading day after the day-2 fill
@@ -340,9 +341,9 @@ class TestRunBacktest:
     def test_strategies_filter_limits_which_keys_come_back(self):
         daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
         results = backtest.run_backtest(
-            daily_data, months=1, strategies={"price_action_breakout_daily", "futures_oi"},
+            daily_data, months=1, strategies={"price_action_breakout_daily", "daily_swing"},
         )
-        assert set(results) == {"price_action_breakout_daily", "futures_oi"}
+        assert set(results) == {"price_action_breakout_daily", "daily_swing"}
 
     def test_strategies_filter_skips_excluded_strategies_scan_entirely(self, monkeypatch):
         # Not just filtered from the output - the excluded strategy's scan()
