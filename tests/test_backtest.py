@@ -479,6 +479,35 @@ class TestSummarize:
         ]
         assert "By shape" not in backtest.summarize(no_shape_trades)
 
+    def test_by_base_length_breakdown_only_appears_when_base_candles_is_set(self):
+        # Same reasoning as the shape breakdown - base_candles is only set
+        # by Price Action Breakout, bucketed into fixed <15/15-25/25-35/35+
+        # bands, in that order, skipping any band with no trades.
+        trades = [
+            backtest.TradeResult(
+                "price_action_breakout_daily", "A", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"base_candles": 10},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+                diagnostics={"base_candles": 12},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "C", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"base_candles": 38},
+            ),
+        ]
+        text = backtest.summarize(trades)
+        assert "By base length: <15 2 (50%) | 35+ 1 (100%)" in text
+
+        no_base_len_trades = [
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+        ]
+        assert "By base length" not in backtest.summarize(no_base_len_trades)
+
     def test_win_rate_ignores_open_trades(self):
         # 1 win, 1 loss, 2 open -> win rate should be 50% of the 2 DECIDED
         # trades, not 25% of all 4 (open positions haven't resolved yet,

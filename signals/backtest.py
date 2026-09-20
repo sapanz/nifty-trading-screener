@@ -392,9 +392,9 @@ def summarize(trades: list[TradeResult]) -> str:
     if bottom:
         lines.append("Worst: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in bottom))
 
-    # Price Action Breakout's own diagnostic (Range/Triangle/Wedge, from
-    # _classify_shape) - only present on that strategy's trades, so this
-    # line only appears there, not on every other strategy's summary.
+    # Price Action Breakout's own diagnostics - only present on that
+    # strategy's trades, so these lines only appear there, not on every
+    # other strategy's summary.
     by_shape: dict[str, list[TradeResult]] = defaultdict(list)
     for t in decided:
         shape = t.diagnostics.get("breakout_type")
@@ -406,6 +406,30 @@ def summarize(trades: list[TradeResult]) -> str:
             shape_wr = sum(1 for t in shape_trades if t.return_pct > 0) / len(shape_trades) * 100
             shape_parts.append(f"{shape} {len(shape_trades)} ({shape_wr:.0f}%)")
         lines.append("By shape: " + " | ".join(shape_parts))
+
+    # base_candles bucketed into fixed, timeframe-agnostic bands (a 40-week
+    # weekly base and a 40-day daily base aren't comparable in real time,
+    # but "how long relative to this strategy's own min/max lookback" isn't
+    # available here - this is a coarse, absolute-candle-count cut, useful
+    # for spotting whether short vs. long bases perform differently at all).
+    by_base_len: dict[str, list[TradeResult]] = defaultdict(list)
+    base_len_bands = [(15, "<15"), (25, "15-25"), (35, "25-35"), (float("inf"), "35+")]
+    for t in decided:
+        base_candles = t.diagnostics.get("base_candles")
+        if base_candles is None:
+            continue
+        band = next(label for threshold, label in base_len_bands if base_candles < threshold)
+        by_base_len[band].append(t)
+    if by_base_len:
+        band_order = [label for _, label in base_len_bands]
+        base_len_parts = []
+        for band in band_order:
+            band_trades = by_base_len.get(band)
+            if not band_trades:
+                continue
+            band_wr = sum(1 for t in band_trades if t.return_pct > 0) / len(band_trades) * 100
+            base_len_parts.append(f"{band} {len(band_trades)} ({band_wr:.0f}%)")
+        lines.append("By base length: " + " | ".join(base_len_parts))
 
     return "\n".join(lines)
 
