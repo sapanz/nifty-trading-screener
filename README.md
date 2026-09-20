@@ -549,9 +549,14 @@ costs higher still).
 
 You'll get one Telegram message per strategy — signal count, win rate,
 average return/win/loss, profit factor, average holding period, and the
-best/worst individual trades — plus a `backtest-trades` artifact on the
-workflow run containing every individual trade (symbol, dates,
-entry/SL/targets, outcome, return) as a CSV, if you want to dig into the
+best/worst individual trades. Price Action Breakout's summary also breaks
+win rate down by base shape (`By shape: Range 412 (46%) | Ascending
+Triangle 298 (51%) | ...`) - mined from `breakout_type`, the same
+diagnostic each live signal's note already carries, since a strategy-level
+rollup wouldn't otherwise surface whether some shapes actually perform
+better than others. Plus a `backtest-trades` artifact on the workflow run
+containing every individual trade (symbol, dates, entry/SL/targets,
+outcome, return) as a CSV, if you want to dig into the
 detail yourself.
 
 This takes noticeably longer than a live run (order of 10-20 minutes for

@@ -47,6 +47,7 @@ already covers that timeframe.
 from __future__ import annotations
 
 import csv
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -421,6 +422,22 @@ def summarize(trades: list[TradeResult]) -> str:
         lines.append("Best: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in top))
     if bottom:
         lines.append("Worst: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in bottom))
+
+    # Price Action Breakout's own diagnostic (Range/Triangle/Wedge, from
+    # _classify_shape) - only present on that strategy's trades, so this
+    # line only appears there, not on every other strategy's summary.
+    by_shape: dict[str, list[TradeResult]] = defaultdict(list)
+    for t in decided:
+        shape = t.diagnostics.get("breakout_type")
+        if shape:
+            by_shape[shape].append(t)
+    if by_shape:
+        shape_parts = []
+        for shape, shape_trades in sorted(by_shape.items(), key=lambda kv: len(kv[1]), reverse=True):
+            shape_wr = sum(1 for t in shape_trades if t.return_pct > 0) / len(shape_trades) * 100
+            shape_parts.append(f"{shape} {len(shape_trades)} ({shape_wr:.0f}%)")
+        lines.append("By shape: " + " | ".join(shape_parts))
+
     return "\n".join(lines)
 
 

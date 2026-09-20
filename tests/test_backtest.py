@@ -449,6 +449,35 @@ class TestSummarize:
         # gross win 20.0 / gross loss 10.0 = 2.00
         assert "Profit factor: 2.00" in text
 
+    def test_by_shape_breakdown_only_appears_when_breakout_type_is_set(self):
+        # Price Action Breakout's shape diagnostic - only present on that
+        # strategy's trades, so this line should only appear when at least
+        # one trade actually carries it.
+        trades = [
+            backtest.TradeResult(
+                "price_action_breakout_daily", "A", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"breakout_type": "Range"},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+                diagnostics={"breakout_type": "Range"},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "C", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"breakout_type": "Ascending Triangle"},
+            ),
+        ]
+        text = backtest.summarize(trades)
+        assert "By shape: Range 2 (50%) | Ascending Triangle 1 (100%)" in text
+
+        no_shape_trades = [
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+        ]
+        assert "By shape" not in backtest.summarize(no_shape_trades)
+
     def test_win_rate_ignores_open_trades(self):
         # 1 win, 1 loss, 2 open -> win rate should be 50% of the 2 DECIDED
         # trades, not 25% of all 4 (open positions haven't resolved yet,
