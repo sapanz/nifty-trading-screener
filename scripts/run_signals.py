@@ -2,10 +2,16 @@
 """Single daily entry point for every strategy (Mon-Fri, 5pm IST).
 
 Fetches daily OHLCV via Upstox for Daily Swing (always runs), then:
-  - also runs the weekly range breakout on Fridays (or FORCE_WEEKLY=true),
-    with its own native-weekly Upstox fetch
+  - also runs Price Action Breakout's daily leg every day, off the same
+    daily fetch (no extra Upstox call)
+  - also runs the weekly range breakout and Price Action Breakout's weekly
+    leg on Fridays (or FORCE_WEEKLY=true), sharing one native-weekly
+    Upstox fetch between them
   - also runs the monthly ATH breakout on the last trading day of the
-    month (or FORCE_MONTHLY=true), with its own native-monthly fetch
+    month (or FORCE_MONTHLY=true), off its own native-monthly Upstox
+    fetch. Price Action Breakout has no monthly leg - a 5-year backtest
+    showed it never fires under these thresholds, and Monthly ATH
+    Breakout already covers this timeframe.
 
 Weekly Range Breakout and Monthly ATH Breakout each fetch their own
 interval directly rather than resampling the daily fetch - weekly so its
@@ -25,10 +31,10 @@ import sys
 # lives.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, runtime, universe  # noqa: E402
+from signals import config, data, runtime, universe  # noqa: E402
 from signals.calendar_utils import ist_today, is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
 DAILY_SWING_TITLE = "Daily Swing (SMA44/BB Confluence)"
@@ -37,6 +43,9 @@ WEEKLY_BREAKOUT_TITLE = "Weekly Range Breakout"
 WEEKLY_BREAKOUT_EMOJI = "🚀"
 MONTHLY_TITLE = "Monthly ATH Breakout"
 MONTHLY_EMOJI = "🏔️"
+PRICE_ACTION_DAILY_TITLE = "Price Action Breakout (Daily)"
+PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
+PRICE_ACTION_EMOJI = "🎯"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
 
@@ -64,28 +73,89 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - isolate strategies from each other
             failures.append((title, exc))
 
-    run(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, lambda: format_strategy_message(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, daily_swing.scan(daily), today))
+    # Daily Swing's weekly-trend confirmation (BREAKOUT_TREND_SMA rising)
+    # uses a resample of the daily fetch already in hand, not a separate
+    # native weekly fetch - it runs every day, and a fresh ~500-symbol
+    # Upstox weekly fetch daily (rather than just Fridays, like Weekly
+    # Range Breakout below) isn't worth the extra API load for a trend
+    # check that a resample answers just as well.
+    run(
+        DAILY_SWING_TITLE,
+        DAILY_SWING_EMOJI,
+        lambda: format_strategy_message(DAILY_SWING_TITLE, DAILY_SWING_EMOJI, daily_swing.scan(daily, data.to_weekly(daily)), today),
+    )
+
+    # Price Action Breakout's daily leg reuses `daily` too - no extra fetch,
+    # same as Daily Swing above.
+    run(
+        PRICE_ACTION_DAILY_TITLE,
+        PRICE_ACTION_EMOJI,
+        lambda: format_strategy_message(
+            PRICE_ACTION_DAILY_TITLE,
+            PRICE_ACTION_EMOJI,
+            price_action_breakout.scan(
+                daily,
+                pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+                pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
+                breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
+                volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+            ),
+            today,
+        ),
+    )
 
     if today.weekday() == 4 or os.environ.get("FORCE_WEEKLY") == "true":
-        def build_weekly():
+        # Fetched once, outside either strategy's own error isolation, since
+        # both weekly strategies below need the exact same native-weekly
+        # data and there's no point fetching it twice (or letting one
+        # succeed on a stale in-memory copy while the other re-fetches).
+        try:
+            weekly = data.fetch_weekly_history(client, instrument_map)
+        except Exception as exc:  # noqa: BLE001 - isolate from the daily-only strategies above
+            failures.append(("Weekly fetch", exc))
+        else:
             # Its own native weekly fetch, not resampled from `daily` - so
             # each candle matches what Upstox itself considers "the
             # week's" OHLCV (see WEEKLY_HISTORY_YEARS in config.py).
-            weekly = data.fetch_weekly_history(client, instrument_map)
-            return format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today)
-
-        run(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, build_weekly)
+            run(
+                WEEKLY_BREAKOUT_TITLE,
+                WEEKLY_BREAKOUT_EMOJI,
+                lambda: format_strategy_message(WEEKLY_BREAKOUT_TITLE, WEEKLY_BREAKOUT_EMOJI, weekly_breakout.scan(weekly), today),
+            )
+            run(
+                PRICE_ACTION_WEEKLY_TITLE,
+                PRICE_ACTION_EMOJI,
+                lambda: format_strategy_message(
+                    PRICE_ACTION_WEEKLY_TITLE,
+                    PRICE_ACTION_EMOJI,
+                    price_action_breakout.scan(
+                        weekly,
+                        pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
+                        pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
+                        breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
+                        volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
+                    ),
+                    today,
+                ),
+            )
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
-        def build_monthly():
-            # Its own native monthly fetch, not resampled from `daily` -
-            # the daily fetch is capped at DAILY_HISTORY_YEARS and an
-            # all-time-high check needs a much deeper lookback than that
-            # (see MONTHLY_ATH_HISTORY_YEARS in config.py).
+        # Fetched once, outside either strategy's own error isolation, same
+        # reasoning as the shared weekly fetch above.
+        try:
+            # Its own native monthly fetch, not resampled from `daily` - the
+            # daily fetch is capped at DAILY_HISTORY_YEARS and an all-time-
+            # high check needs a much deeper lookback than that (see
+            # MONTHLY_ATH_HISTORY_YEARS in config.py).
             monthly = data.fetch_monthly_ath_history(client, instrument_map)
-            return format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today)
-
-        run(MONTHLY_TITLE, MONTHLY_EMOJI, build_monthly)
+        except Exception as exc:  # noqa: BLE001 - isolate from the daily/weekly strategies above
+            failures.append(("Monthly fetch", exc))
+        else:
+            run(
+                MONTHLY_TITLE,
+                MONTHLY_EMOJI,
+                lambda: format_strategy_message(MONTHLY_TITLE, MONTHLY_EMOJI, monthly_breakout.scan(monthly), today),
+            )
 
     if failures:
         raise RuntimeError(f"{len(failures)} strategy run(s) failed: {failures}")

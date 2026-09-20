@@ -3,18 +3,26 @@
 A stock qualifies when, on the monthly timeframe:
   - this month's close is above every prior month's close (a fresh
     closing-basis all-time high, within the history that was fetched)
+  - the breakout candle is bullish (closed above its own open) and closed
+    properly (in the top 20% of its own range, i.e. a small upper wick) -
+    without this, a month that gapped up hard intramonth and then faded
+    back down still counts as a fresh ATH on a closing basis alone, even
+    though it closed red
   - volume was elevated
 
 Each result also reports how long (in months) the stock spent below its
 old high before finally breaking out, and the list is sorted with the
 longest-dormant breakouts first - those tend to be the most explosive.
+A breakout within MONTHLY_MIN_GAP_MONTHS of the prior all-time high is
+excluded entirely - too soon after the old high to be a genuine breakout
+out of a real base, not just short-term noise.
 """
 from __future__ import annotations
 
 import pandas as pd
 
 from signals import config
-from signals.indicators import add_avg_volume, is_volume_candle
+from signals.indicators import add_avg_volume, is_bullish, is_proper_close, is_volume_candle
 from signals.models import Signal
 
 VOL_COL = f"avg_vol{config.MONTHLY_VOLUME_LOOKBACK}"
@@ -50,11 +58,17 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         if not row["close"] > ath_prior:
             continue
+        if not is_bullish(row):
+            continue  # a gap-up-then-fade month can still close at a fresh ATH while red
+        if not is_proper_close(row):
+            continue
         if not is_volume_candle(row, VOL_COL, config.MONTHLY_VOLUME_MULTIPLIER):
             continue
 
         current_date = df.index[-1]
         months_gap = (current_date.year - ath_date.year) * 12 + (current_date.month - ath_date.month)
+        if months_gap <= config.MONTHLY_MIN_GAP_MONTHS:
+            continue  # too soon after the old high - noise, not a genuine breakout
 
         entry = float(row["close"])
         stop_loss = float(ath_prior * (1 - config.SL_BUFFER))
@@ -76,7 +90,7 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                     f"Prior ATH {ath_prior:.2f} ({ath_date.strftime('%b %Y')}) | "
                     f"Breakout after {_format_gap(months_gap)} | Vol {vol_ratio:.1f}x avg"
                 ),
-                extra={"months_gap": months_gap},
+                extra={"months_gap": months_gap, "vol_ratio": round(vol_ratio, 2)},
                 candle_date=current_date.date(),
             )
         )

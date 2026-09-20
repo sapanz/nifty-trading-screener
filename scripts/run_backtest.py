@@ -10,6 +10,11 @@ each trade would have hit a target or its stop-loss first.
 Usage:
   BACKTEST_MONTHS=3 python scripts/run_backtest.py
 
+  # Scope to specific strategies only - skips their scan() calls entirely
+  # (genuinely cheaper, not just filtered after the fact). "price_action_breakout"
+  # is a shorthand for both of its timeframe legs (daily + weekly).
+  BACKTEST_MONTHS=60 BACKTEST_STRATEGIES=price_action_breakout python scripts/run_backtest.py
+
 Requires the same env vars as scripts/run_signals.py (UPSTOX_ACCESS_TOKEN,
 TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Intended to be triggered manually via
 .github/workflows/backtest.yml, which handles the Upstox TOTP login and
@@ -40,12 +45,41 @@ STRATEGY_LABELS = {
     "daily_swing": ("Daily Swing (SMA44/BB Confluence)", "📈"),
     "weekly_breakout": ("Weekly Range Breakout", "🚀"),
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
+    "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
+    "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
 }
+
+# "price_action_breakout" alone means both of its timeframe legs -
+# a convenient shorthand since they're always the same underlying strategy.
+STRATEGY_SHORTHANDS = {
+    "price_action_breakout": {"price_action_breakout_daily", "price_action_breakout_weekly"},
+}
+
+
+def _parse_strategies(raw: str | None) -> set[str] | None:
+    """None (env var unset) means "run everything", same as before this
+    existed. A set (even one strategy) scopes both which scan() calls run
+    and which Upstox fetches happen at all - see run_backtest()'s
+    `strategies` docstring for why that's a genuine cost saving, not just
+    filtered output."""
+    if not raw:
+        return None
+    wanted: set[str] = set()
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        wanted |= STRATEGY_SHORTHANDS.get(token, {token})
+    unknown = wanted - set(STRATEGY_LABELS)
+    if unknown:
+        raise ValueError(f"Unknown BACKTEST_STRATEGIES entries: {sorted(unknown)}")
+    return wanted
 
 
 def main() -> None:
     runtime.setup_logging()
     months = int(os.environ.get("BACKTEST_MONTHS", "3"))
+    strategies = _parse_strategies(os.environ.get("BACKTEST_STRATEGIES"))
 
     token = runtime.get_env("TELEGRAM_BOT_TOKEN")
     chat_id = runtime.get_env("TELEGRAM_CHAT_ID")
@@ -63,7 +97,10 @@ def main() -> None:
         # MONTHLY_ATH_HISTORY_YEARS in config.py).
         weekly = data.fetch_weekly_history(client, instrument_map)
         monthly = data.fetch_monthly_ath_history(client, instrument_map)
-        results = backtest.run_backtest(daily, months=months, weekly_data=weekly, monthly_data=monthly)
+        results = backtest.run_backtest(
+            daily, months=months, weekly_data=weekly, monthly_data=monthly,
+            strategies=strategies,
+        )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise

@@ -11,8 +11,9 @@ SMA_LONG = 200          # "above 200 SMA" trend filter used by every strategy
 # --- Candle quality -----------------------------------------------------
 # A candle is a "proper close" when the upper wick is small relative to
 # the candle's own range, i.e. price closed near its high instead of
-# getting rejected and closing well below it.
-MAX_UPPER_WICK_RATIO = 0.25  # (high - close) / (high - low) must be <= this
+# getting rejected and closing well below it. Global rule - every
+# strategy's is_proper_close() check shares this one threshold.
+MAX_UPPER_WICK_RATIO = 0.20  # (high - close) / (high - low) must be <= this
 
 # --- Volume candle ---------------------------------------------------------
 # Weekly breakout and monthly ATH breakout gate on volume; daily swing
@@ -33,12 +34,29 @@ DAILY_SUPPORT_TOLERANCE = 0.02    # 2% for daily 44-SMA support
 # be above it, trend can be sideways or rising.
 SMA_SLOPE_LOOKBACK = 3
 
-# --- Daily swing: SMA44 / lower Bollinger Band confluence ---------------
-SMA_SWING = 44
+# --- Daily swing: SMA / lower Bollinger Band confluence -----------------
+# 44 was the original value. 50 tested marginally better on a 5-year
+# backtest (PF 1.37 -> 1.41, avg return +1.3% -> +1.4%, win rate flat at
+# ~40%) and was kept - a small, non-conclusive edge, not a dramatic one.
+SMA_SWING = 50
 BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2
 CONFLUENCE_TOLERANCE = 0.02  # SMA44 and lower BB must sit within 2% of each other
 RISK_REWARD_TARGETS = (2, 3)  # T1/T2 as multiples of entry-to-SL risk
+
+# Found by inspecting a 5-year backtest's trade CSV directly (diagnostic
+# columns logged but not gated on until now): trades with below-average
+# volume were net losers outright (PF 0.91), and trades still close to the
+# 200 SMA underperformed ones with more room already built up above it.
+# Neither filter touches entry/stop/target sizing, so it doesn't widen risk
+# (that lever - a risk_pct floor - was tried separately and reverted per
+# explicit direction: quick, low-SL trades are the point here) - it only
+# trims which setups get taken. Requiring both together moved a 5-year
+# backtest from PF 1.19 (2236 signals) to PF 1.39 (356 signals), with the
+# improvement holding across most individual years (2022, a broad market
+# downturn, is the one year it doesn't).
+DAILY_SWING_MIN_VOL_RATIO = 1.0
+DAILY_SWING_MIN_DIST_FROM_SMA200_PCT = 15
 
 # A "Weekly Darvas Box" strategy used to run here (replacing CIP, a
 # resistance-zone/retest strategy). Tightening it enough to be
@@ -65,6 +83,11 @@ BREAKOUT_RANGE_TIGHTNESS = 0.20  # (range_high - range_low) / range_low must be 
 # this faster 30-week SMA, which must itself be rising. (50-week was tried
 # and came back worse than no trend filter at all - PF 0.87 vs 0.91 - see
 # git history; 30-week at least matched baseline while cutting more noise.)
+#
+# Also used by Daily Swing as a multi-timeframe confirmation (the weekly
+# chart must be trending too, not just the daily pullback) - shared rather
+# than duplicated, since both strategies mean the same thing by "the weekly
+# trend SMA".
 BREAKOUT_TREND_SMA = 30
 
 # How far above the consolidation range's high the breakout candle's close
@@ -81,24 +104,121 @@ BREAKOUT_MAX_EXTENSION = 0.12
 
 # --- Stop-loss / target construction -------------------------------------
 SL_BUFFER = 0.02          # extra cushion placed below the structural stop level
-# Breakout SL is anchored to the breakout level itself (old resistance ->
-# new support), not the bottom of the consolidation range - the 12-month
-# backtest showed the wider range_low anchor produces a high win rate but
-# a handful of large tail losses that drag average return negative.
+# Weekly's SL sits at the midpoint of the consolidation range, not the
+# breakout level itself - see weekly_breakout.py. Price often comes back to
+# retest the range as support after breaking out, and a stop right at the
+# breakout level gets hit by that normal retest rather than a genuine
+# failed breakout.
 #
-# Widening the targets from (1, 2) to (1, 3) was tried and reverted: it
-# changed nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause
-# turned out to be architectural, not a threshold: simulate_forward exits
-# a trade the first day ANY target is touched (using the highest one
-# reached that same day), so it never keeps walking forward to see if a
-# farther target would eventually be hit too - in practice nearly every
-# winning trade exits at T1, and a farther T2/T3 only matters on the rare
-# day price gaps past both at once. A fixed multi-tier target list can't
-# "let winners run" past the nearest one; that needs a genuinely
-# different exit (a trailing stop, as tried for Daily Swing at one point)
-# not a bigger number here.
-BREAKOUT_RANGE_MULTIPLES = (1, 2)      # measured-move multiples of the range height
+# Widening T2 from (1, 2) to (1, 3) was tried and reverted: it changed
+# nothing (avg win +5.1% -> +5.0%, PF 1.00 -> 0.98). Root cause turned out
+# to be architectural, not a threshold: simulate_forward exits a trade the
+# first day ANY target is touched (using the highest one reached that same
+# day), so it never keeps walking forward to see if a farther target would
+# eventually be hit too - in practice nearly every winning trade exits at
+# T1 (313 of 315 weekly wins), and a farther T2 only matters on the rare
+# day price gaps past both at once. Widening T2 alone can't "let winners
+# run" past T1.
+#
+# Widening T1 ITSELF is a different lever - mining the 5-year backtest's
+# diagnostic columns (vol_ratio, extension_pct, tightness_pct,
+# dist_from_sma200_pct, rsi14) for a selectivity filter found nothing
+# robust (every threshold tried was either non-monotonic across buckets or
+# fell apart when checked year-by-year - one looked good only because of a
+# single outlier year, PF 12.39 on 31 trades - not implemented). The real
+# problem was structural instead: a 75% win rate should support a far
+# higher PF than 1.14 at only a 4.6%/12.3% avg-win/avg-loss ratio - there
+# was slack to trade some win rate for a bigger win before PF suffers.
+# 1.5x/3x (vs 1x/2x) confirmed it: PF 1.14 -> 1.34, avg return +0.3% ->
+# +1.4%, avg win +4.6% -> +9.8%, win rate 75% -> 64% (a real trade-off, but
+# not a collapse like the earlier trailing-SMA-exit attempt's 67% -> 21%).
+BREAKOUT_RANGE_MULTIPLES = (1.5, 3)      # measured-move multiples of the range height
 ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1, T2
+
+# Minimum months a stock must have spent below its old all-time high before
+# a fresh breakout counts as a signal. Found by inspecting a 5-year
+# backtest's trade CSV directly: months_gap correlates positively and
+# almost monotonically with performance - a breakout only 1-2 months after
+# the last ATH is still noisy/choppy, not a genuine fresh breakout out of a
+# real base. Requiring months_gap > 3 moved a 5-year backtest from
+# PF 1.42 (1510 trades) to PF 1.66 (530 trades).
+MONTHLY_MIN_GAP_MONTHS = 3
+
+# --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
+# Runs on daily AND weekly candles (price_action_breakout.scan() is called
+# twice, once per timeframe, each with its own window sizes below - a
+# breakout worth trading looks the same shape at any zoom level). No
+# monthly leg - a 5-year backtest showed it never fires at all under these
+# thresholds (too little monthly history per stock to form a base this
+# strict), and Monthly ATH Breakout already covers the monthly timeframe.
+#
+# The base's length is DETECTED, not fixed: for a candidate breakout
+# candle, _detect_base walks backward from it looking for the LONGEST
+# window (between the per-timeframe MIN/MAX bounds below) whose high-low
+# band still stays within PRICE_ACTION_RANGE_TIGHTNESS - real bases vary
+# in how long they take to form, and reporting that actual length (rather
+# than a fixed number that's the same for every stock) is the point of
+# surfacing it at all. Once the base is found, a lightweight shape
+# classifier (_classify_shape) fits a straight line through its highs and
+# another through its lows and labels the combination of slopes (flat/
+# rising/falling) as Range, Ascending/Descending/Symmetrical Triangle, or
+# Rising/Falling Wedge - a real classification, but a heuristic one (slope
+# sign and magnitude, not genuine trendline/touch-point geometry), labeled
+# as such rather than dressed up as more rigorous than it is.
+#
+# Beyond the base itself: a breakout candle closing above the
+# consolidation's high on clearly elevated volume, a pullback that comes
+# back to retest that broken level as support without ever closing
+# convincingly back below it, and finally a green, properly-closed candle
+# (is_bullish + is_proper_close - the existing "20%-wick" rule, left
+# exactly as-is) that closes back above the breakout level - that candle
+# is the actual signal trigger, not the breakout candle itself.
+#
+# Brand new strategy, not backtest-tuned yet (every number below is a
+# judgment call sized to what was asked for - a tight base, a genuinely
+# high-volume break, a real but not-too-deep retest - not a threshold
+# mined from a trade CSV the way the older strategies' numbers were).
+# Revisit once a real backtest CSV exists to mine instead of guessing.
+PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY = 8      # shortest window that still counts as a real base, daily
+PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY = 40     # longest window _detect_base will consider, daily
+PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY = 5
+PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY = 20
+PRICE_ACTION_BREAKOUT_WINDOW_DAILY = 10     # how many recent candles back a breakout may have happened, daily
+PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8     # same, weekly
+PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
+PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
+
+# The base itself must be tight - reuses Weekly Range Breakout's own 20%
+# convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
+# different-sounding number for the same idea ("is this actually a base,
+# not just a wide swing"), so this doesn't duplicate that value.
+PRICE_ACTION_RANGE_TIGHTNESS = BREAKOUT_RANGE_TIGHTNESS
+
+# "With high volumes" - the breakout day itself must clear a materially
+# higher bar than the other strategies' volume gates (1.3x), which are
+# meant to filter out clearly-quiet days rather than demand real
+# conviction behind the actual breakout.
+PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
+
+# How far the retest is allowed to undercut the breakout level and still
+# count as "held" (a small wick below it is normal noise; a close
+# meaningfully below it means the level failed, not that it's being
+# retested).
+PRICE_ACTION_RETEST_TOLERANCE = 0.02
+PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
+
+# Measured-move targets from the breakout level - the base's own height
+# projected upward, same idea as Weekly Range Breakout's own
+# BREAKOUT_RANGE_MULTIPLES (kept as a separate constant since this
+# strategy's base-height/target relationship hasn't been tuned the way
+# that one's was).
+PRICE_ACTION_TARGET_MULTIPLES = (1, 2)
+
+# _classify_shape's slope-flatness cutoff: a trendline through the base's
+# highs (or lows) moving less than this many % per candle counts as
+# "flat" rather than genuinely rising/falling. Sized to filter out normal
+# noise-level drift within an otherwise tight base, not derived from data.
+PRICE_ACTION_FLAT_SLOPE_PCT = 0.15
 
 # --- Transaction costs (Indian cash-equity delivery trades) --------------
 # Every signal here is a delivery trade (held days to months, never
@@ -150,15 +270,6 @@ UPSTOX_MAX_RETRIES = 3
 # master's column values changed shape) rather than a handful of unlisted
 # symbols - fail loudly instead of quietly scanning nothing.
 MIN_INSTRUMENT_MATCH_RATIO = 0.5
-
-# --- F&O (stock futures) ---------------------------------------------------
-# Only ~150-220 of Nifty 500 actually have futures listed - unlike equities,
-# a low match ratio against the full 500-symbol list is expected here, so
-# this is a floor on the absolute count, not a fraction (see
-# data.build_futures_instrument_map). Confirmed live (2026-09-10): 629
-# FUTSTK rows / ~210 unique underlyings in the same instrument master file
-# used for equities.
-MIN_FO_MATCH_COUNT = 100
 
 # Daily-history depth for Daily Swing (the only strategy left resampling
 # off of it). 6 years comfortably covers its SMA200 lookback with margin.

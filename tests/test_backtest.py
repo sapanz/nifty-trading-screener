@@ -16,8 +16,11 @@ def _daily_df(closes: list[float]) -> pd.DataFrame:
     return df
 
 
-def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0), extra=None) -> Signal:
-    return Signal(symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets), extra=extra or {})
+def _signal(entry=100.0, stop_loss=95.0, targets=(110.0, 120.0), extra=None, direction="long") -> Signal:
+    return Signal(
+        symbol="TESTCO", entry=entry, stop_loss=stop_loss, targets=list(targets),
+        extra=extra or {}, direction=direction,
+    )
 
 
 class TestSimulateForward:
@@ -126,6 +129,156 @@ class TestSimulateForward:
         assert result.months_gap is None
 
 
+class TestSimulateForwardShort:
+    """Mirror of TestSimulateForward for direction="short" - stop-loss sits
+    above entry, targets below, and every OHLC comparison flips (a short
+    is stopped out by price rising, hits target as price falls)."""
+
+    def _short_signal(self, entry=100.0, stop_loss=105.0, targets=(90.0, 80.0)):
+        return _signal(entry=entry, stop_loss=stop_loss, targets=targets, direction="short")
+
+    def test_hits_target1_first(self):
+        df = _daily_df([100, 99, 98, 89, 88])  # day index 3 (close=89) -> low=88.11 crosses below 90
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
+        assert result.outcome == "target1"
+        assert result.exit_price == 90.0
+        assert result.return_pct > 0  # short profits as price falls
+
+    def test_return_is_net_of_round_trip_transaction_cost(self):
+        df = _daily_df([100, 99, 98, 89, 88])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
+        gross_return_pct = (1 - 90.0 / 100.0) * 100
+        assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
+
+    def test_hits_stop_loss_first(self):
+        df = _daily_df([100, 102, 106, 110])  # day index 2: high=106*1.01=107.06 >= stop 105
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
+        assert result.outcome == "stop_loss"
+        assert result.exit_price == 105.0
+        assert result.return_pct < 0  # short loses as price rises
+
+    def test_stop_loss_wins_when_both_hit_same_day(self):
+        # a single day whose range spans above stop and below target - stop
+        # is assumed to trigger first, same conservative assumption as long.
+        dates = pd.date_range("2024-01-01", periods=2, freq="B")
+        df = pd.DataFrame(
+            {"open": [100.0, 100.0], "high": [101.0, 110.0], "low": [99.0, 70.0], "close": [100.0, 95.0], "volume": [1000.0, 1000.0]},
+            index=dates,
+        )
+        result = backtest.simulate_forward("generic_short", self._short_signal(), dates[0], df)
+        assert result.outcome == "stop_loss"
+
+    def test_hits_farthest_target_reached_same_day(self):
+        dates = pd.date_range("2024-01-01", periods=2, freq="B")
+        df = pd.DataFrame(
+            {"open": [100.0, 95.0], "high": [101.0, 96.0], "low": [99.0, 75.0], "close": [100.0, 78.0], "volume": [1000.0, 1000.0]},
+            index=dates,
+        )
+        result = backtest.simulate_forward("generic_short", self._short_signal(), dates[0], df)
+        assert result.outcome == "target2"
+        assert result.exit_price == 80.0
+
+    def test_still_open_when_neither_hit(self):
+        df = _daily_df([100, 99, 98, 97])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", self._short_signal(), signal_date, df)
+        assert result.outcome == "open"
+        assert result.exit_price == df["close"].iloc[-1]
+        assert result.return_pct > 0  # price drifted down, favorable for a short
+
+    def test_resting_sell_stop_unfilled_when_never_reached(self):
+        # entry (94) sits below the signal candle's own close (100) - a
+        # resting sell-stop, not an immediate fill. Price never trades back
+        # down to 94, so this should never count as a real trade.
+        df = _daily_df([100, 101, 102, 103])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward(
+            "generic_short", self._short_signal(entry=94.0, stop_loss=99.0, targets=(85.0,)), signal_date, df
+        )
+        assert result.outcome == "unfilled"
+        assert result.return_pct == 0.0
+        assert result.holding_days == 0
+
+    def test_resting_sell_stop_tracks_outcome_only_after_fill(self):
+        # entry=94 isn't reached until day 2 (low=93.06); before that, a
+        # stop-loss breach shouldn't count since the order wasn't live yet.
+        dates = pd.date_range("2024-01-01", periods=4, freq="B")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 110.0, 94.0, 94.0],
+                "high": [100.0, 111.0, 94.0, 106.0],  # day1 high=111 would look like a stop breach if checked too early
+                "low": [100.0, 109.0, 93.0, 92.0],
+                "close": [100.0, 110.0, 93.5, 105.0],
+                "volume": [1000.0] * 4,
+            },
+            index=dates,
+        )
+        result = backtest.simulate_forward(
+            "generic_short", self._short_signal(entry=94.0, stop_loss=105.0), dates[0], df
+        )
+        assert result.outcome == "stop_loss"
+        assert result.exit_date == dates[3]
+
+
+class TestSimulateForwardMaxHoldingDays:
+    """max_holding_days - a "quick trade, forced exit after N trading days"
+    option no current strategy uses (they all pass None, the default, for
+    which this never fires - see the other TestSimulateForward* classes),
+    kept as generic infra since simulate_forward supports it directly."""
+
+    def test_force_exits_at_close_after_max_holding_days(self):
+        # Drifts gently upward, never touching the stop (95) or target (110)
+        # within 3 trading days - should force-exit at day 3's close rather
+        # than keep riding as "open".
+        df = _daily_df([100, 100.5, 101, 101.5, 108, 109])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", _signal(), signal_date, df, max_holding_days=3)
+        assert result.outcome == "time_exit"
+        assert result.exit_date == df.index[3]  # 3rd trading day after signal_date
+        assert result.exit_price == 101.5
+
+    def test_stop_or_target_still_wins_before_max_holding_days(self):
+        # Target (110) is hit on day 2 - well before the day-3 cap - so the
+        # cap should never come into play.
+        df = _daily_df([100, 101, 111, 101, 101])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("generic_short", _signal(), signal_date, df, max_holding_days=3)
+        assert result.outcome == "target1"
+
+    def test_no_forced_exit_when_max_holding_days_is_none(self):
+        # The default for every current strategy - drifting sideways for a
+        # long time should stay "open", not force-exit.
+        df = _daily_df([100, 100.5, 101, 101.2, 101.4, 101.6, 101.8, 102])
+        signal_date = df.index[0]
+        result = backtest.simulate_forward("weekly_breakout", _signal(), signal_date, df)
+        assert result.outcome == "open"
+
+    def test_holding_days_counted_from_fill_not_signal_date(self):
+        # A resting stop-style entry (106, above the signal close of 100)
+        # only fills on day 2 (high=107.07 >= 106) - the 2-trading-day cap
+        # should count from THAT fill, not from signal_date, so day 2 after
+        # fill is day 4 overall.
+        dates = pd.date_range("2024-01-01", periods=5, freq="B")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 100.0, 106.0, 106.0, 106.0],
+                "high": [100.0, 101.0, 107.0, 106.5, 106.5],
+                "low": [100.0, 99.0, 106.0, 105.5, 105.5],
+                "close": [100.0, 100.0, 106.5, 106.0, 106.2],
+                "volume": [1000.0] * 5,
+            },
+            index=dates,
+        )
+        result = backtest.simulate_forward(
+            "generic_short", _signal(entry=106.0), dates[0], df, max_holding_days=2,
+        )
+        assert result.outcome == "time_exit"
+        assert result.exit_date == dates[3]  # 2nd trading day after the day-2 fill
+
+
 class TestRunBacktest:
     def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
         # monthly_data can come from a separate Upstox fetch than daily_data
@@ -185,6 +338,33 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert results["weekly_breakout"] == []  # too little history to signal, but no error
 
+    def test_strategies_filter_limits_which_keys_come_back(self):
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(
+            daily_data, months=1, strategies={"price_action_breakout_daily", "daily_swing"},
+        )
+        assert set(results) == {"price_action_breakout_daily", "daily_swing"}
+
+    def test_strategies_filter_skips_excluded_strategies_scan_entirely(self, monkeypatch):
+        # Not just filtered from the output - the excluded strategy's scan()
+        # should never even be called, since that's the actual point of
+        # scoping (skipping its per-date compute, not just its Telegram line).
+        from signals.strategies import daily_swing as ds
+
+        called = []
+        monkeypatch.setattr(ds, "scan", lambda *a, **k: called.append(1) or [])
+
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1, strategies={"price_action_breakout_daily"})
+
+        assert called == []
+        assert "daily_swing" not in results
+
+    def test_strategies_none_runs_everything_same_as_before(self):
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+        results = backtest.run_backtest(daily_data, months=1)
+        assert set(results) == backtest.ALL_STRATEGIES
+
 
 class TestWriteCsv:
     def test_months_gap_column(self, tmp_path):
@@ -205,6 +385,32 @@ class TestWriteCsv:
             rows = list(csv.DictReader(f))
         assert rows[0]["months_gap"] == "14"
         assert rows[1]["months_gap"] == ""
+
+    def test_diagnostics_columns(self, tmp_path):
+        # Diagnostic-only fields (see backtest.DIAGNOSTIC_KEYS) ride along
+        # per-trade so a backtest's CSV can be mined for what separates good
+        # signals from bad ones - a trade whose signal didn't set a given
+        # key just leaves that column blank.
+        trades = [
+            backtest.TradeResult(
+                "daily_swing", "A", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-10"), 110, 10.0, 9,
+                diagnostics={"rsi14": 62.5, "vol_ratio": 1.8},
+            ),
+            backtest.TradeResult(
+                "weekly_breakout", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+            ),
+        ]
+        path = tmp_path / "trades.csv"
+        backtest.write_csv(trades, str(path))
+
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert rows[0]["rsi14"] == "62.5"
+        assert rows[0]["vol_ratio"] == "1.8"
+        assert rows[0]["confluence_gap_pct"] == ""  # not set on this trade
+        assert rows[1]["rsi14"] == ""
 
 
 class TestSummarize:
@@ -243,6 +449,35 @@ class TestSummarize:
         assert "Avg loss: -5.0%" in text
         # gross win 20.0 / gross loss 10.0 = 2.00
         assert "Profit factor: 2.00" in text
+
+    def test_by_shape_breakdown_only_appears_when_breakout_type_is_set(self):
+        # Price Action Breakout's shape diagnostic - only present on that
+        # strategy's trades, so this line should only appear when at least
+        # one trade actually carries it.
+        trades = [
+            backtest.TradeResult(
+                "price_action_breakout_daily", "A", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"breakout_type": "Range"},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "B", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "stop_loss", pd.Timestamp("2024-01-03"), 95, -5.0, 2,
+                diagnostics={"breakout_type": "Range"},
+            ),
+            backtest.TradeResult(
+                "price_action_breakout_daily", "C", pd.Timestamp("2024-01-01"), 100, 95, [110],
+                "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4,
+                diagnostics={"breakout_type": "Ascending Triangle"},
+            ),
+        ]
+        text = backtest.summarize(trades)
+        assert "By shape: Range 2 (50%) | Ascending Triangle 1 (100%)" in text
+
+        no_shape_trades = [
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+        ]
+        assert "By shape" not in backtest.summarize(no_shape_trades)
 
     def test_win_rate_ignores_open_trades(self):
         # 1 win, 1 loss, 2 open -> win rate should be 50% of the 2 DECIDED

@@ -34,26 +34,59 @@ arguments, same as a live run sees - the daily-resample fallback used
 when either is omitted won't exactly match live weekly candle
 boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
 genuinely deep history. See scripts/run_backtest.py for the live wiring.
+
+Price Action Breakout runs twice - "price_action_breakout_daily" off
+`daily_data` and "_weekly" off `weekly_data` - kept as two separate result
+buckets rather than pooled together, since a daily-timeframe
+base/breakout/retest and a weekly one are different trades with different
+holding periods, not the same signal at two resolutions. No monthly leg -
+a 5-year backtest showed it never fired at all (too little monthly
+history per stock to form a base this strict), and Monthly ATH Breakout
+already covers that timeframe.
 """
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 
 import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
     """Deduct the round-trip transaction cost from a gross price return."""
     return gross_return_pct - config.ROUND_TRIP_COST_PCT
 
+
+def _gross_return_pct(direction: str, entry: float, exit_price: float) -> float:
+    """% return on `entry`, direction-aware: a long profits as exit_price
+    rises above entry, a short profits as it falls below - both expressed
+    on the same entry-relative basis so long and short trades stay
+    comparable in the same CSV/summary."""
+    if direction == "short":
+        return (1 - exit_price / entry) * 100
+    return (exit_price / entry - 1) * 100
+
+# Diagnostic-only fields a strategy can stamp onto a signal's `extra` dict
+# (aside from months_gap, which has its own typed column) purely so a
+# backtest's trade CSV carries enough to mine for what actually
+# differentiates good and bad signals - vs guessing blind through repeated
+# backtest round-trips. Not every strategy sets every key; write_csv leaves
+# a column blank wherever a given trade's signal didn't set it.
+DIAGNOSTIC_KEYS = [
+    "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
+    "extension_pct", "tightness_pct",
+    "breakout_type", "base_candles", "base_start", "base_end",
+]
+
 CSV_FIELDS = [
-    "strategy", "symbol", "signal_date", "entry", "stop_loss", "targets",
+    "strategy", "symbol", "direction", "signal_date", "entry", "stop_loss", "targets",
     "outcome", "exit_date", "exit_price", "return_pct", "holding_days", "months_gap",
+    *DIAGNOSTIC_KEYS,
 ]
 
 
@@ -70,49 +103,101 @@ class TradeResult:
     exit_price: float
     return_pct: float
     holding_days: int
+    # "long" or "short" - see Signal.direction. No current strategy
+    # produces "short".
+    direction: str = "long"
     # Monthly ATH Breakout only: months spent below the prior all-time high
     # before this breakout (signal.extra["months_gap"]); None for every
     # other strategy, which doesn't set it.
     months_gap: int | None = None
+    # Everything else a strategy stamped onto signal.extra (see
+    # DIAGNOSTIC_KEYS) - diagnostic-only, never used to gate a signal or
+    # alter simulate_forward's own logic.
+    diagnostics: dict = field(default_factory=dict)
 
 
-def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame) -> TradeResult:
-    """Walk the real daily price path after `signal_date` to see what happened."""
+def simulate_forward(
+    strategy: str, signal: Signal, signal_date: pd.Timestamp, daily_df: pd.DataFrame,
+    max_holding_days: int | None = None,
+) -> TradeResult:
+    """Walk the real daily price path after `signal_date` to see what happened.
+
+    Direction-aware throughout: a long's resting entry sits above the
+    signal close (a buy-stop) and its stop-loss sits below entry, its
+    targets above; a short's are all mirrored (sell-stop below close,
+    stop-loss above entry, targets below). No current strategy produces a
+    `direction="short"` signal, so this is exactly the original long-only
+    logic in practice - kept direction-aware since it's cheap infra to
+    carry forward for whichever future strategy needs it.
+
+    `max_holding_days`, when set, force-exits at that day's close once
+    this many TRADING days have elapsed since the entry actually filled
+    (not calendar days, and not from signal_date - from the fill, since
+    that's when the position actually opens) without either the stop or a
+    target firing first. Every current strategy leaves this None
+    (unlimited hold) - a forcing time-stop was tried for Weekly Range
+    Breakout early on and reverted after a real, measured regression
+    (PF 1.03 -> 0.60, see git history): it cut off winners that would have
+    kept running, inferred from observing holding-period outcomes after
+    the fact rather than a genuine upfront design requirement. This
+    parameter exists for a different kind of case - an explicit "quick
+    trade" design constraint for a fast-moving instrument, not a pattern
+    mined from a backtest.
+    """
     future = daily_df[daily_df.index > signal_date]
     months_gap = signal.extra.get("months_gap")
+    diagnostics = {k: v for k, v in signal.extra.items() if k != "months_gap"}
+    is_short = signal.direction == "short"
 
     as_of = daily_df[daily_df.index <= signal_date]
     signal_close = float(as_of["close"].iloc[-1]) if not as_of.empty else signal.entry
-    if signal.entry > signal_close:
-        # A resting buy-stop above the signal candle's own close (e.g. CIP's
-        # entry-above-high) isn't filled yet - find the first later day that
-        # actually trades up to it, and don't track outcomes before that.
-        filled = future[future["high"] >= signal.entry]
+    resting_unfilled = (signal.entry < signal_close) if is_short else (signal.entry > signal_close)
+    if resting_unfilled:
+        # A resting stop order beyond the signal candle's own close isn't
+        # filled yet - find the first later day that actually trades
+        # through it, and don't track outcomes before that.
+        filled = future[future["low"] <= signal.entry] if is_short else future[future["high"] >= signal.entry]
         if filled.empty:
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="unfilled", exit_date=signal_date, exit_price=signal.entry,
-                return_pct=0.0, holding_days=0, months_gap=months_gap,
+                return_pct=0.0, holding_days=0, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
         future = future[future.index >= filled.index[0]]
 
-    for dt, row in future.iterrows():
-        if row["low"] <= signal.stop_loss:
+    for day_num, (dt, row) in enumerate(future.iterrows(), start=1):
+        stopped = (row["high"] >= signal.stop_loss) if is_short else (row["low"] <= signal.stop_loss)
+        if stopped:
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome="stop_loss", exit_date=dt, exit_price=signal.stop_loss,
-                return_pct=_net_return_pct((signal.stop_loss / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, signal.stop_loss)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
-        hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
+        if is_short:
+            hit = [i for i, target in enumerate(signal.targets) if row["low"] <= target]
+        else:
+            hit = [i for i, target in enumerate(signal.targets) if row["high"] >= target]
         if hit:
-            idx = max(hit)  # the highest target actually reached that day
+            idx = max(hit)  # the target farthest from entry actually reached that day
             exit_price = signal.targets[idx]
             return TradeResult(
                 strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
                 outcome=f"target{idx + 1}", exit_date=dt, exit_price=exit_price,
-                return_pct=_net_return_pct((exit_price / signal.entry - 1) * 100),
-                holding_days=(dt - signal_date).days, months_gap=months_gap,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
+            )
+        if max_holding_days is not None and day_num >= max_holding_days:
+            exit_price = float(row["close"])
+            return TradeResult(
+                strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+                outcome="time_exit", exit_date=dt, exit_price=exit_price,
+                return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
+                holding_days=(dt - signal_date).days, direction=signal.direction,
+                months_gap=months_gap, diagnostics=diagnostics,
             )
 
     # Neither hit yet - still open as of the last available price.
@@ -125,8 +210,9 @@ def simulate_forward(strategy: str, signal: Signal, signal_date: pd.Timestamp, d
     return TradeResult(
         strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
         outcome="open", exit_date=last_date, exit_price=last_close,
-        return_pct=_net_return_pct((last_close / signal.entry - 1) * 100),
-        holding_days=(last_date - signal_date).days, months_gap=months_gap,
+        return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, last_close)),
+        holding_days=(last_date - signal_date).days, direction=signal.direction,
+        months_gap=months_gap, diagnostics=diagnostics,
     )
 
 
@@ -146,13 +232,20 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
     return sliced
 
 
+ALL_STRATEGIES = frozenset({
+    "daily_swing", "weekly_breakout", "monthly_breakout",
+    "price_action_breakout_daily", "price_action_breakout_weekly",
+})
+
+
 def run_backtest(
     daily_data: dict[str, pd.DataFrame],
     months: int,
     weekly_data: dict[str, pd.DataFrame] | None = None,
     monthly_data: dict[str, pd.DataFrame] | None = None,
+    strategies: set[str] | None = None,
 ) -> dict[str, list[TradeResult]]:
-    """Backtest all active strategies over the trailing `months` months.
+    """Backtest active strategies over the trailing `months` months.
 
     `weekly_data` and `monthly_data` drive the Weekly Range Breakout and
     Monthly ATH Breakout scans specifically. Pass each strategy's real
@@ -162,42 +255,86 @@ def run_backtest(
     fine for a quick local backtest without the extra Upstox fetches but
     won't exactly match live candle boundaries (weekly) or reach past
     DAILY_HISTORY_YEARS (monthly).
+
+    `strategies`, when given, limits which of ALL_STRATEGIES' keys actually
+    get scanned - the skipped ones' scan() calls (and every historical
+    date's worth of forward-walk simulation for them) never run at all,
+    not just their output being discarded, so a run scoped to e.g. only
+    the two Price Action Breakout legs is genuinely cheaper, not just
+    quieter. None (the default) runs everything, same as before this
+    parameter existed.
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
+    wanted = ALL_STRATEGIES if strategies is None else (strategies & ALL_STRATEGIES)
 
     if weekly_data is None:
         weekly_data = data.to_weekly(daily_data)
     if monthly_data is None:
         monthly_data = data.to_monthly(daily_data)
 
-    results: dict[str, list[TradeResult]] = {
-        "daily_swing": [],
-        "weekly_breakout": [],
-        "monthly_breakout": [],
-    }
+    results: dict[str, list[TradeResult]] = {key: [] for key in wanted}
 
-    for asof in _dates_in_window(daily_data, start, end):
-        for signal in daily_swing.scan(_scan_as_of(daily_data, asof)):
-            results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
+    if "daily_swing" in wanted or "price_action_breakout_daily" in wanted:
+        for asof in _dates_in_window(daily_data, start, end):
+            sliced_daily = _scan_as_of(daily_data, asof)
 
-    for asof in _dates_in_window(weekly_data, start, end):
-        for signal in weekly_breakout.scan(_scan_as_of(weekly_data, asof)):
-            # weekly_data may come from a separate fetch than daily_data (a
-            # different set of symbols can fail between two independent
-            # Upstox calls) - the exit walk-forward still needs daily bars,
-            # so skip a signal whose symbol didn't come back in daily_data
-            # rather than raising.
-            if signal.symbol not in daily_data:
-                continue
-            results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+            if "daily_swing" in wanted:
+                daily_signals = daily_swing.scan(sliced_daily, _scan_as_of(weekly_data, asof))
+                for signal in daily_signals:
+                    results["daily_swing"].append(simulate_forward("daily_swing", signal, asof, daily_data[signal.symbol]))
 
-    for asof in _dates_in_window(monthly_data, start, end):
-        for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
-            # Same reasoning as weekly_data above.
-            if signal.symbol not in daily_data:
-                continue
-            results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
+            if "price_action_breakout_daily" in wanted:
+                pa_daily_signals = price_action_breakout.scan(
+                    sliced_daily,
+                    pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+                    pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
+                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
+                    volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+                )
+                for signal in pa_daily_signals:
+                    results["price_action_breakout_daily"].append(
+                        simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
+                    )
+
+    if "weekly_breakout" in wanted or "price_action_breakout_weekly" in wanted:
+        for asof in _dates_in_window(weekly_data, start, end):
+            sliced_weekly = _scan_as_of(weekly_data, asof)
+
+            if "weekly_breakout" in wanted:
+                for signal in weekly_breakout.scan(sliced_weekly):
+                    # weekly_data may come from a separate fetch than daily_data (a
+                    # different set of symbols can fail between two independent
+                    # Upstox calls) - the exit walk-forward still needs daily bars,
+                    # so skip a signal whose symbol didn't come back in daily_data
+                    # rather than raising.
+                    if signal.symbol not in daily_data:
+                        continue
+                    results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
+
+            if "price_action_breakout_weekly" in wanted:
+                pa_weekly_signals = price_action_breakout.scan(
+                    sliced_weekly,
+                    pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
+                    pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
+                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
+                    volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
+                )
+                for signal in pa_weekly_signals:
+                    # Same reasoning as weekly_breakout above.
+                    if signal.symbol not in daily_data:
+                        continue
+                    results["price_action_breakout_weekly"].append(
+                        simulate_forward("price_action_breakout_weekly", signal, asof, daily_data[signal.symbol])
+                    )
+
+    if "monthly_breakout" in wanted:
+        for asof in _dates_in_window(monthly_data, start, end):
+            for signal in monthly_breakout.scan(_scan_as_of(monthly_data, asof)):
+                # Same reasoning as weekly_data above.
+                if signal.symbol not in daily_data:
+                    continue
+                results["monthly_breakout"].append(simulate_forward("monthly_breakout", signal, asof, daily_data[signal.symbol]))
 
     return results
 
@@ -254,6 +391,22 @@ def summarize(trades: list[TradeResult]) -> str:
         lines.append("Best: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in top))
     if bottom:
         lines.append("Worst: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in bottom))
+
+    # Price Action Breakout's own diagnostic (Range/Triangle/Wedge, from
+    # _classify_shape) - only present on that strategy's trades, so this
+    # line only appears there, not on every other strategy's summary.
+    by_shape: dict[str, list[TradeResult]] = defaultdict(list)
+    for t in decided:
+        shape = t.diagnostics.get("breakout_type")
+        if shape:
+            by_shape[shape].append(t)
+    if by_shape:
+        shape_parts = []
+        for shape, shape_trades in sorted(by_shape.items(), key=lambda kv: len(kv[1]), reverse=True):
+            shape_wr = sum(1 for t in shape_trades if t.return_pct > 0) / len(shape_trades) * 100
+            shape_parts.append(f"{shape} {len(shape_trades)} ({shape_wr:.0f}%)")
+        lines.append("By shape: " + " | ".join(shape_parts))
+
     return "\n".join(lines)
 
 
@@ -263,8 +416,9 @@ def write_csv(all_trades: list[TradeResult], path: str) -> None:
         writer.writerow(CSV_FIELDS)
         for t in all_trades:
             writer.writerow([
-                t.strategy, t.symbol, t.signal_date.date(), t.entry, t.stop_loss,
+                t.strategy, t.symbol, t.direction, t.signal_date.date(), t.entry, t.stop_loss,
                 ";".join(str(x) for x in t.targets), t.outcome, t.exit_date.date(),
                 t.exit_price, round(t.return_pct, 2), t.holding_days,
                 t.months_gap if t.months_gap is not None else "",
+                *(t.diagnostics.get(key, "") for key in DIAGNOSTIC_KEYS),
             ])

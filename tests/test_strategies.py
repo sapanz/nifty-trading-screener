@@ -1,7 +1,8 @@
 import pandas as pd
+import pytest
 
-from signals import config
-from signals.strategies import daily_swing, monthly_breakout, weekly_breakout
+from signals import config, data
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -54,10 +55,20 @@ class TestWeeklyBreakout:
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
 
-        # Stop-loss is anchored to the breakout level itself (range_high),
-        # not the bottom of the consolidation range.
-        assert sig.stop_loss == round(200.0 * (1 - config.SL_BUFFER), 2)
+        # Entry is a resting buy-stop at the breakout candle's own high, not
+        # an immediate fill at its close.
+        assert sig.entry == round(216.5, 2)
+        # Stop-loss sits at the midpoint of the consolidation range
+        # (180-200), not anchored to the breakout level itself.
+        assert sig.stop_loss == round((200.0 + 180.0) / 2, 2)
         assert sig.candle_date == df.index[-1].date()
+        # Diagnostic-only fields (not gated on) that ride along so a
+        # backtest's CSV can be mined for what separates good and bad
+        # signals - see backtest.DIAGNOSTIC_KEYS.
+        assert sig.extra["extension_pct"] == pytest.approx((216.0 - 200.0) / 200.0 * 100, abs=0.01)
+        assert sig.extra["tightness_pct"] == pytest.approx((200.0 - 180.0) / 180.0 * 100, abs=0.01)
+        assert "dist_from_sma200_pct" in sig.extra
+        assert 0 <= sig.extra["rsi14"] <= 100
 
     def test_no_signal_when_breakout_extension_too_small(self):
         # closes barely above the range (well under BREAKOUT_MIN_EXTENSION)
@@ -203,13 +214,22 @@ def _append_support_row(df: pd.DataFrame, sma_period: int, freq_offset, low_mult
 
 
 class TestDailySwing:
+    def _scan(self, daily_data: dict, weekly_data: dict | None = None):
+        """Default weekly_data to a resample of daily_data itself (the same
+        thing run_signals.py does live) so most tests don't need to think
+        about the multi-timeframe filter at all - only the tests that
+        target it directly pass an explicit weekly_data."""
+        if weekly_data is None:
+            weekly_data = data.to_weekly(daily_data)
+        return daily_swing.scan(daily_data, weekly_data)
+
     def test_detects_confluence_support(self):
         # gentle continued drift (not dead-flat) so the 44 SMA is clearly
         # rising; small enough not to blow out the SMA44/lower-BB confluence
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
 
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
         assert len(signals) == 1
         sig = signals[0]
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
@@ -223,17 +243,51 @@ class TestDailySwing:
         # scan() has no notion of "today" at all, only whatever the caller
         # handed it as the last row.
         assert sig.candle_date == row.name.date()
+        # Diagnostic-only fields (not gated on) that ride along so a
+        # backtest's CSV can be mined for what separates good and bad
+        # signals - see backtest.DIAGNOSTIC_KEYS.
+        assert "confluence_gap_pct" in sig.extra
+        assert "dist_from_sma200_pct" in sig.extra
+        assert "vol_ratio" in sig.extra
+        assert 0 <= sig.extra["rsi14"] <= 100
 
     def test_no_signal_below_long_term_trend(self):
         # downtrend -> close is below its own 200 SMA, should never qualify
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=200, plateau=50)
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
         assert signals == []
 
     def test_no_signal_when_sma44_declining(self):
         df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=-0.5)
         df = _append_support_row(df, 44, pd.Timedelta(days=1))
-        signals = daily_swing.scan({"TESTCO": df})
+        signals = self._scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_weekly_sma30_not_rising(self):
+        # Same daily fixture as test_detects_confluence_support (every daily
+        # condition passes), but paired with a flat weekly series instead of
+        # a resample of it - the multi-timeframe confirmation should reject
+        # it even though the daily chart alone looks fine.
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+
+        n_weekly = config.BREAKOUT_TREND_SMA + config.SMA_SLOPE_LOOKBACK + 20
+        dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_weekly, freq="W-FRI")
+        flat_weekly = pd.DataFrame({"close": [150.0] * n_weekly}, index=dates)
+        flat_weekly["open"] = flat_weekly["close"]
+        flat_weekly["high"] = flat_weekly["close"] * 1.005
+        flat_weekly["low"] = flat_weekly["close"] * 0.995
+        flat_weekly["volume"] = 100_000.0
+
+        signals = daily_swing.scan({"TESTCO": df}, {"TESTCO": flat_weekly})
+        assert signals == []
+
+    def test_no_signal_when_weekly_data_missing(self):
+        # Same otherwise-valid daily fixture, but the symbol has no entry in
+        # weekly_data at all - fails closed rather than assuming confirmed.
+        df = _ramp_then_flat_df("B", ramp_weeks=230, flat_weeks=44, start=50, plateau=200, plateau_drift=0.05)
+        df = _append_support_row(df, 44, pd.Timedelta(days=1))
+        signals = daily_swing.scan({"TESTCO": df}, {})
         assert signals == []
 
 
@@ -279,3 +333,290 @@ class TestMonthlyBreakout:
         df = self._monthly_df()
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
+
+    def test_no_signal_when_breakout_too_soon_after_ath(self):
+        # the prior ATH is set just one month before the breakout - too
+        # soon to be a genuine breakout out of a real base (noise, per
+        # MONTHLY_MIN_GAP_MONTHS).
+        df = self._monthly_df(months=20)
+        old_ath = df["close"].iloc[:-2].max()
+        new_ath = old_ath * 1.05
+        df.iloc[-2, df.columns.get_loc("close")] = new_ath
+        df.iloc[-2, df.columns.get_loc("high")] = new_ath * 1.01
+        df.iloc[-1, df.columns.get_loc("close")] = new_ath * 1.10
+        df.iloc[-1, df.columns.get_loc("high")] = new_ath * 1.11
+        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
+
+        signals = monthly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_breakout_candle_is_red(self):
+        # closes at a fresh all-time high on a closing basis (110% of the
+        # prior ATH), with a small upper wick (would pass is_proper_close),
+        # but still closed below its own open - a gap-up-then-fade month,
+        # not the bullish breakout the strategy requires.
+        df = self._monthly_df()
+        prior_ath = df["close"].iloc[:-1].max()
+        df.iloc[-1, df.columns.get_loc("open")] = prior_ath * 1.13
+        df.iloc[-1, df.columns.get_loc("high")] = prior_ath * 1.13
+        df.iloc[-1, df.columns.get_loc("close")] = prior_ath * 1.10
+        df.iloc[-1, df.columns.get_loc("low")] = prior_ath * 1.05
+        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
+
+        signals = monthly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+
+class TestPriceActionBreakout:
+    """Daily-timeframe fixtures throughout (config's *_DAILY constants) -
+    scan() itself is timeframe-agnostic, so these exercise the same code
+    path the weekly/monthly legs use with different window sizes."""
+
+    def _next_business_day(self, d: pd.Timestamp) -> pd.Timestamp:
+        d = d + pd.Timedelta(days=1)
+        while d.weekday() >= 5:
+            d += pd.Timedelta(days=1)
+        return d
+
+    def _base_breakout_retest_df(
+        self,
+        base_len: int = 20,
+        base_low_start: float = 280.0,
+        base_low_end: float = 305.0,
+        base_high: float = 310.0,
+        breakout_volume: float = 250_000.0,
+        retest_low: float = 305.0,
+        retest_close: float = 308.0,
+        today_open: float = 309.0,
+        today_high: float = 317.0,
+        today_low: float = 307.0,
+        today_close: float = 315.0,
+    ) -> pd.DataFrame:
+        """A long, flat-at-150 lead-in (so any lookback window reaching
+        past the base's own start immediately fails tightness - the
+        detected base length is exactly `base_len`, not accidentally
+        longer) -> a `base_len`-candle ascending-triangle-shaped base
+        (flat high, rising low, accumulation-biased) -> a breakout candle
+        on 2.5x volume -> a retest candle pulling back near the base's
+        high -> today's confirmation candle. Defaults produce a valid
+        signal; each test overrides exactly the field it's checking."""
+        n_ramp = config.SMA_LONG + config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY
+        dates = pd.date_range(end=pd.Timestamp.today().normalize() - pd.Timedelta(days=40), periods=n_ramp, freq="B")
+        ramp = pd.DataFrame({"close": [150.0] * n_ramp}, index=dates)
+        ramp["open"] = 150.0
+        ramp["high"] = 151.0
+        ramp["low"] = 149.0
+        ramp["volume"] = 100_000.0
+
+        base_dates = pd.bdate_range(start=dates[-1] + pd.Timedelta(days=1), periods=base_len)
+        lows = [base_low_start + (base_low_end - base_low_start) * i / max(base_len - 1, 1) for i in range(base_len)]
+        base = pd.DataFrame(
+            {
+                "open": [low + 1 for low in lows],
+                "high": [base_high] * base_len,
+                "low": lows,
+                "close": [low + 2 for low in lows],  # green throughout (close > open) - accumulation-biased
+                "volume": 100_000.0,
+            },
+            index=base_dates,
+        )
+
+        breakout_date = self._next_business_day(base_dates[-1])
+        breakout = pd.DataFrame(
+            {"open": [base_high - 2], "high": [base_high + 12], "low": [base_high - 3], "close": [base_high + 10], "volume": [breakout_volume]},
+            index=[breakout_date],
+        )
+
+        retest_date = self._next_business_day(breakout_date)
+        retest = pd.DataFrame(
+            {"open": [base_high + 2], "high": [base_high + 4], "low": [retest_low], "close": [retest_close], "volume": [90_000.0]},
+            index=[retest_date],
+        )
+
+        today_date = self._next_business_day(retest_date)
+        today = pd.DataFrame(
+            {"open": [today_open], "high": [today_high], "low": [today_low], "close": [today_close], "volume": [120_000.0]},
+            index=[today_date],
+        )
+
+        return pd.concat([ramp, base, breakout, retest, today])
+
+    def _scan(self, df: pd.DataFrame) -> list:
+        return price_action_breakout.scan(
+            {"TESTCO": df},
+            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
+            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
+            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+        )
+
+    def test_detects_base_breakout_retest_confirmation(self):
+        df = self._base_breakout_retest_df()
+        signals = self._scan(df)
+        assert len(signals) == 1
+        sig = signals[0]
+
+        # Entry is a resting buy-stop at today's (the confirmation candle's)
+        # own high, not the breakout candle's.
+        assert sig.entry == 317.0
+        # Stop-loss is the lower of the retest low and today's own low.
+        assert sig.stop_loss == 305.0
+        assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
+        assert sig.candle_date == df.index[-1].date()
+
+        # The base's detected length matches what the fixture actually
+        # built (20), not some other window the lead-in accidentally
+        # also satisfied.
+        assert sig.extra["base_candles"] == 20
+        assert sig.extra["breakout_type"] == "Ascending Triangle"  # flat high, rising low
+        assert "base_start" in sig.extra and "base_end" in sig.extra
+        assert sig.extra["tightness_pct"] == pytest.approx((310.0 - 280.0) / 280.0 * 100, abs=0.1)
+        # sort_key is the base's own range %, per explicit request to sort
+        # "higher range first" - not volume or recency.
+        assert sig.sort_key == pytest.approx(sig.extra["tightness_pct"], abs=0.01)
+        assert "Ascending Triangle" in sig.note
+        assert "Base 20 candles" in sig.note
+
+    def test_classifies_range_shape(self):
+        # Flat high AND flat low (base_low_start == base_low_end) - a
+        # rectangle, not a triangle.
+        df = self._base_breakout_retest_df(base_low_start=300.0, base_low_end=300.0, base_high=310.0)
+        signals = self._scan(df)
+        assert len(signals) == 1
+        assert signals[0].extra["breakout_type"] == "Range"
+
+    def test_base_length_varies_with_the_fixture(self):
+        # A shorter base (12 candles instead of 20) should be detected as
+        # exactly 12, not the fixed value the old implementation always
+        # reported - proving the length is genuinely detected, not a
+        # constant.
+        df = self._base_breakout_retest_df(base_len=12)
+        signals = self._scan(df)
+        assert len(signals) == 1
+        assert signals[0].extra["base_candles"] == 12
+
+    def test_no_signal_when_breakout_volume_not_elevated(self):
+        # 1.3x average - clears the other strategies' volume bar but not
+        # this one's explicitly higher "high volumes" requirement (2.0x).
+        df = self._base_breakout_retest_df(breakout_volume=130_000.0)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_retest_invalidates_the_level(self):
+        # Retest candle closes well below the base - the broken-out level
+        # failed as support rather than being genuinely retested.
+        df = self._base_breakout_retest_df(retest_close=280.0)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_today_is_not_bullish(self):
+        df = self._base_breakout_retest_df(today_close=308.0)  # closes below today's own open
+        assert self._scan(df) == []
+
+    def test_no_signal_when_today_has_a_large_upper_wick(self):
+        df = self._base_breakout_retest_df(today_high=330.0, today_close=310.0)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_today_does_not_reclaim_the_breakout_level(self):
+        # Green and properly closed, but never closes back above the
+        # base's high - still below the level being retested, not a
+        # genuine confirmation of the breakout resuming.
+        df = self._base_breakout_retest_df(today_open=307.0, today_high=309.5, today_close=309.0)
+        assert self._scan(df) == []
+
+    def test_no_signal_without_a_prior_retest(self):
+        # Today immediately follows the breakout candle with no in-between
+        # candle at all - nothing has actually pulled back to test the
+        # level yet, so there's nothing to confirm.
+        df = self._base_breakout_retest_df()
+        retest_date = df.index[-2]
+        df = df.drop(index=retest_date)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_base_is_not_tight_enough(self):
+        # Base low starts far below the high - well past
+        # PRICE_ACTION_RANGE_TIGHTNESS (20%) even at the shortest window,
+        # so no length between MIN and MAX ever qualifies as a real base.
+        df = self._base_breakout_retest_df(base_low_start=150.0, base_low_end=305.0, base_high=310.0)
+        assert self._scan(df) == []
+
+
+class TestClassifyShape:
+    """Direct tests of the slope-based shape heuristic, independent of the
+    full scan() pipeline."""
+
+    def _pattern(self, n, high_start, high_end, low_start, low_end):
+        x = list(range(n))
+        highs = [high_start + (high_end - high_start) * i / max(n - 1, 1) for i in x]
+        lows = [low_start + (low_end - low_start) * i / max(n - 1, 1) for i in x]
+        closes = [(h + low) / 2 for h, low in zip(highs, lows)]
+        return pd.DataFrame({"high": highs, "low": lows, "close": closes})
+
+    def test_range(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 100, 100, 90, 90)) == "Range"
+
+    def test_ascending_triangle(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 100, 100, 80, 95)) == "Ascending Triangle"
+
+    def test_descending_triangle(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 110, 95, 90, 90)) == "Descending Triangle"
+
+    def test_symmetrical_triangle(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 110, 100, 80, 90)) == "Symmetrical Triangle"
+
+    def test_rising_wedge(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 90, 100, 70, 95)) == "Rising Wedge"
+
+    def test_falling_wedge(self):
+        assert price_action_breakout._classify_shape(self._pattern(20, 110, 90, 100, 85)) == "Falling Wedge"
+
+
+class TestDetectBase:
+    """Direct tests of the variable-length base search, independent of
+    the full scan() pipeline."""
+
+    def _df(self, lead_in_level, base_lows, base_high):
+        # Integer-indexed frame: lead-in candles (wide/incompatible with
+        # the base) followed by the actual base candles.
+        n_lead = 30
+        lead = pd.DataFrame(
+            {
+                "open": lead_in_level, "high": lead_in_level + 1, "low": lead_in_level - 1,
+                "close": lead_in_level, "volume": 100_000.0,
+            },
+            index=range(n_lead),
+        )
+        base = pd.DataFrame(
+            {
+                "open": [low + 1 for low in base_lows],
+                "high": [base_high] * len(base_lows),
+                "low": base_lows,
+                "close": [low + 2 for low in base_lows],
+                "volume": 100_000.0,
+            },
+            index=range(n_lead, n_lead + len(base_lows)),
+        )
+        return pd.concat([lead, base]), n_lead + len(base_lows)
+
+    def test_finds_the_longest_qualifying_base(self):
+        base_lows = [95.0] * 15  # flat, tight (100 vs 95 = 5.3%, within 20%)
+        df, breakout_idx = self._df(lead_in_level=50.0, base_lows=base_lows, base_high=100.0)
+        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
+        result = price_action_breakout._detect_base(
+            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
+        )
+        assert result is not None
+        pattern, pattern_high, pattern_low = result
+        # Longest window that still qualifies is exactly the 15 base
+        # candles - anything longer pulls in the wide lead-in and fails
+        # tightness.
+        assert len(pattern) == 15
+        assert pattern_high == 100.0
+        assert pattern_low == 95.0
+
+    def test_returns_none_when_nothing_qualifies(self):
+        base_lows = [50.0] * 15  # (100-50)/50 = 100%, nowhere near tight
+        df, breakout_idx = self._df(lead_in_level=50.0, base_lows=base_lows, base_high=100.0)
+        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
+        result = price_action_breakout._detect_base(
+            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
+        )
+        assert result is None

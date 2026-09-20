@@ -22,7 +22,11 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
     for i, sig in enumerate(signals, start=1):
         symbol = html.escape(sig.symbol)
         risk_pct = (sig.risk_per_share / sig.entry * 100) if sig.entry else 0
-        lines.append(f"{i}. <b>{symbol}</b>")
+        # No current strategy is anything but long-only, so an untagged
+        # entry is always a buy - only flag the unusual case (short)
+        # explicitly, rather than tagging every single signal.
+        direction_tag = " \U0001f534 SHORT" if sig.direction == "short" else ""
+        lines.append(f"{i}. <b>{symbol}</b>{direction_tag}")
         lines.append(f"   Entry: {sig.entry:.2f} | SL: {sig.stop_loss:.2f} ({risk_pct:.1f}% risk)")
         if sig.targets:  # some strategies (e.g. Daily Swing) use a trailing stop instead of a fixed target
             lines.append(f"   {_fmt_targets(sig.targets)}")

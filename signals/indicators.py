@@ -35,6 +35,21 @@ def add_avg_volume(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return df
 
 
+def add_rsi(df: pd.DataFrame, period: int = 14, column: str = "close") -> pd.DataFrame:
+    """Wilder's RSI - a diagnostic, not currently gated on by any strategy.
+    Logged alongside each signal purely so a backtest's trade CSV can be
+    mined for whether RSI level correlates with outcome, instead of
+    guessing blind through repeated backtest round-trips."""
+    delta = df[column].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss
+    df[f"rsi{period}"] = 100 - (100 / (1 + rs))
+    return df
+
+
 def upper_wick_ratio(row: pd.Series) -> float:
     """(high - close) / (high - low). 0 = closed at the high, 1 = closed at the low."""
     candle_range = row["high"] - row["low"]
@@ -43,12 +58,34 @@ def upper_wick_ratio(row: pd.Series) -> float:
     return (row["high"] - row["close"]) / candle_range
 
 
+def lower_wick_ratio(row: pd.Series) -> float:
+    """(close - low) / (high - low). 0 = closed at the low, 1 = closed at the high -
+    the bearish mirror of upper_wick_ratio, for judging a short signal
+    candle's own close quality (closed near its low, not bought back up)."""
+    candle_range = row["high"] - row["low"]
+    if candle_range <= 0:
+        return 0.0
+    return (row["close"] - row["low"]) / candle_range
+
+
 def is_proper_close(row: pd.Series, max_ratio: float = config.MAX_UPPER_WICK_RATIO) -> bool:
     return bool(upper_wick_ratio(row) <= max_ratio)
 
 
+def is_proper_close_bearish(row: pd.Series, max_ratio: float = config.MAX_UPPER_WICK_RATIO) -> bool:
+    """Mirror of is_proper_close for a short signal candle: the close sits
+    in the bottom max_ratio of the day's range (small lower wick) instead
+    of the top - i.e. sellers were still in control into the close, not
+    getting bought back up off the lows."""
+    return bool(lower_wick_ratio(row) <= max_ratio)
+
+
 def is_bullish(row: pd.Series) -> bool:
     return bool(row["close"] > row["open"])
+
+
+def is_bearish(row: pd.Series) -> bool:
+    return bool(row["close"] < row["open"])
 
 
 def is_volume_candle(row: pd.Series, avg_vol_column: str, multiplier: float) -> bool:
@@ -61,6 +98,11 @@ def is_volume_candle(row: pd.Series, avg_vol_column: str, multiplier: float) -> 
 def is_above_sma(row: pd.Series, sma_column: str) -> bool:
     sma_value = row.get(sma_column)
     return bool(sma_value is not None and not pd.isna(sma_value) and row["close"] > sma_value)
+
+
+def is_below_sma(row: pd.Series, sma_column: str) -> bool:
+    sma_value = row.get(sma_column)
+    return bool(sma_value is not None and not pd.isna(sma_value) and row["close"] < sma_value)
 
 
 def is_support_test(row: pd.Series, sma_column: str, tolerance: float) -> bool:

@@ -15,8 +15,18 @@ A stock qualifies when, on the weekly timeframe:
     the fixed measured-move target sits behind the entry before the trade
     even starts)
   - the breakout candle is bullish (closed above its own open) and closed
-    properly (in the top 25% of its own range, i.e. a small upper wick)
+    properly (in the top 20% of its own range, i.e. a small upper wick)
     on strong volume
+
+Entry is a resting buy-stop at the breakout candle's own high, not an
+immediate fill at its close - the trade only enters once a later candle
+actually trades up through that high, confirming the breakout continues
+rather than assuming it does (see backtest.simulate_forward's handling of
+entry > signal-close; an entry that's never reached is reported
+"unfilled"). Stop-loss sits at the midpoint of the consolidation range
+(not the breakout level itself) - price often comes back to retest the
+range as support after breaking out, and a stop right at the breakout
+level gets hit by that normal retest, not just a genuine failed breakout.
 """
 from __future__ import annotations
 
@@ -25,6 +35,7 @@ import pandas as pd
 from signals import config
 from signals.indicators import (
     add_avg_volume,
+    add_rsi,
     add_sma,
     is_above_sma,
     is_accumulation_range,
@@ -50,6 +61,7 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         add_sma(df, config.SMA_LONG)
         add_sma(df, config.BREAKOUT_TREND_SMA)
         add_avg_volume(df, config.VOLUME_LOOKBACK)
+        add_rsi(df)
         row = df.iloc[-1]
 
         if pd.isna(row.get(f"sma{config.SMA_LONG}")) or pd.isna(row.get(f"sma{config.BREAKOUT_TREND_SMA}")):
@@ -81,19 +93,38 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
         if not is_volume_candle(row, VOL_COL, config.WEEKLY_VOLUME_MULTIPLIER):
             continue
 
-        entry = float(row["close"])
-        # Anchor SL to the breakout level itself (old resistance becomes new
-        # support), not the bottom of the consolidation range - the latter
-        # let risk balloon with however wide the whole range was, producing
-        # a high win rate but large tail losses in backtesting.
-        stop_loss = float(range_high * (1 - config.SL_BUFFER))
+        # Entry is a resting buy-stop at this candle's own high, not an
+        # immediate fill at its close - simulate_forward (and a live buy-stop
+        # order) only fills once a later candle actually trades up through
+        # it, confirming the breakout keeps going rather than assuming it
+        # will from the close alone.
+        entry = float(row["high"])
+        # SL at the midpoint of the consolidation range: price often comes
+        # back to retest the range as support after breaking out, and a
+        # stop right at the breakout level (range_high) gets stopped out by
+        # that normal retest rather than a genuine failed breakout.
+        stop_loss = float((range_high + range_low) / 2)
         risk = entry - stop_loss
         if risk <= 0:
             continue
 
         range_height = range_high - range_low
         targets = [round(range_high + range_height * mult, 2) for mult in config.BREAKOUT_RANGE_MULTIPLES]
+        if targets[0] <= entry:
+            # Targets are anchored to range_high, not to entry - on a tight
+            # enough range, entry (which can run up to BREAKOUT_MAX_EXTENSION
+            # above range_high) can end up sitting above target1 itself,
+            # guaranteeing a loss the moment the trade fills even though it
+            # still gets recorded as a "target1" outcome. Skip rather than
+            # take a trade whose own target is already behind its entry.
+            continue
         vol_ratio = float(row["volume"] / row[VOL_COL])
+
+        # Diagnostic-only fields (not gated on) so a backtest's trade CSV can
+        # be mined for what actually differentiates good and bad signals -
+        # see backtest.DIAGNOSTIC_KEYS.
+        sma_long_val = float(row[f"sma{config.SMA_LONG}"])
+        rsi_val = row.get("rsi14")
 
         signals.append(
             Signal(
@@ -104,6 +135,13 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
                 sort_key=vol_ratio,
                 note=f"Vol {vol_ratio:.1f}x avg | Range {range_low:.2f}-{range_high:.2f} ({window}w)",
                 candle_date=row.name.date(),
+                extra={
+                    "vol_ratio": round(vol_ratio, 2),
+                    "extension_pct": round(extension * 100, 2),
+                    "tightness_pct": round((range_high - range_low) / range_low * 100, 2),
+                    "dist_from_sma200_pct": round((entry / sma_long_val - 1) * 100, 2),
+                    **({"rsi14": round(float(rsi_val), 1)} if pd.notna(rsi_val) else {}),
+                },
             )
         )
 
