@@ -365,6 +365,33 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert set(results) == backtest.ALL_STRATEGIES
 
+    def test_short_eligible_is_threaded_through_to_both_price_action_legs(self, monkeypatch):
+        # _dates_in_window only walks dates that actually fall inside the
+        # trailing `months` window, so (unlike the other tests in this
+        # class, which use fixed 2024 dates and never need scan() to
+        # actually fire) this needs data dated near "today".
+        from signals.strategies import price_action_breakout as pab
+
+        seen_kwargs = []
+        monkeypatch.setattr(pab, "scan", lambda *a, **k: seen_kwargs.append(k) or [])
+
+        dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=5, freq="B")
+        recent_df = pd.DataFrame({"close": [100.0, 101, 102, 103, 104]}, index=dates)
+        recent_df["open"] = recent_df["close"]
+        recent_df["high"] = recent_df["close"] * 1.01
+        recent_df["low"] = recent_df["close"] * 0.99
+        recent_df["volume"] = 1000.0
+        daily_data = {"TESTCO": recent_df}
+
+        backtest.run_backtest(
+            daily_data, months=1,
+            strategies={"price_action_breakout_daily", "price_action_breakout_weekly"},
+            short_eligible={"TESTCO"},
+        )
+
+        assert len(seen_kwargs) >= 2  # daily leg and weekly leg both called at least once
+        assert all(k["short_eligible"] == {"TESTCO"} for k in seen_kwargs)
+
 
 class TestWriteCsv:
     def test_months_gap_column(self, tmp_path):

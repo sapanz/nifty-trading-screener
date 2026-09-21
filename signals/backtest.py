@@ -103,8 +103,7 @@ class TradeResult:
     exit_price: float
     return_pct: float
     holding_days: int
-    # "long" or "short" - see Signal.direction. No current strategy
-    # produces "short".
+    # "long" or "short" - see Signal.direction.
     direction: str = "long"
     # Monthly ATH Breakout only: months spent below the prior all-time high
     # before this breakout (signal.extra["months_gap"]); None for every
@@ -125,10 +124,10 @@ def simulate_forward(
     Direction-aware throughout: a long's resting entry sits above the
     signal close (a buy-stop) and its stop-loss sits below entry, its
     targets above; a short's are all mirrored (sell-stop below close,
-    stop-loss above entry, targets below). No current strategy produces a
-    `direction="short"` signal, so this is exactly the original long-only
-    logic in practice - kept direction-aware since it's cheap infra to
-    carry forward for whichever future strategy needs it.
+    stop-loss above entry, targets below). Price Action Breakout's F&O-gated
+    short leg is the one producer of `direction="short"` signals so far;
+    every other strategy stays long-only, so this is exactly the original
+    long-only logic in practice for them.
 
     `max_holding_days`, when set, force-exits at that day's close once
     this many TRADING days have elapsed since the entry actually filled
@@ -244,6 +243,7 @@ def run_backtest(
     weekly_data: dict[str, pd.DataFrame] | None = None,
     monthly_data: dict[str, pd.DataFrame] | None = None,
     strategies: set[str] | None = None,
+    short_eligible: set[str] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest active strategies over the trailing `months` months.
 
@@ -263,6 +263,16 @@ def run_backtest(
     the two Price Action Breakout legs is genuinely cheaper, not just
     quieter. None (the default) runs everything, same as before this
     parameter existed.
+
+    `short_eligible` is passed straight through to both Price Action
+    Breakout legs' `short_eligible` argument (see
+    data.fetch_fo_eligible_symbols) - gating which symbols their short leg
+    can fire on. Note this is necessarily *today's* F&O universe applied
+    across the whole historical window, since Upstox's instrument master
+    has no historical snapshot of which symbols had a futures contract on
+    a given past date - a real but unavoidable approximation, same kind of
+    limitation the old Futures OI Buildup strategy had with futures price
+    history itself (see git history).
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
@@ -291,6 +301,7 @@ def run_backtest(
                     pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
                     breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
                     volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+                    short_eligible=short_eligible,
                 )
                 for signal in pa_daily_signals:
                     results["price_action_breakout_daily"].append(
@@ -319,6 +330,7 @@ def run_backtest(
                     pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
                     breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                     volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
+                    short_eligible=short_eligible,
                 )
                 for signal in pa_weekly_signals:
                     # Same reasoning as weekly_breakout above.

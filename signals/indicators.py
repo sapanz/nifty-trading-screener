@@ -132,6 +132,16 @@ def is_accumulation_range(range_df: pd.DataFrame) -> bool:
     return bool(up_volume > down_volume)
 
 
+def is_distribution_range(range_df: pd.DataFrame) -> bool:
+    """Bearish mirror of is_accumulation_range: True if the range's down
+    (red) candles carried more volume than its up (green) ones - sellers
+    more aggressive than buyers while the range built, the short-side
+    equivalent of accumulation ahead of a breakdown."""
+    up_volume = range_df.loc[range_df["close"] > range_df["open"], "volume"].sum()
+    down_volume = range_df.loc[range_df["close"] < range_df["open"], "volume"].sum()
+    return bool(down_volume > up_volume)
+
+
 def is_sma_rising(df: pd.DataFrame, sma_column: str, lookback: int = config.SMA_SLOPE_LOOKBACK) -> bool:
     """True if the SMA's latest value is higher than it was `lookback` periods ago.
 

@@ -22,11 +22,13 @@ uploads the full trade-by-trade CSV as a workflow artifact.
 
 This fetches the same ~500-symbol universe as a live run and then re-scans
 it once per historical date, so it takes noticeably longer than a normal
-run (order of 10-20 minutes, not seconds). Three separate Upstox fetches,
-same split as a live run: daily (DAILY_HISTORY_YEARS) for Daily Swing,
-native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
+run (order of 10-20 minutes, not seconds). Three separate Upstox history
+fetches, same split as a live run: daily (DAILY_HISTORY_YEARS) for Daily
+Swing, native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
 native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
-all-time-high check.
+all-time-high check. Plus one instrument-master fetch (no price history)
+for the F&O-eligible symbol set that gates Price Action Breakout's short
+leg - see data.fetch_fo_eligible_symbols.
 """
 import os
 import sys
@@ -97,9 +99,13 @@ def main() -> None:
         # MONTHLY_ATH_HISTORY_YEARS in config.py).
         weekly = data.fetch_weekly_history(client, instrument_map)
         monthly = data.fetch_monthly_ath_history(client, instrument_map)
+        # Gates Price Action Breakout's short leg - see
+        # backtest.run_backtest's `short_eligible` docstring for the
+        # "today's F&O universe applied across the whole window" caveat.
+        fo_symbols = data.fetch_fo_eligible_symbols(client)
         results = backtest.run_backtest(
             daily, months=months, weekly_data=weekly, monthly_data=monthly,
-            strategies=strategies,
+            strategies=strategies, short_eligible=fo_symbols,
         )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))

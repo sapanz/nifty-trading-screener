@@ -147,6 +147,33 @@ def test_is_accumulation_range_false_when_tied():
     assert indicators.is_accumulation_range(df) is False
 
 
+def test_is_distribution_range_true_when_down_volume_wins():
+    df = pd.DataFrame({
+        "open":   [100.0, 102.0, 99.0],
+        "close":  [102.0, 99.0,  101.0],  # green, red, green
+        "volume": [100.0, 900.0, 100.0],  # up=200, down=900
+    })
+    assert indicators.is_distribution_range(df) is True
+
+
+def test_is_distribution_range_false_when_up_volume_wins():
+    df = pd.DataFrame({
+        "open":   [100.0, 102.0, 99.0],
+        "close":  [102.0, 99.0,  101.0],  # green, red, green
+        "volume": [500.0, 200.0, 400.0],  # up=900, down=200
+    })
+    assert indicators.is_distribution_range(df) is False
+
+
+def test_is_distribution_range_false_when_tied():
+    df = pd.DataFrame({
+        "open":   [100.0, 100.0],
+        "close":  [100.0, 100.0],  # both dojis - no up or down volume at all
+        "volume": [500.0, 500.0],
+    })
+    assert indicators.is_distribution_range(df) is False
+
+
 def test_add_rsi_high_for_a_steady_uptrend():
     # every close higher than the last - no losses at all, RSI should sit
     # near the top of its 0-100 range.

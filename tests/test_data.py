@@ -152,6 +152,19 @@ def test_build_instrument_map_raises_when_almost_nothing_matches():
         data.build_instrument_map(client, symbols)
 
 
+class _FakeFOClient:
+    def __init__(self, symbol_set):
+        self._symbol_set = symbol_set
+
+    def fetch_fo_symbol_set(self):
+        return self._symbol_set
+
+
+def test_fetch_fo_eligible_symbols_passes_through_the_client_result():
+    client = _FakeFOClient({"RELIANCE", "SBIN", "TCS"})
+    assert data.fetch_fo_eligible_symbols(client) == {"RELIANCE", "SBIN", "TCS"}
+
+
 class _FakeIntradayClient:
     """Only implements get_intraday_daily_candle - for _with_todays_candle
     tests, which don't need the historical-fetch methods above."""

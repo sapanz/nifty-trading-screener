@@ -95,6 +95,17 @@ def build_instrument_map(client: UpstoxClient, symbols: list[str]) -> dict[str, 
     return mapping
 
 
+def fetch_fo_eligible_symbols(client: UpstoxClient) -> set[str]:
+    """The subset of the universe that currently has a live stock-futures
+    contract - see UpstoxClient.fetch_fo_symbol_set for why that's what
+    actually matters for shorting. Thin wrapper for symmetry with
+    build_instrument_map (client does the raw fetch/parse, this module
+    orchestrates); callers pass the result straight through to
+    price_action_breakout.scan's `short_eligible` argument.
+    """
+    return client.fetch_fo_symbol_set()
+
+
 def _fetch_history(
     instrument_map: dict[str, str], fetch_one: Callable[[str], pd.DataFrame], throttle: Callable[[], None], label: str
 ) -> dict[str, pd.DataFrame]:

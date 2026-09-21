@@ -12,10 +12,11 @@ class Signal:
     stop_loss: float
     targets: list[float]
     # "long" (buy - stop_loss below entry, targets above) or "short" (sell -
-    # stop_loss above entry, targets below). No current strategy produces
-    # "short" - this defaults to "long" so none of them need to think
-    # about direction at all; kept generic (rather than long-only) since
-    # simulate_forward, format_strategy_message, etc. already support it.
+    # stop_loss above entry, targets below). Defaults to "long" so every
+    # long-only strategy doesn't need to think about direction at all;
+    # Price Action Breakout's F&O-gated short leg is the one producer of
+    # "short" so far - simulate_forward, format_strategy_message, etc.
+    # were already generic ahead of that.
     direction: str = "long"
     sort_key: float = 0.0   # higher = shown first within its strategy section
     note: str = ""          # extra context, e.g. "breakout after 2y 3m"

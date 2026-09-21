@@ -115,6 +115,45 @@ class UpstoxClient:
 
         return dict(zip(df[symbol_col].astype(str).str.strip(), df[key_col].astype(str).str.strip()))
 
+    def fetch_fo_symbol_set(self) -> set[str]:
+        """Return the underlying trading symbols that currently have a live
+        stock-futures (FUTSTK) contract - the subset of the universe that's
+        actually shortable overnight (a cash-segment short is intraday-only
+        for retail in India; carrying one past the session means selling
+        the futures contract instead, or at minimum having that liquidity
+        available as a real hedge/exit).
+
+        Same instrument master file as fetch_instrument_map, just filtered
+        to instrument_type == FUTSTK instead of EQUITY. `name` (not
+        `tradingsymbol`, which is the exchange-generated contract code like
+        "RELIANCE26SEPFUT") holds the plain underlying symbol for these
+        rows - confirmed live via an earlier diagnostic run (see git
+        history for tools/debug_futures.py, since removed). Only the
+        symbol set is needed here (not instrument_key/expiry/lot_size);
+        this doesn't fetch futures price data itself, just gates which
+        symbols Price Action Breakout's short leg is allowed to fire on -
+        the actual scan still runs on the equity's own OHLC.
+        """
+        df = self._fetch_instrument_master_df()
+        required = {"name", "instrument_type"}
+        missing = required - set(df.columns)
+        if missing:
+            raise UpstoxError(
+                f"Instrument master is missing expected F&O columns {missing}. "
+                f"Actual columns: {list(df.columns)}. Upstox may have changed the file format."
+            )
+
+        fo = df[df["instrument_type"].astype(str).str.upper() == config.UPSTOX_FUTSTK_TYPE]
+        if fo.empty:
+            value_counts = df["instrument_type"].astype(str).value_counts().head(10).to_dict()
+            raise UpstoxError(
+                f"Zero {config.UPSTOX_FUTSTK_TYPE} rows in the instrument master. Actual instrument_type "
+                f"values seen: {value_counts}. Upstox may have renamed the stock-futures type."
+            )
+        symbols = set(fo["name"].astype(str).str.strip())
+        logger.info("F&O symbol set: %d underlyings with a live futures contract", len(symbols))
+        return symbols
+
     def get_daily_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch daily OHLCV candles for one instrument.
 

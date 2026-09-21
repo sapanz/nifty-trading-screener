@@ -19,9 +19,20 @@ candles match what Upstox itself considers "the week's" OHLCV, monthly
 because its all-time-high check needs much deeper history than the daily
 fetch's cap (see WEEKLY_HISTORY_YEARS / MONTHLY_ATH_HISTORY_YEARS in
 config.py). Each only costs an extra ~500-symbol fetch on the day it
-actually runs (once a week / once a month), not every run. Requires
-UPSTOX_ACCESS_TOKEN, refreshed daily - see tools/refresh_upstox_token.py.
+actually runs (once a week / once a month), not every run.
+
+Also fetches the F&O-eligible symbol set (one cheap instrument-master
+call, no price history) once per run and threads it through to both
+Price Action Breakout legs as `short_eligible` - it gates their short
+(breakdown) side, since a cash-segment equity short can't be carried
+overnight in India without a futures contract to actually sell (see
+data.fetch_fo_eligible_symbols). A failure fetching it disables shorts
+for that run rather than taking down the long-only pipeline.
+
+Requires UPSTOX_ACCESS_TOKEN, refreshed daily - see
+tools/refresh_upstox_token.py.
 """
+import logging
 import os
 import sys
 
@@ -36,6 +47,8 @@ from signals.calendar_utils import ist_today, is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
 from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
+
+logger = logging.getLogger(__name__)
 
 DAILY_SWING_TITLE = "Daily Swing (SMA44/BB Confluence)"
 DAILY_SWING_EMOJI = "📈"
@@ -64,6 +77,17 @@ def main() -> None:
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise
+
+    try:
+        # Gates Price Action Breakout's short leg (see
+        # data.fetch_fo_eligible_symbols) - kept out of the try/except
+        # above and defaulted to None (shorts off) on failure, since a
+        # hiccup fetching this shouldn't take down the long-only pipeline
+        # that already works reliably.
+        fo_symbols = data.fetch_fo_eligible_symbols(client)
+    except Exception as exc:  # noqa: BLE001 - additive; see comment above
+        logger.warning("Failed to fetch F&O-eligible symbols, short leg disabled this run: %s", exc)
+        fo_symbols = None
 
     failures: list[tuple[str, Exception]] = []
 
@@ -99,6 +123,7 @@ def main() -> None:
                 pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
                 breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
                 volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+                short_eligible=fo_symbols,
             ),
             today,
         ),
@@ -134,6 +159,7 @@ def main() -> None:
                         pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
                         breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                         volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
+                        short_eligible=fo_symbols,
                     ),
                     today,
                 ),
