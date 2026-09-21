@@ -17,13 +17,13 @@ A breakout within MONTHLY_MIN_GAP_MONTHS of the prior all-time high is
 excluded entirely - too soon after the old high to be a genuine breakout
 out of a real base, not just short-term noise.
 
-Target sizing (%-based off entry) and stop sizing (ATH-anchored, 2% under
-the prior high) are computed independently, so a big enough gap above the
-prior ATH pushes risk up faster than the %-based target grows - a real
-fresh-ATH breakout can still fail to earn back its own risk.
-MIN_REWARD_RISK_RATIO (config.py, 1:1) catches that case and skips the
-signal, per explicit direction that every strategy should clear at least
-breakeven reward:risk on its nearest target.
+No MIN_REWARD_RISK_RATIO gate here, unlike Weekly Range Breakout - tried
+and reverted (see git history): a 5-year backtest showed it cut PF
+1.66 -> 1.45 (530 -> 190 signals), removing more net-positive trades than
+bad ones. A fresh-ATH breakout apparently carries enough of its own
+statistical edge that a snapshot reward:risk ratio doesn't capture well -
+unlike Weekly Range Breakout, where the same gate measurably helped
+(PF 1.34 -> 1.72).
 """
 from __future__ import annotations
 
@@ -86,13 +86,6 @@ def scan(monthly_data: dict[str, pd.DataFrame]) -> list[Signal]:
 
         vol_ratio = float(row["volume"] / row[VOL_COL])
         targets = [round(entry * (1 + pct), 2) for pct in config.ATH_BREAKOUT_TARGET_PCTS]
-        # Target sizing (%-based off entry) and stop sizing (ATH-anchored)
-        # are independent - a big enough gap above the prior ATH pushes risk
-        # (entry down to just-under-ATH) up faster than the %-based target
-        # grows, and can fall under MIN_REWARD_RISK_RATIO even though it's
-        # a genuine fresh-ATH breakout.
-        if (targets[0] - entry) / risk < config.MIN_REWARD_RISK_RATIO:
-            continue
 
         signals.append(
             Signal(

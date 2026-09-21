@@ -144,15 +144,24 @@ ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1,
 # PF 1.42 (1510 trades) to PF 1.66 (530 trades).
 MONTHLY_MIN_GAP_MONTHS = 3
 
-# A strategy whose target sizing is independent of its stop-loss sizing
-# (Weekly Range Breakout's measured-move-off-range-height target vs. its
-# midpoint-of-range stop; Monthly ATH Breakout's %-based target vs. its
-# ATH-anchored stop) doesn't get a favorable reward:risk ratio for free -
-# on a tight-enough range/small-enough gap the two can decouple badly
-# enough that the reward doesn't even cover the risk. Per explicit
-# direction: every strategy should clear at least 1:1 reward:risk on its
-# nearest target, or there's no sense taking the trade regardless of win
-# rate. Daily Swing is exempt - its targets are built directly as
+# Weekly Range Breakout's target sizing (measured-move off range_height) is
+# independent of its stop sizing (midpoint of range) - on a tight-enough
+# range plus a near-max-extension entry the two can decouple badly enough
+# that the reward doesn't even cover the risk. Per explicit direction:
+# every strategy should clear at least 1:1 reward:risk on its nearest
+# target, or there's no sense taking the trade regardless of win rate -
+# confirmed here by a 5-year backtest (PF 1.34 -> 1.72, 60% win rate, on
+# 115 signals - a clean win, not just a theoretical one).
+#
+# Monthly ATH Breakout had the same kind of gate tried and reverted (see
+# git history for monthly_breakout.py): its 5-year backtest went the other
+# way, PF 1.66 -> 1.45 (530 -> 190 signals) - a fresh-ATH breakout
+# apparently carries enough of its own statistical edge that a snapshot
+# reward:risk ratio doesn't capture it well, so gating on it there removed
+# more good trades than bad ones. Not every strategy benefits from this
+# gate just because the principle sounds universal - check before keeping.
+#
+# Daily Swing is exempt entirely - its targets are built directly as
 # risk-multiples (RISK_REWARD_TARGETS, 2R minimum), so 1:1 is guaranteed
 # algebraically, not just usually true; checking it at runtime would be
 # validating something that structurally can't fail. Price Action

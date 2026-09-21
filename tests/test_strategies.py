@@ -391,23 +391,6 @@ class TestMonthlyBreakout:
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
 
-    def test_no_signal_when_reward_risk_ratio_below_minimum(self):
-        # Target sizing (%-based off entry) and stop sizing (ATH-anchored)
-        # are independent - a big enough gap above the prior ATH (35% here)
-        # pushes risk (entry down to just-under-ATH) up faster than the
-        # %-based target grows, landing under MIN_REWARD_RISK_RATIO even
-        # though it's a genuine, properly-closed, high-volume fresh ATH.
-        df = self._monthly_df()
-        prior_ath = df["close"].iloc[:-1].max()
-        df.iloc[-1, df.columns.get_loc("close")] = prior_ath * 1.35
-        df.iloc[-1, df.columns.get_loc("high")] = prior_ath * 1.36
-        df.iloc[-1, df.columns.get_loc("open")] = prior_ath * 1.30
-        df.iloc[-1, df.columns.get_loc("low")] = prior_ath * 1.29
-        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
-
-        signals = monthly_breakout.scan({"TESTCO": df})
-        assert signals == []
-
 
 class TestPriceActionBreakout:
     """Daily-timeframe fixtures throughout (config's *_DAILY constants) -

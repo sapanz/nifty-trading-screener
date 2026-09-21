@@ -9,7 +9,7 @@ levels to Telegram, on a schedule, for six strategies:
 | **Price Action Breakout (Daily)** | Every trading day, 5pm IST | **Long:** above 200 SMA; the *longest* tight prior base found (8-40 daily candles, whatever the data actually supports, accumulation-biased) breaks out on clearly elevated volume (2x average), price later pulls back to retest that broken level without closing convincingly below it, and today closes green, properly closed, and back above the level - that candle is the actual trigger. **Short (F&O-eligible symbols only):** the exact mirror - below 200 SMA, a distribution-biased base breaks *down* on elevated volume, a retest rallies back toward the broken support without reclaiming it, today closes red, properly closed, back below the level. The base's shape (Range, Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge) is labeled from the slope of its highs and lows - a heuristic, not real geometric pattern recognition. Entry is a resting stop at today's high (long) or low (short), stop-loss capped at 5% risk from entry (a signal needing a wider stop is skipped, not tightened to fit); targets are a measured move off the base's own height; signals sort by the base's own range %, largest first. Backtested over 5 years on the long side - see [Known limitations](#known-limitations); the short leg is new and not yet backtested at scale |
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout/breakdown → retest → confirmation logic as the daily leg above (both long and short), run on weekly candles instead (5-20 week base) - a separate, independently tracked signal, not a duplicate of the daily one. Same risk cap idea, but 10% instead of the daily leg's 5% - a weekly retest's natural swing runs structurally wider as a % of price than a daily one's; see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
-| **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; reports how many months it took, sorted longest-dormant first |
+| **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see
@@ -369,9 +369,9 @@ them there rather than in the strategy code.
 - **Monthly ATH Breakout**: entry is the candle's close, stop-loss sits
   just under the prior all-time high with a 2% buffer, and targets are
   open percentage-based (15%/25%) since a fresh all-time high by
-  definition has no prior resistance to aim at - also required to clear
-  `MIN_REWARD_RISK_RATIO` (1:1), since a big enough gap above the prior
-  ATH can push risk up faster than the %-based target grows.
+  definition has no prior resistance to aim at. No `MIN_REWARD_RISK_RATIO`
+  gate, unlike Weekly Range Breakout - tried and reverted; see Known
+  limitations.
 - **Price Action Breakout (long)**: entry is a resting buy-stop at
   **today's** (the confirmation candle's) own high - same buy-stop
   construction every other strategy here uses, filled only once a later
@@ -473,22 +473,27 @@ all-time-high check isn't silently capped at 6 years.
   heuristic, not real trendline-touch-point geometry the way a human
   chartist or a dedicated pattern-recognition library would do it; treat
   it as a useful label, not a rigorous one.
-- **The 5-year PF/win-rate numbers above predate the risk cap and the
-  reward:risk gate.** The risk cap (`PRICE_ACTION_MAX_RISK_PCT_DAILY`/
-  `_WEEKLY`) was added after inspecting live trades directly: the worst
-  performers on both timeframes were running 15-17% risk, well beyond what
-  a breakout-then-retest entry should ever need. A first pass at one flat
-  5% cap for both timeframes *was* backtested - it cut daily signals 56%
-  for almost no PF gain (1.13 -> 1.15, since it removed about as many
-  winners as losers) and gutted weekly 91% (188 -> 17 signals, too thin a
-  sample to trust despite a flashy PF 2.16) - so weekly got a looser 10%
-  cap instead of daily's 5%, for the structural reason explained above,
-  not because its trades are lower-quality. On top of that,
-  `PRICE_ACTION_MIN_REWARD_RISK_RATIO` (2:1) was added afterward and
-  hasn't been backtested at all yet - the risk cap bounds how much is
-  risked, this bounds whether the reward on offer justifies it, and
-  they're independent checks. Every PF/win-rate figure in this README
-  predates that gate.
+- **The risk cap and reward:risk gate have both now been backtested over
+  5 years, and both moved Price Action Breakout's numbers a lot from the
+  48%-win/PF-1.13 (daily) and 63%-win/PF-1.10 (weekly) figures above.**
+  The risk cap (`PRICE_ACTION_MAX_RISK_PCT_DAILY`/`_WEEKLY`) was added
+  after inspecting live trades directly: the worst performers on both
+  timeframes were running 15-17% risk, well beyond what a
+  breakout-then-retest entry should ever need. A first pass at one flat 5%
+  cap for both timeframes cut daily signals 56% for almost no PF gain
+  (1.13 -> 1.15, since it removed about as many winners as losers) and
+  gutted weekly 91% (188 -> 17 signals, too thin a sample to trust despite
+  a flashy PF 2.16) - so weekly got a looser 10% cap instead of daily's
+  5%, for the structural reason explained above, not because its trades
+  are lower-quality. Adding `PRICE_ACTION_MIN_REWARD_RISK_RATIO` (2:1) on
+  top of the split cap landed at: **daily 845 signals, 29% win rate, PF
+  1.20** (win rate keeps falling for a small PF gain - a strategy this
+  reliant on avg-win-vastly-exceeding-avg-loss, 10.4% vs 3.5%, is
+  statistically fragile even though the long-run math works); **weekly 20
+  signals, 45% win rate, PF 2.15** (essentially a wash against the
+  risk-cap-only version - the looser cap let a few signals back in, the
+  reward:risk gate took a similar number back out). Both remain thin
+  samples, weekly especially (~4 signals/year).
 - **Price Action Breakout's short leg is new and unbacktested at scale.**
   It's gated to F&O-eligible symbols (`data.fetch_fo_eligible_symbols`) -
   a much smaller slice of the universe than the long side's full ~500 -
@@ -500,17 +505,22 @@ all-time-high check isn't silently capped at 6 years.
   removed Futures OI Buildup strategy had with futures price history
   itself), so short-leg backtest results should be read with that caveat
   in mind, more so than the long side's.
-- **`MIN_REWARD_RISK_RATIO` (1:1) is new on Weekly Range Breakout and
-  Monthly ATH Breakout too, and neither has been re-backtested against
-  it.** Both strategies size their targets and stops independently (range
-  height vs. range midpoint; %-based vs. ATH-anchored), so nothing
-  previously stopped a signal from clearing every other filter while still
-  not earning back its own risk - this closes that gap, per explicit
-  direction that every strategy should clear at least breakeven
-  reward:risk on its nearest target. Every PF/win-rate figure reported for
-  these two strategies elsewhere in this README predates the gate; it may
-  trim signal counts and shift those numbers similarly to how the Price
-  Action Breakout risk cap did.
+- **`MIN_REWARD_RISK_RATIO` (1:1) has been backtested on Weekly Range
+  Breakout and Monthly ATH Breakout, with opposite results.** Both
+  strategies size their targets and stops independently (range height vs.
+  range midpoint; %-based vs. ATH-anchored), so nothing previously stopped
+  a signal from clearing every other filter while still not earning back
+  its own risk. On Weekly Range Breakout it was a clean win: PF 1.34 ->
+  **1.72**, win rate only dipping 64% -> 60%, on a healthy 115-signal
+  sample - kept. On Monthly ATH Breakout it went the other way: PF
+  **1.66 -> 1.45** (530 -> 190 signals) - a fresh-ATH breakout apparently
+  carries enough of its own statistical edge that a snapshot reward:risk
+  ratio doesn't capture it well, so the gate removed more good trades than
+  bad ones there. Reverted for Monthly ATH Breakout specifically (see git
+  history) - it has no reward:risk gate. The lesson: this principle isn't
+  automatically a net positive for every strategy just because it sounds
+  universal - each application needs its own backtest before being
+  trusted, not just the reasoning behind it.
 
 ## Backtesting
 
