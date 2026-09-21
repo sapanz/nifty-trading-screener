@@ -207,6 +207,15 @@ PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
 PRICE_ACTION_RETEST_TOLERANCE = 0.02
 PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
 
+# A signal whose natural stop-loss (the retest/today extreme - see scan())
+# implies more risk than this gets skipped outright, not tightened to fit -
+# entry is already after a breakout AND a held retest, so a stop this far
+# away means the retest itself was wide/messy, not a genuinely tight setup.
+# Found by inspecting live trades directly (per explicit direction): the
+# worst performers on both daily and weekly ran 15-17% risk, well outside
+# what a breakout-then-retest entry should ever need.
+PRICE_ACTION_MAX_RISK_PCT = 5.0
+
 # Measured-move targets from the breakout level - the base's own height
 # projected upward, same idea as Weekly Range Breakout's own
 # BREAKOUT_RANGE_MULTIPLES (kept as a separate constant since this

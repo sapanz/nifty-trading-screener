@@ -531,6 +531,16 @@ class TestPriceActionBreakout:
         df = df.drop(index=retest_date)
         assert self._scan(df) == []
 
+    def test_no_signal_when_risk_exceeds_max_risk_pct(self):
+        # A retest that wicks much further below the breakout level than
+        # normal still passes the retest/invalidation checks (its close
+        # stays near the level; only its low goes deep) but implies far
+        # more than PRICE_ACTION_MAX_RISK_PCT (5%) of risk from entry to
+        # stop-loss - a messy retest, not a tight setup, so it's skipped
+        # rather than taken with an oversized stop.
+        df = self._base_breakout_retest_df(retest_low=290.0)
+        assert self._scan(df) == []
+
     def test_no_signal_when_base_is_not_tight_enough(self):
         # Base low starts far below the high - well past
         # PRICE_ACTION_RANGE_TIGHTNESS (20%) even at the shortest window,
@@ -650,6 +660,15 @@ class TestPriceActionBreakout:
         # low - still above the level being retested, not a genuine
         # confirmation of the breakdown resuming.
         df = self._short_base_breakdown_retest_df(today_open=293.0, today_high=293.5, today_low=290.5, today_close=291.0)
+        assert self._scan_short(df) == []
+
+    def test_no_short_signal_when_risk_exceeds_max_risk_pct(self):
+        # Mirror of the long-side risk-cap test: a retest that rallies much
+        # further above the breakdown level than normal still passes the
+        # retest/invalidation checks (close stays near the level, only the
+        # high goes far) but implies far more than PRICE_ACTION_MAX_RISK_PCT
+        # (5%) of risk from entry to stop-loss.
+        df = self._short_base_breakdown_retest_df(retest_high=330.0)
         assert self._scan_short(df) == []
 
 

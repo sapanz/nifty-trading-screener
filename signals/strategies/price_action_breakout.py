@@ -38,9 +38,15 @@ Entry is a resting buy-stop at the confirmation candle's own high, same
 construction every other strategy here uses - the trade only fills once a
 later candle actually trades up through it. Stop-loss is the lower of the
 retest's own low and the confirmation candle's low (the support just
-demonstrated holding). Targets are a measured move: the base's own height
-projected up from the breakout level. Signals sort by the base's own
-range (high-low as a % of low), largest first - not by volume or
+demonstrated holding) - but only up to PRICE_ACTION_MAX_RISK_PCT (5%) away
+from entry; a signal whose natural stop sits further than that is skipped
+outright rather than tightened to fit, since entry already comes after a
+breakout AND a held retest, so a stop this wide means the retest itself
+was messy, not that the setup deserves a bigger risk allowance (found by
+inspecting live trades directly: the worst performers on both timeframes
+were running 15-17% risk). Targets are a measured move: the base's own
+height projected up from the breakout level. Signals sort by the base's
+own range (high-low as a % of low), largest first - not by volume or
 proximity, per explicit request.
 
 SHORT leg (breakdown, the exact mirror of the above): only considered for
@@ -323,6 +329,8 @@ def scan(
                 risk = entry - stop_loss
             if risk <= 0:
                 continue
+            if risk / entry * 100 > config.PRICE_ACTION_MAX_RISK_PCT:
+                continue  # retest/today's extreme sits too far from entry - a messy retest, not a tight one
 
             pattern_height = pattern_high - pattern_low
             if bearish:
