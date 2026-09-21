@@ -481,7 +481,7 @@ class TestSummarize:
 
     def test_by_base_length_breakdown_only_appears_when_base_candles_is_set(self):
         # Same reasoning as the shape breakdown - base_candles is only set
-        # by Price Action Breakout, bucketed into fixed <15/15-25/25-35/35+
+        # by Price Action Breakout, bucketed into fixed "Under 15"/15-25/25-35/35+
         # bands, in that order, skipping any band with no trades.
         trades = [
             backtest.TradeResult(
@@ -501,7 +501,7 @@ class TestSummarize:
             ),
         ]
         text = backtest.summarize(trades)
-        assert "By base length: <15 2 (50%) | 35+ 1 (100%)" in text
+        assert "By base length: Under 15 2 (50%) | 35+ 1 (100%)" in text
 
         no_base_len_trades = [
             backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),

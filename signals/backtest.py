@@ -413,7 +413,10 @@ def summarize(trades: list[TradeResult]) -> str:
     # available here - this is a coarse, absolute-candle-count cut, useful
     # for spotting whether short vs. long bases perform differently at all).
     by_base_len: dict[str, list[TradeResult]] = defaultdict(list)
-    base_len_bands = [(15, "<15"), (25, "15-25"), (35, "25-35"), (float("inf"), "35+")]
+    # Band labels avoid literal "<"/">" - these summaries get sent to Telegram
+    # with parse_mode=HTML, and a literal "<15" gets misread as an HTML tag,
+    # which fails the whole send (see the 2026-09-20 backtest run failure).
+    base_len_bands = [(15, "Under 15"), (25, "15-25"), (35, "25-35"), (float("inf"), "35+")]
     for t in decided:
         base_candles = t.diagnostics.get("base_candles")
         if base_candles is None:
