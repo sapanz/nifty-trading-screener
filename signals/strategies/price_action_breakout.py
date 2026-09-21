@@ -38,15 +38,22 @@ Entry is a resting buy-stop at the confirmation candle's own high, same
 construction every other strategy here uses - the trade only fills once a
 later candle actually trades up through it. Stop-loss is the lower of the
 retest's own low and the confirmation candle's low (the support just
-demonstrated holding) - but only up to PRICE_ACTION_MAX_RISK_PCT (5%) away
-from entry; a signal whose natural stop sits further than that is skipped
-outright rather than tightened to fit, since entry already comes after a
-breakout AND a held retest, so a stop this wide means the retest itself
-was messy, not that the setup deserves a bigger risk allowance (found by
-inspecting live trades directly: the worst performers on both timeframes
-were running 15-17% risk). Targets are a measured move: the base's own
-height projected up from the breakout level. Signals sort by the base's
-own range (high-low as a % of low), largest first - not by volume or
+demonstrated holding) - but only up to `max_risk_pct` away from entry
+(PRICE_ACTION_MAX_RISK_PCT_DAILY/_WEEKLY in config.py - split by
+timeframe since a weekly retest's natural swing runs structurally wider
+than a daily one's); a signal whose natural stop sits further than that
+is skipped outright rather than tightened to fit, since entry already
+comes after a breakout AND a held retest, so a stop this wide means the
+retest itself was messy, not that the setup deserves a bigger risk
+allowance (found by inspecting live trades directly: the worst performers
+on both timeframes were running 15-17% risk). Targets are a measured
+move: the base's own height projected up from the breakout level - but
+only if that reward is at least PRICE_ACTION_MIN_REWARD_RISK_RATIO (2:1)
+times the actual risk being taken; the risk cap above bounds how much is
+risked in absolute terms, this bounds whether the reward on offer
+justifies it, and the two are checked independently since base height and
+retest depth aren't tied to each other. Signals sort by the base's own
+range (high-low as a % of low), largest first - not by volume or
 proximity, per explicit request.
 
 SHORT leg (breakdown, the exact mirror of the above): only considered for
@@ -268,13 +275,19 @@ def scan(
     pattern_max_lookback: int,
     breakout_window: int,
     volume_lookback: int,
+    max_risk_pct: float,
     short_eligible: set[str] | None = None,
 ) -> list[Signal]:
     """`short_eligible`, when given, is the set of symbols the short
     (breakdown) leg is allowed to fire on - see data.fetch_fo_eligible_symbols.
     None (the default) means no shorts at all, same as before this leg
     existed. The long leg is unaffected either way and still runs on every
-    symbol in `price_data`."""
+    symbol in `price_data`.
+
+    `max_risk_pct` is timeframe-specific (PRICE_ACTION_MAX_RISK_PCT_DAILY /
+    _WEEKLY in config.py) - pass whichever matches the timeframe of
+    `price_data`, since a weekly retest's natural swing is structurally
+    wider as a % of price than a daily one's."""
     signals: list[Signal] = []
     vol_col = f"avg_vol{volume_lookback}"
     min_len = config.SMA_LONG + pattern_max_lookback + breakout_window + 2
@@ -329,7 +342,7 @@ def scan(
                 risk = entry - stop_loss
             if risk <= 0:
                 continue
-            if risk / entry * 100 > config.PRICE_ACTION_MAX_RISK_PCT:
+            if risk / entry * 100 > max_risk_pct:
                 continue  # retest/today's extreme sits too far from entry - a messy retest, not a tight one
 
             pattern_height = pattern_high - pattern_low
@@ -337,10 +350,14 @@ def scan(
                 targets = [round(pattern_low - pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] >= entry:
                     continue  # target already sits behind entry - skip rather than take a guaranteed-bad trade
+                reward = entry - targets[0]
             else:
                 targets = [round(pattern_high + pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] <= entry:
                     continue
+                reward = targets[0] - entry
+            if reward / risk < config.PRICE_ACTION_MIN_REWARD_RISK_RATIO:
+                continue  # target sizing (base height) and stop sizing (retest) are independent - this one didn't earn its risk
 
             vol_ratio = float(breakout_row["volume"] / breakout_row[vol_col])
             candles_since_breakout = today_idx - b

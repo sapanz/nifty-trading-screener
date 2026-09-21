@@ -27,6 +27,14 @@ entry > signal-close; an entry that's never reached is reported
 (not the breakout level itself) - price often comes back to retest the
 range as support after breaking out, and a stop right at the breakout
 level gets hit by that normal retest, not just a genuine failed breakout.
+
+Target sizing (measured-move off range_height) and stop sizing (range
+midpoint) are computed independently, so a tight-enough range combined
+with a near-max-extension entry can clear every other filter while still
+not earning back its own risk - MIN_REWARD_RISK_RATIO (config.py, 1:1)
+catches that case and skips the signal, per explicit direction that every
+strategy should clear at least breakeven reward:risk on its nearest
+target.
 """
 from __future__ import annotations
 
@@ -117,6 +125,13 @@ def scan(weekly_data: dict[str, pd.DataFrame]) -> list[Signal]:
             # guaranteeing a loss the moment the trade fills even though it
             # still gets recorded as a "target1" outcome. Skip rather than
             # take a trade whose own target is already behind its entry.
+            continue
+        # Same reasoning, one step further: target sizing (off range_height)
+        # and stop sizing (off the range midpoint) are independent, so nothing
+        # stops a tight range + near-max-extension entry from clearing target1
+        # while still landing under MIN_REWARD_RISK_RATIO - a real trade, but
+        # not one worth taking on its own terms.
+        if (targets[0] - entry) / risk < config.MIN_REWARD_RISK_RATIO:
             continue
         vol_ratio = float(row["volume"] / row[VOL_COL])
 

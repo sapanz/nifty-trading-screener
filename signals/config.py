@@ -144,6 +144,23 @@ ATH_BREAKOUT_TARGET_PCTS = (0.15, 0.25)  # open-ended ATH breakouts: %-based T1,
 # PF 1.42 (1510 trades) to PF 1.66 (530 trades).
 MONTHLY_MIN_GAP_MONTHS = 3
 
+# A strategy whose target sizing is independent of its stop-loss sizing
+# (Weekly Range Breakout's measured-move-off-range-height target vs. its
+# midpoint-of-range stop; Monthly ATH Breakout's %-based target vs. its
+# ATH-anchored stop) doesn't get a favorable reward:risk ratio for free -
+# on a tight-enough range/small-enough gap the two can decouple badly
+# enough that the reward doesn't even cover the risk. Per explicit
+# direction: every strategy should clear at least 1:1 reward:risk on its
+# nearest target, or there's no sense taking the trade regardless of win
+# rate. Daily Swing is exempt - its targets are built directly as
+# risk-multiples (RISK_REWARD_TARGETS, 2R minimum), so 1:1 is guaranteed
+# algebraically, not just usually true; checking it at runtime would be
+# validating something that structurally can't fail. Price Action
+# Breakout uses its own stricter PRICE_ACTION_MIN_REWARD_RISK_RATIO
+# instead of this one (see that section) - explicitly asked for 1:2, not
+# just the universal 1:1 floor.
+MIN_REWARD_RISK_RATIO = 1.0
+
 # --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
 # Runs on daily AND weekly candles (price_action_breakout.scan() is called
 # twice, once per timeframe, each with its own window sizes below - a
@@ -214,7 +231,25 @@ PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout leve
 # Found by inspecting live trades directly (per explicit direction): the
 # worst performers on both daily and weekly ran 15-17% risk, well outside
 # what a breakout-then-retest entry should ever need.
-PRICE_ACTION_MAX_RISK_PCT = 5.0
+#
+# Split by timeframe, not one shared number: a first pass at a flat 5% cap
+# for both (see git history) cut daily signals 56% for almost no PF gain
+# (1.13 -> 1.15) - it removed about as many winners as losers - and gutted
+# weekly 91% (188 -> 17 signals over 5 years, too thin a sample to trust
+# despite a flashy PF 2.16), because a week's natural retest swing is much
+# wider as a % of price than a day's. Weekly gets a looser cap for that
+# structural reason, not because its trades are lower-quality.
+PRICE_ACTION_MAX_RISK_PCT_DAILY = 5.0
+PRICE_ACTION_MAX_RISK_PCT_WEEKLY = 10.0
+
+# Per explicit direction, stricter than the universal MIN_REWARD_RISK_RATIO
+# (1:1) elsewhere in this file: entry here already comes after a breakout
+# AND a held retest, so the setup should earn a real 1:2 reward:risk on its
+# nearest target, not just clear breakeven. Checked on top of, not instead
+# of, the risk-pct caps above - the caps bound how much is risked in
+# absolute terms, this bounds whether the reward on offer justifies
+# whatever risk is actually taken.
+PRICE_ACTION_MIN_REWARD_RISK_RATIO = 2.0
 
 # Measured-move targets from the breakout level - the base's own height
 # projected upward, same idea as Weekly Range Breakout's own

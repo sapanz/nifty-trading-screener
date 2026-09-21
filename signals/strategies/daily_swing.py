@@ -100,6 +100,9 @@ def scan(daily_data: dict[str, pd.DataFrame], weekly_data: dict[str, pd.DataFram
         if risk <= 0:
             continue
 
+        # Built directly as risk-multiples (RISK_REWARD_TARGETS, 2R min), so
+        # MIN_REWARD_RISK_RATIO (1:1) is guaranteed algebraically here - no
+        # runtime gate needed, unlike the other strategies (see config.py).
         targets = [round(entry + risk * mult, 2) for mult in config.RISK_REWARD_TARGETS]
 
         # Volume and trend-extension confirm the pullback is being bought,

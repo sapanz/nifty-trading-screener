@@ -24,11 +24,13 @@ def _ramp_then_flat_df(
 
 
 class TestWeeklyBreakout:
-    # Range candles: range_low=180, range_high=200 (10% wide, within the
-    # 20% tightness cap). A valid breakout candle sits BREAKOUT_MIN/MAX_
-    # EXTENSION above 200 - 216.0 (8% extension) is used throughout as the
-    # default "properly extended" breakout close.
-    VALID_BREAKOUT_ROW = {"open": [210.0], "high": [216.5], "low": [209.0], "close": [216.0], "volume": [400_000.0]}
+    # Range candles: range_low=170, range_high=200 (17.6% wide, within the
+    # 20% tightness cap - wide enough that the measured-move target clears
+    # MIN_REWARD_RISK_RATIO once the entry-to-midpoint risk is netted out).
+    # A valid breakout candle sits BREAKOUT_MIN/MAX_EXTENSION above 200 -
+    # 210.0 (5% extension) is used throughout as the default "properly
+    # extended" breakout close.
+    VALID_BREAKOUT_ROW = {"open": [203.0], "high": [210.5], "low": [202.0], "close": [210.0], "volume": [400_000.0]}
 
     def _tight_accumulation_range(self, df: pd.DataFrame) -> pd.DataFrame:
         """Overwrite the trailing BREAKOUT_RANGE_WEEKS rows into a tight,
@@ -37,9 +39,9 @@ class TestWeeklyBreakout:
         passes trivially."""
         for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
             idx = -i
-            df.iloc[idx, df.columns.get_loc("open")] = 182.0
+            df.iloc[idx, df.columns.get_loc("open")] = 172.0
             df.iloc[idx, df.columns.get_loc("high")] = 200.0
-            df.iloc[idx, df.columns.get_loc("low")] = 180.0
+            df.iloc[idx, df.columns.get_loc("low")] = 170.0
             df.iloc[idx, df.columns.get_loc("close")] = 198.0
         return df
 
@@ -57,16 +59,16 @@ class TestWeeklyBreakout:
 
         # Entry is a resting buy-stop at the breakout candle's own high, not
         # an immediate fill at its close.
-        assert sig.entry == round(216.5, 2)
+        assert sig.entry == round(210.5, 2)
         # Stop-loss sits at the midpoint of the consolidation range
-        # (180-200), not anchored to the breakout level itself.
-        assert sig.stop_loss == round((200.0 + 180.0) / 2, 2)
+        # (170-200), not anchored to the breakout level itself.
+        assert sig.stop_loss == round((200.0 + 170.0) / 2, 2)
         assert sig.candle_date == df.index[-1].date()
         # Diagnostic-only fields (not gated on) that ride along so a
         # backtest's CSV can be mined for what separates good and bad
         # signals - see backtest.DIAGNOSTIC_KEYS.
-        assert sig.extra["extension_pct"] == pytest.approx((216.0 - 200.0) / 200.0 * 100, abs=0.01)
-        assert sig.extra["tightness_pct"] == pytest.approx((200.0 - 180.0) / 180.0 * 100, abs=0.01)
+        assert sig.extra["extension_pct"] == pytest.approx((210.0 - 200.0) / 200.0 * 100, abs=0.01)
+        assert sig.extra["tightness_pct"] == pytest.approx((200.0 - 170.0) / 170.0 * 100, abs=0.01)
         assert "dist_from_sma200_pct" in sig.extra
         assert 0 <= sig.extra["rsi14"] <= 100
 
@@ -94,6 +96,29 @@ class TestWeeklyBreakout:
 
         breakout_row = pd.DataFrame(
             {"open": [235.0], "high": [242.0], "low": [233.0], "close": [240.0], "volume": [400_000.0]},
+            index=[df.index[-1] + pd.Timedelta(weeks=1)],
+        )
+        df = pd.concat([df, breakout_row])
+        signals = weekly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
+    def test_no_signal_when_reward_risk_ratio_below_minimum(self):
+        # A narrower range (180-200, 11.1% tight - still passes the 20%
+        # tightness cap) combined with a valid-but-higher extension (8%,
+        # within 4-12%) is otherwise a fully valid setup, but the resulting
+        # target1-to-entry reward doesn't cover the entry-to-midpoint risk
+        # (R:R ~0.5) - target sizing and stop sizing are independent here,
+        # so nothing else in the pipeline would have caught this.
+        df = _ramp_then_flat_df("W-FRI", ramp_weeks=200, flat_weeks=config.BREAKOUT_RANGE_WEEKS, start=50, plateau=200)
+        for i in range(1, config.BREAKOUT_RANGE_WEEKS + 1):
+            idx = -i
+            df.iloc[idx, df.columns.get_loc("open")] = 182.0
+            df.iloc[idx, df.columns.get_loc("high")] = 200.0
+            df.iloc[idx, df.columns.get_loc("low")] = 180.0
+            df.iloc[idx, df.columns.get_loc("close")] = 198.0
+
+        breakout_row = pd.DataFrame(
+            {"open": [210.0], "high": [216.5], "low": [209.0], "close": [216.0], "volume": [400_000.0]},
             index=[df.index[-1] + pd.Timedelta(weeks=1)],
         )
         df = pd.concat([df, breakout_row])
@@ -366,6 +391,23 @@ class TestMonthlyBreakout:
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
 
+    def test_no_signal_when_reward_risk_ratio_below_minimum(self):
+        # Target sizing (%-based off entry) and stop sizing (ATH-anchored)
+        # are independent - a big enough gap above the prior ATH (35% here)
+        # pushes risk (entry down to just-under-ATH) up faster than the
+        # %-based target grows, landing under MIN_REWARD_RISK_RATIO even
+        # though it's a genuine, properly-closed, high-volume fresh ATH.
+        df = self._monthly_df()
+        prior_ath = df["close"].iloc[:-1].max()
+        df.iloc[-1, df.columns.get_loc("close")] = prior_ath * 1.35
+        df.iloc[-1, df.columns.get_loc("high")] = prior_ath * 1.36
+        df.iloc[-1, df.columns.get_loc("open")] = prior_ath * 1.30
+        df.iloc[-1, df.columns.get_loc("low")] = prior_ath * 1.29
+        df.iloc[-1, df.columns.get_loc("volume")] = 200_000.0
+
+        signals = monthly_breakout.scan({"TESTCO": df})
+        assert signals == []
+
 
 class TestPriceActionBreakout:
     """Daily-timeframe fixtures throughout (config's *_DAILY constants) -
@@ -385,7 +427,7 @@ class TestPriceActionBreakout:
         base_low_end: float = 305.0,
         base_high: float = 310.0,
         breakout_volume: float = 250_000.0,
-        retest_low: float = 305.0,
+        retest_low: float = 306.0,
         retest_close: float = 308.0,
         today_open: float = 309.0,
         today_high: float = 317.0,
@@ -448,6 +490,7 @@ class TestPriceActionBreakout:
             pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_DAILY,
         )
 
     def test_detects_base_breakout_retest_confirmation(self):
@@ -460,7 +503,7 @@ class TestPriceActionBreakout:
         # own high, not the breakout candle's.
         assert sig.entry == 317.0
         # Stop-loss is the lower of the retest low and today's own low.
-        assert sig.stop_loss == 305.0
+        assert sig.stop_loss == 306.0
         assert sig.stop_loss < sig.entry < sig.targets[0] < sig.targets[1]
         assert sig.candle_date == df.index[-1].date()
 
@@ -479,8 +522,10 @@ class TestPriceActionBreakout:
 
     def test_classifies_range_shape(self):
         # Flat high AND flat low (base_low_start == base_low_end) - a
-        # rectangle, not a triangle.
-        df = self._base_breakout_retest_df(base_low_start=300.0, base_low_end=300.0, base_high=310.0)
+        # rectangle, not a triangle. Same base height as the default
+        # fixture (280 to 310) so the R:R math stays identical, just with a
+        # flat instead of rising low.
+        df = self._base_breakout_retest_df(base_low_start=280.0, base_low_end=280.0, base_high=310.0)
         signals = self._scan(df)
         assert len(signals) == 1
         assert signals[0].extra["breakout_type"] == "Range"
@@ -535,11 +580,48 @@ class TestPriceActionBreakout:
         # A retest that wicks much further below the breakout level than
         # normal still passes the retest/invalidation checks (its close
         # stays near the level; only its low goes deep) but implies far
-        # more than PRICE_ACTION_MAX_RISK_PCT (5%) of risk from entry to
-        # stop-loss - a messy retest, not a tight setup, so it's skipped
+        # more than PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) of risk from entry
+        # to stop-loss - a messy retest, not a tight setup, so it's skipped
         # rather than taken with an oversized stop.
         df = self._base_breakout_retest_df(retest_low=290.0)
         assert self._scan(df) == []
+
+    def test_no_signal_when_reward_risk_ratio_below_minimum(self):
+        # A milder version of the case above: risk (13, ~4.1% of entry)
+        # stays under PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) on its own, but
+        # the fixed target (base-height-off-the-breakout-level, unaffected
+        # by how deep the retest wicked) doesn't cover twice that risk -
+        # PRICE_ACTION_MIN_REWARD_RISK_RATIO (2:1) is a separate bar from
+        # the risk-pct cap, not implied by clearing it.
+        df = self._base_breakout_retest_df(retest_low=304.0)
+        assert self._scan(df) == []
+
+    def test_max_risk_pct_is_timeframe_specific_not_a_shared_constant(self):
+        # A wider (200-238, 19% tight - still under the 20% cap), taller
+        # base than the default fixture, sized so its ~7% natural risk
+        # fails PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) but passes
+        # PRICE_ACTION_MAX_RISK_PCT_WEEKLY (10%), while comfortably clearing
+        # PRICE_ACTION_MIN_REWARD_RISK_RATIO (2.2:1) either way - isolates
+        # the risk-pct-cap behavior from the reward:risk gate, proving
+        # scan() actually uses whichever `max_risk_pct` its caller passes
+        # rather than a single hardcoded threshold.
+        df = self._base_breakout_retest_df(
+            base_low_start=200.0, base_low_end=200.0, base_high=238.0,
+            retest_low=222.5, retest_close=235.0,
+            today_open=236.0, today_high=239.2, today_low=225.0, today_close=239.0,
+        )
+        assert self._scan(df) == []  # PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) rejects ~7% risk
+
+        signals = price_action_breakout.scan(
+            {"TESTCO": df},
+            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
+            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
+            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
+            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
+        )
+        assert len(signals) == 1
+        assert signals[0].stop_loss == 222.5
 
     def test_no_signal_when_base_is_not_tight_enough(self):
         # Base low starts far below the high - well past
@@ -618,6 +700,7 @@ class TestPriceActionBreakout:
             pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
+            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_DAILY,
             short_eligible=short_eligible,
         )
 
@@ -666,9 +749,18 @@ class TestPriceActionBreakout:
         # Mirror of the long-side risk-cap test: a retest that rallies much
         # further above the breakdown level than normal still passes the
         # retest/invalidation checks (close stays near the level, only the
-        # high goes far) but implies far more than PRICE_ACTION_MAX_RISK_PCT
-        # (5%) of risk from entry to stop-loss.
+        # high goes far) but implies far more than
+        # PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) of risk from entry to
+        # stop-loss.
         df = self._short_base_breakdown_retest_df(retest_high=330.0)
+        assert self._scan_short(df) == []
+
+    def test_no_short_signal_when_reward_risk_ratio_below_minimum(self):
+        # Mirror of the long-side R:R test: risk (13, ~4.6% of entry) stays
+        # under PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) on its own, but the
+        # fixed target (base-height-off-the-breakdown-level, unaffected by
+        # how far the retest rallied) doesn't cover twice that risk.
+        df = self._short_base_breakdown_retest_df(retest_high=297.0)
         assert self._scan_short(df) == []
 
 
