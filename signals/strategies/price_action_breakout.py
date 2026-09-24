@@ -21,13 +21,26 @@ A stock qualifies for a LONG when:
     Descending/Symmetrical Triangle, Rising/Falling Wedge) from the slopes
     of lines fit through its highs and lows; see the caveat on that in
     signals/config.py.
-  - today itself closed above the base's high, bullish and properly closed
-    (is_bullish + is_proper_close - the existing 20%-wick rule, unchanged),
-    on clearly elevated volume (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER) -
-    the "high volumes" the breakout itself needs. That's the whole
-    trigger - no later retest/reclaim confirmation is waited for, per
-    explicit direction: waiting for one made entries late relative to the
-    breakout that actually mattered.
+  - today itself closed above the base's **breakout level**, bullish and
+    properly closed (is_bullish + is_proper_close - the existing 20%-wick
+    rule, unchanged), on clearly elevated volume
+    (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER) - the "high volumes" the
+    breakout itself needs. That's the whole trigger - no later
+    retest/reclaim confirmation is waited for, per explicit direction:
+    waiting for one made entries late relative to the breakout that
+    actually mattered.
+
+The breakout level is a straight line fit through the base's highs
+(_project_trendline) and projected one step forward to today, not simply
+the base's rolling max. The two agree whenever the base's top is flat or
+rising (Range, Ascending Triangle, Rising Wedge - the common case), but
+for a falling top (Descending Triangle, Symmetrical Triangle) the rolling
+max stays pinned to the base's oldest/highest candle, making a genuine
+trendline breakout on a later, lower high almost undetectable; the
+trendline projection tracks the actual slope instead. `pattern_high` (the
+base's plain high-low band) is still used unchanged for tightness scoring
+and the measured-move height - only the trigger and target-anchor use the
+projected level.
 
 Entry is a resting buy-stop at today's (the breakout candle's) own high,
 same construction every other strategy here uses - the trade only fills
@@ -55,12 +68,13 @@ isn't practically actionable the way a long always is). A stock qualifies
 for a short when it's BELOW its 200 SMA, _detect_base finds a
 *distribution* base (down-volume > up-volume - is_distribution_range,
 the bearish mirror of is_accumulation_range) ending right before today,
-and today itself closed below the base's low, bearish and properly closed
-(is_bearish + is_proper_close_bearish), on elevated volume. Entry is a
-resting sell-stop at today's own low; stop-loss is today's own high;
-targets project the base's height down from the breakdown level. Every
-threshold is identical to the long side's, just mirrored - no separate
-short-specific tuning in config.py.
+and today itself closed below the base's breakdown level (the same
+trendline projection, fit through the base's lows instead), bearish and
+properly closed (is_bearish + is_proper_close_bearish), on elevated
+volume. Entry is a resting sell-stop at today's own low; stop-loss is
+today's own high; targets project the base's height down from the
+breakdown level. Every threshold is identical to the long side's, just
+mirrored - no separate short-specific tuning in config.py.
 
 Replaces an earlier version of this strategy that waited for a later
 candle to retest the breakout level and reclaim it before entering - per
@@ -152,6 +166,18 @@ def _rolling_bands(
     return highs, lows
 
 
+def _project_trendline(values: np.ndarray) -> float:
+    """Fit a straight line through `values` (the base's highs or lows, in
+    candle order) and project it one step past the base's last candle - i.e.
+    the trendline's value "today", not just its max/min over the base.
+    Reduces to that max/min when the line is flat, but tracks a genuinely
+    sloped top/bottom (a triangle or wedge) where a flat rolling max/min
+    would instead stay pinned to the base's oldest/most-extreme point."""
+    x = np.arange(len(values))
+    slope, intercept = np.polyfit(x, values, 1)
+    return float(slope * len(values) + intercept)
+
+
 def _detect_base(
     df: pd.DataFrame,
     breakout_idx: int,
@@ -160,7 +186,7 @@ def _detect_base(
     high_bands: dict[int, np.ndarray],
     low_bands: dict[int, np.ndarray],
     bearish: bool = False,
-) -> tuple[pd.DataFrame, float, float] | None:
+) -> tuple[pd.DataFrame, float, float, float] | None:
     """Find the longest tight base ending right before `breakout_idx`,
     between `pattern_min_lookback` and `pattern_max_lookback` candles long.
     Checked longest-first so the reported base length is the base's real
@@ -169,7 +195,17 @@ def _detect_base(
     `bearish=False` (default, the long side) requires accumulation
     (is_accumulation_range - more volume on up candles); `bearish=True`
     (the short side) requires its mirror, distribution (is_distribution_range
-    - more volume on down candles) instead."""
+    - more volume on down candles) instead.
+
+    Returns `(pattern, pattern_high, pattern_low, breakout_level)`.
+    `pattern_high`/`pattern_low` are the base's plain high-low band - used
+    for tightness scoring and the measured-move height. `breakout_level` is
+    the relevant boundary (highs for long, lows for short) projected via
+    _project_trendline instead of read off the band directly, so a sloped
+    top (Descending/Symmetrical Triangle) or sloped bottom (Ascending
+    Triangle/Rising Wedge used as a distribution base) gets a breakout
+    trigger that actually tracks the trendline rather than staying pinned
+    to the base's flat rolling max/min."""
     range_check = is_distribution_range if bearish else is_accumulation_range
     for length in range(pattern_max_lookback, pattern_min_lookback - 1, -1):
         start = breakout_idx - length
@@ -184,7 +220,11 @@ def _detect_base(
         pattern = df.iloc[start:breakout_idx]
         if not range_check(pattern):
             continue
-        return pattern, float(pattern_high), float(pattern_low)
+        column = "low" if bearish else "high"
+        breakout_level = _project_trendline(pattern[column].to_numpy())
+        if breakout_level <= 0:
+            continue
+        return pattern, float(pattern_high), float(pattern_low), breakout_level
     return None
 
 
@@ -253,16 +293,16 @@ def scan(
             base = _detect_base(df, today_idx, pattern_min_lookback, pattern_max_lookback, high_bands, low_bands, bearish=bearish)
             if base is None:
                 continue
-            pattern, pattern_high, pattern_low = base
+            pattern, pattern_high, pattern_low, breakout_level = base
 
             if bearish:
-                if not today["close"] < pattern_low:
+                if not today["close"] < breakout_level:
                     continue
                 entry = float(today["low"])
                 stop_loss = float(today["high"])
                 risk = stop_loss - entry
             else:
-                if not today["close"] > pattern_high:
+                if not today["close"] > breakout_level:
                     continue
                 entry = float(today["high"])
                 stop_loss = float(today["low"])
@@ -274,12 +314,12 @@ def scan(
 
             pattern_height = pattern_high - pattern_low
             if bearish:
-                targets = [round(pattern_low - pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
+                targets = [round(breakout_level - pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] >= entry:
                     continue  # target already sits behind entry - skip rather than take a guaranteed-bad trade
                 reward = entry - targets[0]
             else:
-                targets = [round(pattern_high + pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
+                targets = [round(breakout_level + pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] <= entry:
                     continue
                 reward = targets[0] - entry
@@ -313,6 +353,7 @@ def scan(
                         "base_candles": base_len,
                         "base_start": base_start.isoformat(),
                         "base_end": base_end.isoformat(),
+                        "breakout_level": round(breakout_level, 2),
                     },
                 )
             )
