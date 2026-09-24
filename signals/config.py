@@ -170,47 +170,49 @@ MONTHLY_MIN_GAP_MONTHS = 3
 # just the universal 1:1 floor.
 MIN_REWARD_RISK_RATIO = 1.0
 
-# --- Price Action Breakout (consolidation -> high-volume breakout -> retest -> green confirmation) ---
+# --- Price Action Breakout (consolidation -> high-volume breakout, entered immediately) ---
 # Runs on daily AND weekly candles (price_action_breakout.scan() is called
 # twice, once per timeframe, each with its own window sizes below - a
 # breakout worth trading looks the same shape at any zoom level). No
-# monthly leg - a 5-year backtest showed it never fires at all under these
-# thresholds (too little monthly history per stock to form a base this
-# strict), and Monthly ATH Breakout already covers the monthly timeframe.
+# monthly leg - a 5-year backtest of the earlier retest-based version of
+# this strategy showed it never fired at all under these thresholds (too
+# little monthly history per stock to form a base this strict), and
+# Monthly ATH Breakout already covers the monthly timeframe.
 #
-# The base's length is DETECTED, not fixed: for a candidate breakout
-# candle, _detect_base walks backward from it looking for the LONGEST
-# window (between the per-timeframe MIN/MAX bounds below) whose high-low
-# band still stays within PRICE_ACTION_RANGE_TIGHTNESS - real bases vary
-# in how long they take to form, and reporting that actual length (rather
-# than a fixed number that's the same for every stock) is the point of
-# surfacing it at all. Once the base is found, a lightweight shape
-# classifier (_classify_shape) fits a straight line through its highs and
-# another through its lows and labels the combination of slopes (flat/
-# rising/falling) as Range, Ascending/Descending/Symmetrical Triangle, or
+# The base's length is DETECTED, not fixed: for today's own candle,
+# _detect_base walks backward from it looking for the LONGEST window
+# (between the per-timeframe MIN/MAX bounds below) whose high-low band
+# still stays within PRICE_ACTION_RANGE_TIGHTNESS - real bases vary in how
+# long they take to form, and reporting that actual length (rather than a
+# fixed number that's the same for every stock) is the point of surfacing
+# it at all. Once the base is found, a lightweight shape classifier
+# (_classify_shape) fits a straight line through its highs and another
+# through its lows and labels the combination of slopes (flat/rising/
+# falling) as Range, Ascending/Descending/Symmetrical Triangle, or
 # Rising/Falling Wedge - a real classification, but a heuristic one (slope
 # sign and magnitude, not genuine trendline/touch-point geometry), labeled
 # as such rather than dressed up as more rigorous than it is.
 #
-# Beyond the base itself: a breakout candle closing above the
-# consolidation's high on clearly elevated volume, a pullback that comes
-# back to retest that broken level as support without ever closing
-# convincingly back below it, and finally a green, properly-closed candle
-# (is_bullish + is_proper_close - the existing "20%-wick" rule, left
-# exactly as-is) that closes back above the breakout level - that candle
-# is the actual signal trigger, not the breakout candle itself.
+# Beyond the base itself: today's own candle closing above the
+# consolidation's high on clearly elevated volume, bullish and properly
+# closed (is_bullish + is_proper_close - the existing "20%-wick" rule) IS
+# the entry trigger - no later retest/reclaim confirmation is waited for.
+# An earlier version of this strategy required a pullback that came back
+# to retest the broken level as support before entering (see git history
+# for price_action_breakout.py) - reverted per explicit direction: waiting
+# for that retest was making entries late relative to the breakout that
+# actually mattered, entering good distance into the move rather than at
+# its start.
 #
-# Brand new strategy, not backtest-tuned yet (every number below is a
-# judgment call sized to what was asked for - a tight base, a genuinely
-# high-volume break, a real but not-too-deep retest - not a threshold
-# mined from a trade CSV the way the older strategies' numbers were).
-# Revisit once a real backtest CSV exists to mine instead of guessing.
+# This immediate-entry version is not backtest-tuned yet (every number
+# below is a judgment call sized to what was asked for - a tight base, a
+# genuinely high-volume break - not a threshold mined from a trade CSV the
+# way the older strategies' numbers were). Revisit once a real backtest
+# CSV exists to mine instead of guessing.
 PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY = 8      # shortest window that still counts as a real base, daily
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY = 40     # longest window _detect_base will consider, daily
 PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY = 5
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY = 20
-PRICE_ACTION_BREAKOUT_WINDOW_DAILY = 10     # how many recent candles back a breakout may have happened, daily
-PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8     # same, weekly
 PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
 PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
 
@@ -226,38 +228,27 @@ PRICE_ACTION_RANGE_TIGHTNESS = BREAKOUT_RANGE_TIGHTNESS
 # conviction behind the actual breakout.
 PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
 
-# How far the retest is allowed to undercut the breakout level and still
-# count as "held" (a small wick below it is normal noise; a close
-# meaningfully below it means the level failed, not that it's being
-# retested).
-PRICE_ACTION_RETEST_TOLERANCE = 0.02
-PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
-
-# A signal whose natural stop-loss (the retest/today extreme - see scan())
-# implies more risk than this gets skipped outright, not tightened to fit -
-# entry is already after a breakout AND a held retest, so a stop this far
-# away means the retest itself was wide/messy, not a genuinely tight setup.
-# Found by inspecting live trades directly (per explicit direction): the
-# worst performers on both daily and weekly ran 15-17% risk, well outside
-# what a breakout-then-retest entry should ever need.
+# A signal whose natural stop-loss (today's own high/low - see scan()) implies
+# more risk than this gets skipped outright, not tightened to fit.
 #
-# Split by timeframe, not one shared number: a first pass at a flat 5% cap
-# for both (see git history) cut daily signals 56% for almost no PF gain
-# (1.13 -> 1.15) - it removed about as many winners as losers - and gutted
-# weekly 91% (188 -> 17 signals over 5 years, too thin a sample to trust
-# despite a flashy PF 2.16), because a week's natural retest swing is much
-# wider as a % of price than a day's. Weekly gets a looser cap for that
-# structural reason, not because its trades are lower-quality.
+# Split by timeframe, not one shared number, since a weekly candle's natural
+# range runs structurally wider as a % of price than a daily one's. The exact
+# 5%/10% split below was tuned against the earlier retest-based version of
+# this strategy (see git history for price_action_breakout.py before the
+# immediate-entry rewrite) - that version's stop was the lower of a retest low
+# and the confirmation candle's low, not today's own candle range, so these
+# numbers are carried over as a starting point, not re-derived for the new
+# mechanics. Revisit once this version has its own backtest CSV to mine.
 PRICE_ACTION_MAX_RISK_PCT_DAILY = 5.0
 PRICE_ACTION_MAX_RISK_PCT_WEEKLY = 10.0
 
 # Per explicit direction, stricter than the universal MIN_REWARD_RISK_RATIO
-# (1:1) elsewhere in this file: entry here already comes after a breakout
-# AND a held retest, so the setup should earn a real 1:2 reward:risk on its
-# nearest target, not just clear breakeven. Checked on top of, not instead
-# of, the risk-pct caps above - the caps bound how much is risked in
-# absolute terms, this bounds whether the reward on offer justifies
-# whatever risk is actually taken.
+# (1:1) elsewhere in this file: this strategy already demands a genuine
+# high-volume breakout candle, not just any move, so the setup should earn a
+# real 1:2 reward:risk on its nearest target, not just clear breakeven.
+# Checked on top of, not instead of, the risk-pct caps above - the caps bound
+# how much is risked in absolute terms, this bounds whether the reward on
+# offer justifies whatever risk is actually taken.
 PRICE_ACTION_MIN_REWARD_RISK_RATIO = 2.0
 
 # Measured-move targets from the breakout level - the base's own height

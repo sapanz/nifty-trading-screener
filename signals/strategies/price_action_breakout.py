@@ -1,19 +1,19 @@
-"""Price Action Breakout: base -> high-volume breakout -> retest -> green
-confirmation candle. Runs on daily AND weekly candles (see
-scripts/run_signals.py and signals/backtest.py, which each call scan()
-twice with a different set of window sizes below - the same shape of
-setup, just zoomed to a different timeframe). No monthly leg - a 5-year
-backtest showed it never fired under these thresholds (too little
-monthly history per stock to form a base this strict), and Monthly ATH
-Breakout already covers that timeframe.
+"""Price Action Breakout: base -> high-volume breakout, entered immediately
+on the breakout candle itself - no retest wait. Runs on daily AND weekly
+candles (see scripts/run_signals.py and signals/backtest.py, which each
+call scan() twice with a different set of window sizes below - the same
+shape of setup, just zoomed to a different timeframe). No monthly leg - a
+5-year backtest of the (since-replaced) retest-based version showed it
+never fired under these thresholds (too little monthly history per stock
+to form a base this strict), and Monthly ATH Breakout already covers that
+timeframe.
 
 A stock qualifies for a LONG when:
   - it is above its own 200-period SMA (long-term uptrend, same baseline
     filter every other strategy here uses)
-  - looking back from a candle within the last `breakout_window` candles,
-    _detect_base finds a **base**: the longest window (between
-    `pattern_min_lookback` and `pattern_max_lookback`) ending right before
-    it whose high-low band stays within PRICE_ACTION_RANGE_TIGHTNESS, with
+  - _detect_base finds a **base** ending right before today: the longest
+    window (between `pattern_min_lookback` and `pattern_max_lookback`)
+    whose high-low band stays within PRICE_ACTION_RANGE_TIGHTNESS, with
     more volume on its up (green) candles than its down ones -
     accumulation, not mere drift (is_accumulation_range). The base's
     actual detected length varies per stock/signal - it isn't a fixed
@@ -21,40 +21,30 @@ A stock qualifies for a LONG when:
     Descending/Symmetrical Triangle, Rising/Falling Wedge) from the slopes
     of lines fit through its highs and lows; see the caveat on that in
     signals/config.py.
-  - that candle itself ("the breakout candle") closed above the base's
-    high, bullish and properly closed, on clearly elevated volume
-    (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER) - the "high volumes" the
-    breakout itself needs
-  - at least one candle after the breakout pulled back to retest that
-    broken level (within PRICE_ACTION_RETEST_TOLERANCE) without any close
-    in between falling PRICE_ACTION_INVALIDATION_PCT below it - the level
-    held as support rather than failing
-  - today is a green, properly-closed candle (is_bullish + is_proper_close
-    - the existing 20%-wick rule, unchanged) that closes back above the
-    breakout level - the actual signal trigger; everything above it is
-    context this candle confirms
+  - today itself closed above the base's high, bullish and properly closed
+    (is_bullish + is_proper_close - the existing 20%-wick rule, unchanged),
+    on clearly elevated volume (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER) -
+    the "high volumes" the breakout itself needs. That's the whole
+    trigger - no later retest/reclaim confirmation is waited for, per
+    explicit direction: waiting for one made entries late relative to the
+    breakout that actually mattered.
 
-Entry is a resting buy-stop at the confirmation candle's own high, same
-construction every other strategy here uses - the trade only fills once a
-later candle actually trades up through it. Stop-loss is the lower of the
-retest's own low and the confirmation candle's low (the support just
-demonstrated holding) - but only up to `max_risk_pct` away from entry
+Entry is a resting buy-stop at today's (the breakout candle's) own high,
+same construction every other strategy here uses - the trade only fills
+once a later candle actually trades up through it. Stop-loss is today's
+own low - but only up to `max_risk_pct` away from entry
 (PRICE_ACTION_MAX_RISK_PCT_DAILY/_WEEKLY in config.py - split by
-timeframe since a weekly retest's natural swing runs structurally wider
-than a daily one's); a signal whose natural stop sits further than that
-is skipped outright rather than tightened to fit, since entry already
-comes after a breakout AND a held retest, so a stop this wide means the
-retest itself was messy, not that the setup deserves a bigger risk
-allowance (found by inspecting live trades directly: the worst performers
-on both timeframes were running 15-17% risk). Targets are a measured
+timeframe since a weekly candle's natural range runs structurally wider
+than a daily one's); a signal whose natural stop sits further than that is
+skipped outright rather than tightened to fit. Targets are a measured
 move: the base's own height projected up from the breakout level - but
 only if that reward is at least PRICE_ACTION_MIN_REWARD_RISK_RATIO (2:1)
 times the actual risk being taken; the risk cap above bounds how much is
 risked in absolute terms, this bounds whether the reward on offer
 justifies it, and the two are checked independently since base height and
-retest depth aren't tied to each other. Signals sort by the base's own
-range (high-low as a % of low), largest first - not by volume or
-proximity, per explicit request.
+the breakout candle's own range aren't tied to each other. Signals sort by
+the base's own range (high-low as a % of low), largest first - not by
+volume or recency, per explicit request.
 
 SHORT leg (breakdown, the exact mirror of the above): only considered for
 symbols in `short_eligible` (the F&O-eligible universe - see
@@ -64,25 +54,25 @@ the futures contract instead, so shorting a name with no futures market
 isn't practically actionable the way a long always is). A stock qualifies
 for a short when it's BELOW its 200 SMA, _detect_base finds a
 *distribution* base (down-volume > up-volume - is_distribution_range,
-the bearish mirror of is_accumulation_range), the breakout candle closes
-BELOW the base's low on elevated volume, a later candle rallies back up
-to retest that broken support (now resistance) without reclaiming it, and
-today is a red, properly-closed candle (is_bearish + is_proper_close_bearish)
-that closes back below the breakdown level. Entry is a resting sell-stop
-at today's own low; stop-loss is the higher of the retest's own high and
-today's high; targets project the base's height down from the breakdown
-level. Every threshold is identical to the long side's, just mirrored -
-no separate short-specific tuning in config.py.
+the bearish mirror of is_accumulation_range) ending right before today,
+and today itself closed below the base's low, bearish and properly closed
+(is_bearish + is_proper_close_bearish), on elevated volume. Entry is a
+resting sell-stop at today's own low; stop-loss is today's own high;
+targets project the base's height down from the breakdown level. Every
+threshold is identical to the long side's, just mirrored - no separate
+short-specific tuning in config.py.
 
-Long side backtested over 5 years (daily: 2,654 signals, 48% win rate,
-profit factor 1.13; weekly: 190 signals, 63% win rate, profit factor 1.10
-- a real but thin edge on both timeframes, not a strong one). The short
-leg is new and unbacktested at scale (F&O-eligible history is a much
-smaller slice of the universe); every threshold in signals/config.py's
-Price Action Breakout section is still a judgment call either way, not
-something mined from a backtest CSV the way the older strategies' numbers
-were - that CSV exists now and could be mined the same way once enough
-short trades have accumulated.
+Replaces an earlier version of this strategy that waited for a later
+candle to retest the breakout level and reclaim it before entering - per
+explicit direction, that confirmation stage was making entries late
+relative to the breakout that actually mattered. The retest-based
+version's 5-year backtest numbers (daily: 2,654 signals, 48% win rate, PF
+1.13; weekly: 190 signals, 63% win rate, PF 1.10, before the risk cap and
+reward:risk gate existed) no longer describe this code - see git history
+for that version if it's ever worth reverting to. This immediate-entry
+version is unbacktested; every threshold in signals/config.py's Price
+Action Breakout section is still a judgment call, not something mined
+from a backtest CSV the way the older strategies' numbers were.
 """
 from __future__ import annotations
 
@@ -149,12 +139,11 @@ def _rolling_bands(
 ) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
     """Precompute, once per symbol, each candidate base length's rolling
     high-max / low-min as plain arrays - `highs[length][i]` is the max high
-    over df.iloc[i-length+1:i+1] (so a base ending right before index
-    `breakout_idx` reads index `breakout_idx - 1`). _detect_base is tried
-    for up to `breakout_window` breakout candidates per symbol, and without
-    this its per-length high/low band got re-sliced-and-aggregated from
-    scratch on every one of those tries even though the windows overlap
-    heavily - a real cost once the base-length search itself got wider."""
+    over df.iloc[i-length+1:i+1] (so a base ending right before today's
+    index reads index `today_idx - 1`). Used by _detect_base's search over
+    every candidate length from pattern_max_lookback down to
+    pattern_min_lookback - without this, each length's high/low band got
+    re-sliced-and-aggregated from scratch on every one of those tries."""
     highs = {}
     lows = {}
     for length in range(pattern_min_lookback, pattern_max_lookback + 1):
@@ -199,81 +188,10 @@ def _detect_base(
     return None
 
 
-def _find_setup(
-    df: pd.DataFrame,
-    today_idx: int,
-    pattern_min_lookback: int,
-    pattern_max_lookback: int,
-    breakout_window: int,
-    vol_col: str,
-    high_bands: dict[int, np.ndarray],
-    low_bands: dict[int, np.ndarray],
-    bearish: bool,
-) -> tuple[int, pd.DataFrame, float, float, float, pd.Series] | None:
-    """Find the most recent valid base -> breakout -> retest setup within
-    `breakout_window` candles of today, for one direction - `bearish=False`
-    is the long logic (breakout above resistance, exactly the original
-    scan() loop); `bearish=True` is its mirror (breakdown below support).
-    Returns (breakout_idx, base pattern, pattern_high, pattern_low,
-    retest_extreme, breakout_row) - `retest_extreme` is the retest's low
-    for a long (how far it dipped back toward the level) or its high for a
-    short (how far it rallied back toward the level)."""
-    today = df.iloc[today_idx]
-    for b in range(today_idx - 1, today_idx - 1 - breakout_window, -1):
-        if b - pattern_min_lookback < 0:
-            break
-
-        base = _detect_base(df, b, pattern_min_lookback, pattern_max_lookback, high_bands, low_bands, bearish=bearish)
-        if base is None:
-            continue
-        pattern, pattern_high, pattern_low = base
-
-        breakout_row = df.iloc[b]
-        if bearish:
-            if not breakout_row["close"] < pattern_low:
-                continue
-            if not (is_bearish(breakout_row) and is_proper_close_bearish(breakout_row)):
-                continue
-        else:
-            if not breakout_row["close"] > pattern_high:
-                continue
-            if not (is_bullish(breakout_row) and is_proper_close(breakout_row)):
-                continue
-        if pd.isna(breakout_row.get(vol_col)):
-            continue
-        if not is_volume_candle(breakout_row, vol_col, config.PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER):
-            continue  # the breakout/breakdown itself must come on clearly elevated volume
-
-        between = df.iloc[b + 1 : today_idx]  # candles after the breakout, before today
-        if between.empty:
-            continue  # need at least one candle to have actually retested the level
-
-        if bearish:
-            if float(between["close"].max()) > pattern_low * (1 + config.PRICE_ACTION_INVALIDATION_PCT):
-                continue  # a close this far back above the breakdown level - support reclaimed, not "retested"
-            retest_extreme = float(between["high"].max())
-            if retest_extreme < pattern_low * (1 - config.PRICE_ACTION_RETEST_TOLERANCE):
-                continue  # price never actually rallied back up to retest the level
-            if not today["close"] < pattern_low:
-                continue  # today must re-break below the level, not just be red somewhere above it
-        else:
-            if float(between["close"].min()) < pattern_high * (1 - config.PRICE_ACTION_INVALIDATION_PCT):
-                continue  # a close this far back below the breakout level - the level failed, not "retested"
-            retest_extreme = float(between["low"].min())
-            if retest_extreme > pattern_high * (1 + config.PRICE_ACTION_RETEST_TOLERANCE):
-                continue  # price never actually came back down to retest the level
-            if not today["close"] > pattern_high:
-                continue  # today must reclaim the breakout level, not just be green somewhere below it
-
-        return b, pattern, pattern_high, pattern_low, retest_extreme, breakout_row
-    return None
-
-
 def scan(
     price_data: dict[str, pd.DataFrame],
     pattern_min_lookback: int,
     pattern_max_lookback: int,
-    breakout_window: int,
     volume_lookback: int,
     max_risk_pct: float,
     short_eligible: set[str] | None = None,
@@ -286,11 +204,15 @@ def scan(
 
     `max_risk_pct` is timeframe-specific (PRICE_ACTION_MAX_RISK_PCT_DAILY /
     _WEEKLY in config.py) - pass whichever matches the timeframe of
-    `price_data`, since a weekly retest's natural swing is structurally
-    wider as a % of price than a daily one's."""
+    `price_data`, since a weekly candle's natural range is structurally
+    wider as a % of price than a daily one's.
+
+    Today's own candle is the breakout candle - there's no retest/reclaim
+    wait, so this only ever looks at whether *today* qualifies, not
+    whether some earlier candle did."""
     signals: list[Signal] = []
     vol_col = f"avg_vol{volume_lookback}"
-    min_len = config.SMA_LONG + pattern_max_lookback + breakout_window + 2
+    min_len = config.SMA_LONG + pattern_max_lookback + 1
     sma_col = f"sma{config.SMA_LONG}"
 
     for symbol, raw_df in price_data.items():
@@ -320,30 +242,35 @@ def scan(
             directions.append(True)  # short
         if not directions:
             continue
+        if pd.isna(today.get(vol_col)):
+            continue
+        if not is_volume_candle(today, vol_col, config.PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER):
+            continue  # the breakout/breakdown itself must come on clearly elevated volume
 
         high_bands, low_bands = _rolling_bands(df, pattern_min_lookback, pattern_max_lookback)
 
         for bearish in directions:
-            setup = _find_setup(
-                df, today_idx, pattern_min_lookback, pattern_max_lookback, breakout_window,
-                vol_col, high_bands, low_bands, bearish,
-            )
-            if setup is None:
+            base = _detect_base(df, today_idx, pattern_min_lookback, pattern_max_lookback, high_bands, low_bands, bearish=bearish)
+            if base is None:
                 continue
-            b, pattern, pattern_high, pattern_low, retest_extreme, breakout_row = setup
+            pattern, pattern_high, pattern_low = base
 
             if bearish:
+                if not today["close"] < pattern_low:
+                    continue
                 entry = float(today["low"])
-                stop_loss = float(max(retest_extreme, today["high"]))
+                stop_loss = float(today["high"])
                 risk = stop_loss - entry
             else:
+                if not today["close"] > pattern_high:
+                    continue
                 entry = float(today["high"])
-                stop_loss = float(min(retest_extreme, today["low"]))
+                stop_loss = float(today["low"])
                 risk = entry - stop_loss
             if risk <= 0:
                 continue
             if risk / entry * 100 > max_risk_pct:
-                continue  # retest/today's extreme sits too far from entry - a messy retest, not a tight one
+                continue  # today's own range sits too far from entry - a messy breakout candle, not a tight one
 
             pattern_height = pattern_high - pattern_low
             if bearish:
@@ -357,16 +284,14 @@ def scan(
                     continue
                 reward = targets[0] - entry
             if reward / risk < config.PRICE_ACTION_MIN_REWARD_RISK_RATIO:
-                continue  # target sizing (base height) and stop sizing (retest) are independent - this one didn't earn its risk
+                continue  # target sizing (base height) and stop sizing (today's range) are independent - this one didn't earn its risk
 
-            vol_ratio = float(breakout_row["volume"] / breakout_row[vol_col])
-            candles_since_breakout = today_idx - b
+            vol_ratio = float(today["volume"] / today[vol_col])
             base_len = len(pattern)
             base_start = pattern.index[0].date()
             base_end = pattern.index[-1].date()
             range_pct = pattern_height / pattern_low * 100
             shape = _classify_shape(pattern)
-            level = pattern_low if bearish else pattern_high
 
             signals.append(
                 Signal(
@@ -378,9 +303,7 @@ def scan(
                     sort_key=range_pct,
                     note=(
                         f"{shape} | Base {base_len} candles ({base_start} to {base_end}), range {range_pct:.1f}% | "
-                        f"Break{'down' if bearish else 'out'} {breakout_row['close']:.2f} "
-                        f"({candles_since_breakout} candles ago, {vol_ratio:.1f}x vol) | "
-                        f"Retest held {level:.2f}"
+                        f"Break{'down' if bearish else 'out'} {today['close']:.2f} ({vol_ratio:.1f}x vol)"
                     ),
                     candle_date=today.name.date(),
                     extra={

@@ -6,8 +6,8 @@ levels to Telegram, on a schedule, for six strategies:
 | Strategy | When | Trigger |
 |---|---|---|
 | **Daily Swing** | Every trading day, 5pm IST | Above 200 SMA, rising 50 SMA; a bullish candle with a proper close takes support at the 50 SMA and also reaches down to the lower Bollinger Band, which itself sits right on top of the 50 SMA — all three (SMA, band, candle) converging at once — plus volume at/above average and price already well clear of the 200 SMA |
-| **Price Action Breakout (Daily)** | Every trading day, 5pm IST | **Long:** above 200 SMA; the *longest* tight prior base found (8-40 daily candles, whatever the data actually supports, accumulation-biased) breaks out on clearly elevated volume (2x average), price later pulls back to retest that broken level without closing convincingly below it, and today closes green, properly closed, and back above the level - that candle is the actual trigger. **Short (F&O-eligible symbols only):** the exact mirror - below 200 SMA, a distribution-biased base breaks *down* on elevated volume, a retest rallies back toward the broken support without reclaiming it, today closes red, properly closed, back below the level. The base's shape (Range, Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge) is labeled from the slope of its highs and lows - a heuristic, not real geometric pattern recognition. Entry is a resting stop at today's high (long) or low (short), stop-loss capped at 5% risk from entry (a signal needing a wider stop is skipped, not tightened to fit); targets are a measured move off the base's own height; signals sort by the base's own range %, largest first. Backtested over 5 years on the long side - see [Known limitations](#known-limitations); the short leg is new and not yet backtested at scale |
-| **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout/breakdown → retest → confirmation logic as the daily leg above (both long and short), run on weekly candles instead (5-20 week base) - a separate, independently tracked signal, not a duplicate of the daily one. Same risk cap idea, but 10% instead of the daily leg's 5% - a weekly retest's natural swing runs structurally wider as a % of price than a daily one's; see [Known limitations](#known-limitations) |
+| **Price Action Breakout (Daily)** | Every trading day, 5pm IST | **Long:** above 200 SMA; the *longest* tight prior base found (8-40 daily candles, whatever the data actually supports, accumulation-biased) breaks out *today*, closing above the base's high, bullish, properly closed, on clearly elevated volume (2x average) - entered immediately, no retest wait. **Short (F&O-eligible symbols only):** the exact mirror - below 200 SMA, a distribution-biased base breaks *down* today, closing below the base's low, bearish, properly closed, on elevated volume. The base's shape (Range, Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge) is labeled from the slope of its highs and lows - a heuristic, not real geometric pattern recognition. Entry is a resting stop at today's (the breakout candle's own) high (long) or low (short), stop-loss is today's own low (long) or high (short), capped at 5% risk from entry (a signal needing a wider stop is skipped, not tightened to fit); targets are a measured move off the base's own height; signals sort by the base's own range %, largest first. Unbacktested - see [Known limitations](#known-limitations) |
+| **Price Action Breakout (Weekly)** | Fridays, 5pm IST | Same base → high-volume breakout/breakdown logic as the daily leg above (both long and short), run on weekly candles instead (5-20 week base) - a separate, independently tracked signal, not a duplicate of the daily one. Same risk cap idea, but 10% instead of the daily leg's 5% - a weekly candle's natural range runs structurally wider as a % of price than a daily one's; see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
 
@@ -263,34 +263,30 @@ them there rather than in the strategy code.
 - **Price Action Breakout**: `signals/strategies/price_action_breakout.py`,
   run twice (daily, weekly - see the `PRICE_ACTION_*_DAILY` / `_WEEKLY`
   families in config.py for the two sets of window sizes `scan()` is
-  called with; no monthly leg - a 5-year backtest showed it never fired
-  under these thresholds, and Monthly ATH Breakout already covers that
-  timeframe). Above the 200 SMA, then a
-  four-stage sequence: (1) a **base** - `_detect_base` walks backward from
-  a candidate breakout candle looking for the *longest* window (between
-  each timeframe's `PRICE_ACTION_PATTERN_MIN_LOOKBACK_*` and
-  `_MAX_LOOKBACK_*`) whose high-low band still stays within
-  `PRICE_ACTION_RANGE_TIGHTNESS` (20%, the same convention Weekly Range
-  Breakout's own range uses) with more volume on its up candles than down
-  (`is_accumulation_range`, again shared with Weekly Range Breakout) - the
-  base's length is genuinely detected per signal, not a fixed number, and
-  `_classify_shape` labels its shape (Range, Ascending/Descending/
-  Symmetrical Triangle, Rising/Falling Wedge) from the slopes of straight
-  lines fit through its highs and lows; (2) a **breakout candle**, within
-  the last `PRICE_ACTION_BREAKOUT_WINDOW_*` candles, closing above the
-  base's high, bullish with a proper close, on volume at least
+  called with; no monthly leg - a 5-year backtest of an earlier version of
+  this strategy showed it never fired under these thresholds, and Monthly
+  ATH Breakout already covers that timeframe). Above the 200 SMA, then a
+  two-stage sequence, both on *today's own candle* - there is no retest
+  wait: (1) a **base** - `_detect_base` walks backward from today looking
+  for the *longest* window (between each timeframe's
+  `PRICE_ACTION_PATTERN_MIN_LOOKBACK_*` and `_MAX_LOOKBACK_*`) whose
+  high-low band still stays within `PRICE_ACTION_RANGE_TIGHTNESS` (20%,
+  the same convention Weekly Range Breakout's own range uses) with more
+  volume on its up candles than down (`is_accumulation_range`, again
+  shared with Weekly Range Breakout) - the base's length is genuinely
+  detected per signal, not a fixed number, and `_classify_shape` labels
+  its shape (Range, Ascending/Descending/Symmetrical Triangle,
+  Rising/Falling Wedge) from the slopes of straight lines fit through its
+  highs and lows; and (2) **today itself** closing above the base's high,
+  bullish with a proper close, on volume at least
   `PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER` (2x - deliberately higher than
   every other strategy's volume bar, since "high volumes" was the explicit
-  ask for the breakout itself); (3) a **retest** - at least one later
-  candle coming back down within `PRICE_ACTION_RETEST_TOLERANCE` (2%) of
-  that broken level, with no close in between falling more than
-  `PRICE_ACTION_INVALIDATION_PCT` (3%) below it (a wick undercutting the
-  level is a normal retest; a close well below it means the level failed);
-  and (4) **today** - a green, properly-closed candle (the same "20%-wick"
-  rule from the table above, left exactly as it was) closing back above
-  the breakout level. That last candle is the actual trigger the strategy
-  sends - everything before it is context the candle confirms, not a
-  separate thing it's watching for on its own.
+  ask for the breakout itself). That's the whole trigger - entered
+  immediately on the breakout candle, per explicit direction: an earlier
+  version of this strategy waited for a later candle to retest the broken
+  level and reclaim it before entering, which was making entries late
+  relative to the breakout that actually mattered (see git history for
+  that version).
 
   `_classify_shape` fits a straight line (least-squares) through the
   base's highs and another through its lows, and labels the combination of
@@ -320,20 +316,19 @@ them there rather than in the strategy code.
   the *exact mirror* of the long side, same thresholds throughout, just
   flipped: below the 200 SMA, `_detect_base` requires a **distribution**
   base (`is_distribution_range` - down-volume beats up-volume, not the
-  long side's `is_accumulation_range`), the breakout candle closes
-  *below* the base's low on the same elevated volume, the retest rallies
-  back *up* toward that broken support without reclosing above it, and
-  today is a red, properly-closed candle (`is_bearish` +
-  `is_proper_close_bearish`) that closes back below the level. No
+  long side's `is_accumulation_range`), and today itself closes *below*
+  the base's low, bearish with a proper close (`is_bearish` +
+  `is_proper_close_bearish`), on the same elevated volume. No
   short-specific tuning anywhere in `config.py`.
 
-  Long side backtested over 5 years - every threshold above is a judgment
-  call, not something mined from a backtest CSV the way the older
-  strategies' numbers were; see [Known limitations](#known-limitations).
-  The short leg is new and unbacktested at scale (the F&O-eligible slice
-  of the universe is much smaller, and Upstox's instrument master only
-  gives *today's* F&O universe, not a historical snapshot per date - see
-  Known limitations for what that means for backtesting it).
+  This immediate-entry version is unbacktested - every threshold above is
+  a judgment call, not something mined from a backtest CSV the way the
+  older strategies' numbers were; see [Known limitations](#known-limitations).
+  The short leg additionally has its own F&O-universe caveat (the
+  F&O-eligible slice of the universe is much smaller, and Upstox's
+  instrument master only gives *today's* F&O universe, not a historical
+  snapshot per date - see Known limitations for what that means for
+  backtesting it, whenever this version gets backtested).
 
 **Entry/stop-loss differ by strategy:**
 - **Daily Swing**: entry is the signal candle's **high** (a buy-stop
@@ -373,26 +368,24 @@ them there rather than in the strategy code.
   gate, unlike Weekly Range Breakout - tried and reverted; see Known
   limitations.
 - **Price Action Breakout (long)**: entry is a resting buy-stop at
-  **today's** (the confirmation candle's) own high - same buy-stop
+  **today's** (the breakout candle's) own high - same buy-stop
   construction every other strategy here uses, filled only once a later
-  candle trades up through it. Stop-loss is the **lower of the retest's
-  own low and today's low** - the support just demonstrated holding, not
-  a fixed buffer below the breakout level - **capped at
-  `PRICE_ACTION_MAX_RISK_PCT_DAILY`/`_WEEKLY` (5%/10%) of entry**: a
-  signal whose natural stop would sit further away than that is skipped
-  outright, not tightened to fit, since entry already comes after a
-  breakout *and* a held retest, so a wider stop means the retest was
-  messy, not that the setup earned more risk. Targets are a measured move
+  candle trades up through it. Stop-loss is **today's own low** - there's
+  no retest to anchor it to, since entry happens immediately on the
+  breakout candle - **capped at `PRICE_ACTION_MAX_RISK_PCT_DAILY`/`_WEEKLY`
+  (5%/10%) of entry**: a signal whose natural stop would sit further away
+  than that is skipped outright, not tightened to fit (a breakout candle
+  with that wide a range is a messy one). Targets are a measured move
   (`PRICE_ACTION_TARGET_MULTIPLES`, 1x/2x) - the base's own height
   projected up from the breakout level, the same idea as Weekly Range
   Breakout's `BREAKOUT_RANGE_MULTIPLES` off its own range height -
   required to clear the stricter `PRICE_ACTION_MIN_REWARD_RISK_RATIO`
   (2:1) against the (already-capped) risk, checked independently of the
-  risk cap since base height and retest depth aren't tied to each other.
+  risk cap since base height and the breakout candle's own range aren't
+  tied to each other.
 - **Price Action Breakout (short, F&O-eligible only)**: the exact mirror -
-  entry is a resting sell-stop at today's own **low**; stop-loss is the
-  **higher of the retest's own high and today's high** - the resistance
-  just demonstrated holding, same risk cap and reward:risk requirements;
+  entry is a resting sell-stop at today's own **low**; stop-loss is
+  **today's own high**, same risk cap and reward:risk requirements;
   targets project the same base height *downward* from the breakdown
   level.
 
@@ -450,50 +443,31 @@ all-time-high check isn't silently capped at 6 years.
   `signals/data.py`'s circuit breaker aborts the whole run early with a
   clear error (protects against a repeat of the NSE-blocking incident
   that motivated the switch to Upstox).
-- **Price Action Breakout has now been backtested over 5 years (daily +
-  weekly), and the edge is thin, not strong.** Daily: 2,654 signals, 48%
-  win rate, profit factor 1.13. Weekly: 190 signals, 63% win rate but
-  losses running much bigger than wins (avg loss -8.1% vs avg win +5.3%),
-  profit factor 1.10. Both are barely above breakeven after transaction
-  costs - real, mechanically-working strategies, but not a strong edge on
-  either timeframe. The monthly leg was dropped entirely after that same
-  backtest showed it produced **zero signals across the full 5 years**
-  under these thresholds (too little monthly history per stock to form a
-  base this strict) - Monthly ATH Breakout already covers the monthly
-  timeframe, so this wasn't worth loosening the thresholds to force. Every
-  remaining threshold in `signals/config.py`'s Price Action Breakout
-  section (the base's min/max length, its tightness, the breakout's volume
-  multiplier, the retest tolerance and invalidation floor, the target
-  multiples, the shape classifier's flat-slope cutoff) is still a judgment
-  call, not a number mined from the backtest CSV the way the older
-  strategies' thresholds were - that CSV exists now and could be mined the
-  same way if this strategy is worth tightening further. The shape label
-  (Range/Triangle/Wedge) is a genuine classification - it's computed from
-  real slopes fit through the base's highs and lows - but it's a
-  heuristic, not real trendline-touch-point geometry the way a human
-  chartist or a dedicated pattern-recognition library would do it; treat
-  it as a useful label, not a rigorous one.
-- **The risk cap and reward:risk gate have both now been backtested over
-  5 years, and both moved Price Action Breakout's numbers a lot from the
-  48%-win/PF-1.13 (daily) and 63%-win/PF-1.10 (weekly) figures above.**
-  The risk cap (`PRICE_ACTION_MAX_RISK_PCT_DAILY`/`_WEEKLY`) was added
-  after inspecting live trades directly: the worst performers on both
-  timeframes were running 15-17% risk, well beyond what a
-  breakout-then-retest entry should ever need. A first pass at one flat 5%
-  cap for both timeframes cut daily signals 56% for almost no PF gain
-  (1.13 -> 1.15, since it removed about as many winners as losers) and
-  gutted weekly 91% (188 -> 17 signals, too thin a sample to trust despite
-  a flashy PF 2.16) - so weekly got a looser 10% cap instead of daily's
-  5%, for the structural reason explained above, not because its trades
-  are lower-quality. Adding `PRICE_ACTION_MIN_REWARD_RISK_RATIO` (2:1) on
-  top of the split cap landed at: **daily 845 signals, 29% win rate, PF
-  1.20** (win rate keeps falling for a small PF gain - a strategy this
-  reliant on avg-win-vastly-exceeding-avg-loss, 10.4% vs 3.5%, is
-  statistically fragile even though the long-run math works); **weekly 20
-  signals, 45% win rate, PF 2.15** (essentially a wash against the
-  risk-cap-only version - the looser cap let a few signals back in, the
-  reward:risk gate took a similar number back out). Both remain thin
-  samples, weekly especially (~4 signals/year).
+- **Price Action Breakout's current (immediate-entry) version is
+  completely unbacktested.** Every 5-year backtest number this project has
+  ever reported for this strategy - the original 2,654-signal/48%-win/PF-
+  1.13 (daily) and 190-signal/63%-win/PF-1.10 (weekly) run, and every
+  later risk-cap/reward:risk-gate iteration on top of it (culminating in
+  845 signals/29% win/PF 1.20 daily, 20 signals/45% win/PF 2.15 weekly) -
+  describes an earlier version of this strategy that waited for a retest
+  and reclaim before entering. That version was replaced entirely, per
+  explicit direction, with one that enters immediately on the breakout
+  candle itself (see git history for `price_action_breakout.py` before
+  the rewrite, and for `signals/config.py`'s `PRICE_ACTION_*` section for
+  how those historical numbers shaped today's still-carried-over
+  threshold values). None of those backtest numbers describe the current
+  code's actual behavior - a different entry mechanism changes which
+  signals fire, how often, and what their outcomes look like, not just
+  their timing. Every threshold in `signals/config.py`'s Price Action
+  Breakout section (the base's min/max length, its tightness, the
+  breakout's volume multiplier, the target multiples, the shape
+  classifier's flat-slope cutoff, the risk cap, the reward:risk floor) is
+  a judgment call carried over from the old version, not yet validated
+  against this one. The shape label (Range/Triangle/Wedge) is a genuine
+  classification - it's computed from real slopes fit through the base's
+  highs and lows - but it's a heuristic, not real trendline-touch-point
+  geometry the way a human chartist or a dedicated pattern-recognition
+  library would do it; treat it as a useful label, not a rigorous one.
 - **Price Action Breakout's short leg is new and unbacktested at scale.**
   It's gated to F&O-eligible symbols (`data.fetch_fo_eligible_symbols`) -
   a much smaller slice of the universe than the long side's full ~500 -
@@ -607,7 +581,7 @@ signals/
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py            Daily Swing (SMA50/lower-BB confluence)
-    price_action_breakout.py  Price Action Breakout (detected-length base -> high-volume breakout -> retest -> green confirmation, with a shape classifier; run on daily and weekly candles)
+    price_action_breakout.py  Price Action Breakout (detected-length base -> high-volume breakout, entered immediately, with a shape classifier; run on daily and weekly candles, long + F&O-gated short)
     weekly_breakout.py        Weekly Range Breakout
     monthly_breakout.py       Monthly ATH Breakout
   formatting.py       Signal list -> Telegram HTML message

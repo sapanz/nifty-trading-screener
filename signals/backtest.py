@@ -37,12 +37,12 @@ genuinely deep history. See scripts/run_backtest.py for the live wiring.
 
 Price Action Breakout runs twice - "price_action_breakout_daily" off
 `daily_data` and "_weekly" off `weekly_data` - kept as two separate result
-buckets rather than pooled together, since a daily-timeframe
-base/breakout/retest and a weekly one are different trades with different
-holding periods, not the same signal at two resolutions. No monthly leg -
-a 5-year backtest showed it never fired at all (too little monthly
-history per stock to form a base this strict), and Monthly ATH Breakout
-already covers that timeframe.
+buckets rather than pooled together, since a daily-timeframe base/breakout
+and a weekly one are different trades with different holding periods, not
+the same signal at two resolutions. No monthly leg - a 5-year backtest of
+an earlier version of this strategy showed it never fired at all (too
+little monthly history per stock to form a base this strict), and Monthly
+ATH Breakout already covers that timeframe.
 """
 from __future__ import annotations
 
@@ -299,7 +299,6 @@ def run_backtest(
                     sliced_daily,
                     pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
                     pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
-                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_DAILY,
                     volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
                     max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_DAILY,
                     short_eligible=short_eligible,
@@ -329,7 +328,6 @@ def run_backtest(
                     sliced_weekly,
                     pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
                     pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
-                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                     volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
                     max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
                     short_eligible=short_eligible,
