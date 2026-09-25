@@ -549,16 +549,17 @@ class TestPriceActionBreakout:
         df = self._base_breakout_df(breakout_low=304.0)
         assert self._scan(df) == []
 
-    def test_max_risk_pct_is_timeframe_specific_not_a_shared_constant(self):
+    def test_max_risk_pct_is_a_caller_supplied_value_not_a_hardcoded_constant(self):
         # A wider (200-238, 19% tight - still under the 20% cap), taller
         # base than the default fixture, with a breakout candle sized so
         # its ~7% natural risk fails PRICE_ACTION_MAX_RISK_PCT_DAILY (5%)
-        # but passes PRICE_ACTION_MAX_RISK_PCT_WEEKLY (10%), while
-        # comfortably clearing PRICE_ACTION_MIN_REWARD_RISK_RATIO (2.2:1)
-        # either way - isolates the risk-pct-cap behavior from the
-        # reward:risk gate, proving scan() actually uses whichever
-        # `max_risk_pct` its caller passes rather than a single hardcoded
-        # threshold.
+        # but would pass a 10% cap, while comfortably clearing
+        # PRICE_ACTION_MIN_REWARD_RISK_RATIO (2.2:1) either way - isolates
+        # the risk-pct-cap behavior from the reward:risk gate, proving
+        # scan() actually uses whichever `max_risk_pct` its caller passes
+        # rather than a single hardcoded threshold. (scan_retest(), weekly's
+        # function, has no risk-pct cap at all - this test is scan()/daily
+        # only.)
         df = self._base_breakout_df(
             base_low_start=200.0, base_low_end=200.0, base_high=238.0,
             breakout_open=236.0, breakout_high=239.2, breakout_low=222.5, breakout_close=239.0,
@@ -570,7 +571,7 @@ class TestPriceActionBreakout:
             pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
             pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
-            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
+            max_risk_pct=10.0,
         )
         assert len(signals) == 1
         assert signals[0].stop_loss == 222.5
@@ -778,7 +779,6 @@ class TestPriceActionBreakoutRetest:
             pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
-            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_DAILY,
         )
 
     def test_detects_base_breakout_retest_confirmation(self):
@@ -865,52 +865,30 @@ class TestPriceActionBreakoutRetest:
         df = df.drop(index=retest_date)
         assert self._scan(df) == []
 
-    def test_no_signal_when_risk_exceeds_max_risk_pct(self):
+    def test_signal_fires_despite_wide_risk_no_cap_exists(self):
         # A retest that wicks much further below the breakout level than
         # normal still passes the retest/invalidation checks (its close
-        # stays near the level; only its low goes deep) but implies far
-        # more than PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) of risk from entry
-        # to stop-loss - a messy retest, not a tight setup, so it's skipped
-        # rather than taken with an oversized stop.
+        # stays near the level; only its low goes deep), implying a wide
+        # stop relative to entry - unlike scan() (daily), scan_retest()
+        # (weekly) has no risk-pct cap at all (reverted per explicit
+        # direction, to reproduce the ORIGINAL ungated version's own 5-year
+        # numbers - see the module docstring), so this still fires rather
+        # than being skipped for an oversized stop.
         df = self._base_breakout_retest_df(retest_low=290.0)
-        assert self._scan(df) == []
-
-    def test_no_signal_when_reward_risk_ratio_below_minimum(self):
-        # A milder version of the case above: risk (13, ~4.1% of entry)
-        # stays under PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) on its own, but
-        # the fixed target (base-height-off-the-breakout-level, unaffected
-        # by how deep the retest wicked) doesn't cover twice that risk -
-        # PRICE_ACTION_MIN_REWARD_RISK_RATIO (2:1) is a separate bar from
-        # the risk-pct cap, not implied by clearing it.
-        df = self._base_breakout_retest_df(retest_low=304.0)
-        assert self._scan(df) == []
-
-    def test_max_risk_pct_is_timeframe_specific_not_a_shared_constant(self):
-        # A wider (200-238, 19% tight - still under the 20% cap), taller
-        # base than the default fixture, sized so its ~7% natural risk
-        # fails PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) but passes
-        # PRICE_ACTION_MAX_RISK_PCT_WEEKLY (10%), while comfortably clearing
-        # PRICE_ACTION_MIN_REWARD_RISK_RATIO (2.2:1) either way - isolates
-        # the risk-pct-cap behavior from the reward:risk gate, proving
-        # scan_retest() actually uses whichever `max_risk_pct` its caller
-        # passes rather than a single hardcoded threshold.
-        df = self._base_breakout_retest_df(
-            base_low_start=200.0, base_low_end=200.0, base_high=238.0,
-            retest_low=222.5, retest_close=235.0,
-            today_open=236.0, today_high=239.2, today_low=225.0, today_close=239.0,
-        )
-        assert self._scan(df) == []  # PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) rejects ~7% risk
-
-        signals = price_action_breakout.scan_retest(
-            {"TESTCO": df},
-            pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY,
-            pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
-            breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
-            volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
-            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
-        )
+        signals = self._scan(df)
         assert len(signals) == 1
-        assert signals[0].stop_loss == 222.5
+        assert signals[0].stop_loss == 290.0
+
+    def test_signal_fires_despite_thin_reward_risk_no_gate_exists(self):
+        # A milder version of the case above: the fixed target (base-
+        # height-off-the-breakout-level, unaffected by how deep the retest
+        # wicked) doesn't cover twice the risk here - unlike scan()
+        # (daily), scan_retest() (weekly) has no reward:risk gate at all,
+        # so this still fires rather than being skipped for a thin R:R.
+        df = self._base_breakout_retest_df(retest_low=304.0)
+        signals = self._scan(df)
+        assert len(signals) == 1
+        assert signals[0].stop_loss == 304.0
 
     def test_no_signal_when_base_is_not_tight_enough(self):
         # Base low starts far below the high - well past
@@ -989,7 +967,6 @@ class TestPriceActionBreakoutRetest:
             pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY,
             breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
             volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_DAILY,
-            max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_DAILY,
             short_eligible=short_eligible,
         )
 
@@ -1034,23 +1011,26 @@ class TestPriceActionBreakoutRetest:
         df = self._short_base_breakdown_retest_df(today_open=293.0, today_high=293.5, today_low=290.5, today_close=291.0)
         assert self._scan_short(df) == []
 
-    def test_no_short_signal_when_risk_exceeds_max_risk_pct(self):
-        # Mirror of the long-side risk-cap test: a retest that rallies much
-        # further above the breakdown level than normal still passes the
+    def test_short_signal_fires_despite_wide_risk_no_cap_exists(self):
+        # Mirror of the long-side test: a retest that rallies much further
+        # above the breakdown level than normal still passes the
         # retest/invalidation checks (close stays near the level, only the
-        # high goes far) but implies far more than
-        # PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) of risk from entry to
-        # stop-loss.
+        # high goes far), implying a wide stop - scan_retest() has no
+        # risk-pct cap, so this still fires.
         df = self._short_base_breakdown_retest_df(retest_high=330.0)
-        assert self._scan_short(df) == []
+        signals = self._scan_short(df)
+        assert len(signals) == 1
+        assert signals[0].stop_loss == 330.0
 
-    def test_no_short_signal_when_reward_risk_ratio_below_minimum(self):
-        # Mirror of the long-side R:R test: risk (13, ~4.6% of entry) stays
-        # under PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) on its own, but the
-        # fixed target (base-height-off-the-breakdown-level, unaffected by
-        # how far the retest rallied) doesn't cover twice that risk.
+    def test_short_signal_fires_despite_thin_reward_risk_no_gate_exists(self):
+        # Mirror of the long-side test: the fixed target (base-height-off-
+        # the-breakdown-level, unaffected by how far the retest rallied)
+        # doesn't cover twice the risk here - scan_retest() has no
+        # reward:risk gate, so this still fires.
         df = self._short_base_breakdown_retest_df(retest_high=297.0)
-        assert self._scan_short(df) == []
+        signals = self._scan_short(df)
+        assert len(signals) == 1
+        assert signals[0].stop_loss == 297.0
 
 
 class TestClassifyShape:

@@ -159,7 +159,6 @@ def main() -> None:
                         pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
                         breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                         volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
-                        max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
                         short_eligible=fo_symbols,
                     ),
                     today,

@@ -173,18 +173,24 @@ MIN_REWARD_RISK_RATIO = 1.0
 # --- Price Action Breakout (consolidation -> high-volume breakout) -------
 # Daily and weekly now run genuinely different entry logic, not the same
 # scan() with different window sizes - price_action_breakout.scan()
-# (daily, enters immediately on the breakout candle) and .scan_retest()
-# (weekly, waits for a later candle to retest the breakout level and
-# reclaim it). See that module's docstring for the full backtest history
-# behind the split: both legs started retest-based, both were rewritten to
-# immediate-entry per explicit direction ("due to retest, I am getting bit
-# late in trade"), daily's rewrite held up (845 -> 1,194 signals, PF 1.20
-# -> 1.23) but weekly's didn't (thinned to 8 signals, and a follow-up
-# trendline-projection fix made weekly's PF collapse to 0.26 - reverted
-# entirely), so weekly went back to retest-based per explicit direction
-# ("weekly retest price action was working") while daily kept the
-# immediate-entry rewrite. No monthly leg on either - a 5-year backtest of
-# the retest-based version showed it never fired at all under these
+# (daily, enters immediately on the breakout candle, risk-pct-capped and
+# reward:risk-gated) and .scan_retest() (weekly, waits for a later candle
+# to retest the breakout level and reclaim it, NO risk-pct cap and NO
+# reward:risk gate). See that module's docstring for the full backtest
+# history behind the split: both legs started retest-based and ungated
+# (daily 2,654 signals/48% win/PF 1.13, weekly 190 signals/63% win/PF
+# 1.10), both were rewritten to immediate-entry per explicit direction
+# ("due to retest, I am getting bit late in trade"), daily's rewrite held
+# up (845 -> 1,194 signals, PF 1.20 -> 1.23) but weekly's didn't (thinned
+# to 8 signals, and a follow-up trendline-projection fix made weekly's PF
+# collapse to 0.26 - reverted entirely), so weekly went back to
+# retest-based per explicit direction ("weekly retest price action was
+# working") while daily kept the immediate-entry rewrite - first with the
+# same risk cap/reward:risk gate daily uses (validated at 20 signals/45%
+# win/PF 2.15), then, per further explicit direction, both gates were
+# removed again to reproduce the ORIGINAL ungated retest version's own
+# 190-signal numbers above. No monthly leg on either - a 5-year backtest
+# of the retest-based version showed it never fired at all under these
 # thresholds (too little monthly history per stock to form a base this
 # strict), and Monthly ATH Breakout already covers the monthly timeframe.
 #
@@ -247,23 +253,23 @@ PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
 PRICE_ACTION_RETEST_TOLERANCE = 0.02
 PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
 
-# A signal whose natural stop-loss implies more risk than this gets
-# skipped outright, not tightened to fit - today's own high/low for
-# scan() (daily), the lower of the retest's low and the confirmation
-# candle's low for scan_retest() (weekly).
-#
-# Split by timeframe, not one shared number, since a weekly candle's/retest's
-# natural swing runs structurally wider as a % of price than a daily one's.
+# scan() (daily) only: a signal whose natural stop-loss (today's own
+# high/low) implies more risk than this gets skipped outright, not
+# tightened to fit. scan_retest() (weekly) has no equivalent - per
+# explicit direction, reverted back to the ORIGINAL ungated retest logic
+# (no risk-pct cap, no reward:risk gate below) to reproduce that version's
+# own 5-year numbers (190 signals, 63% win rate, PF 1.10); see
+# price_action_breakout.py's module docstring for the full back-and-forth
+# (ungated -> capped+gated, validated at 20 signals/45% win/PF 2.15 -> back
+# to ungated).
 PRICE_ACTION_MAX_RISK_PCT_DAILY = 5.0
-PRICE_ACTION_MAX_RISK_PCT_WEEKLY = 10.0
 
-# Per explicit direction, stricter than the universal MIN_REWARD_RISK_RATIO
-# (1:1) elsewhere in this file: this strategy already demands a genuine
-# high-volume breakout candle, not just any move, so the setup should earn a
-# real 1:2 reward:risk on its nearest target, not just clear breakeven.
-# Checked on top of, not instead of, the risk-pct caps above - the caps bound
-# how much is risked in absolute terms, this bounds whether the reward on
-# offer justifies whatever risk is actually taken.
+# scan() (daily) only, same reasoning as above: stricter than the universal
+# MIN_REWARD_RISK_RATIO (1:1) elsewhere in this file, per explicit
+# direction - this strategy already demands a genuine high-volume breakout
+# candle, not just any move, so the setup should earn a real 1:2
+# reward:risk on its nearest target, not just clear breakeven. Checked on
+# top of, not instead of, the risk-pct cap above.
 PRICE_ACTION_MIN_REWARD_RISK_RATIO = 2.0
 
 # Measured-move targets from the breakout level - the base's own height

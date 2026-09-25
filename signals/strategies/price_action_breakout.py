@@ -11,11 +11,11 @@ already covers that timeframe.
 
 Both timeframes originally ran the retest-based logic (`scan_retest()`
 below) - 5-year backtest: daily 2,654 signals/48% win/PF 1.13, weekly 190
-signals/63% win/PF 1.10 (before the risk cap and reward:risk gate
-existed). Per explicit direction ("due to retest, I am getting bit late
-in trade"), both timeframes were rewritten to enter immediately on the
-breakout candle instead (`scan()`, no retest wait) - daily improved (845
--> 1,194 signals, win rate flat ~29-30%, PF 1.20 -> 1.23) but weekly
+signals/63% win/PF 1.10 (no risk cap, no reward:risk gate - neither
+existed yet). Per explicit direction ("due to retest, I am getting bit
+late in trade"), both timeframes were rewritten to enter immediately on
+the breakout candle instead (`scan()`, no retest wait) - daily improved
+(845 -> 1,194 signals, win rate flat ~29-30%, PF 1.20 -> 1.23) but weekly
 shrank to too few signals to trust (8 signals, PF 1.45). A follow-up fix
 projected the breakout level via a fitted trendline instead of a plain
 rolling max/min (to catch falling-topped bases a flat rolling max
@@ -24,9 +24,15 @@ couldn't) - it worked as designed (Descending Triangle detections went
 1.15, weekly PF 1.45 -> 0.26, a losing strategy) and was reverted
 entirely (see git history for that version). Per explicit direction,
 daily now keeps the immediate-entry `scan()` (it was working) and weekly
-is back on the original retest-based `scan_retest()` (it "was working");
-the two timeframes run genuinely different entry logic, not the same
-function with different window sizes.
+went back to the original retest-based `scan_retest()` - first with a
+risk cap and reward:risk gate added (validated at 20 signals/45% win/PF
+2.15), then, per further explicit direction, those gates were removed
+again to reproduce the ORIGINAL ungated version's own numbers above (190
+signals/63% win/PF 1.10) - `scan_retest()` today has no risk-pct cap and
+no reward:risk gate at all, unlike `scan()` (daily), which keeps both.
+The two timeframes run genuinely different entry logic, not the same
+function with different window sizes, and weekly's gating history has
+gone in a circle back to where it started.
 
 `scan()` (daily): a stock qualifies for a LONG when:
   - it is above its own 200-period SMA (long-term uptrend, same baseline
@@ -83,10 +89,13 @@ short-specific tuning in config.py.
 `scan_retest()` (weekly): the exact same base-detection and shape
 classification, but the trigger is a two-stage sequence instead of just
 today's own candle - see its own docstring below for the full mechanics
-(breakout candle -> retest -> confirmation candle). PRICE_ACTION_MAX_RISK_
-PCT_WEEKLY, the same PRICE_ACTION_MIN_REWARD_RISK_RATIO, and the same
-target-multiple/sort-by-range conventions apply there too, just measured
-off the retest instead of today's own candle range.
+(breakout candle -> retest -> confirmation candle). Unlike `scan()`
+above, there is no risk-pct cap and no reward:risk gate - a signal fires
+whenever the base/breakout/retest/confirmation sequence completes,
+whatever risk or reward that implies. Targets still use the same
+PRICE_ACTION_TARGET_MULTIPLES measured-move convention and the same
+sort-by-range ordering, just measured off the retest instead of today's
+own candle range.
 """
 from __future__ import annotations
 
@@ -410,7 +419,6 @@ def scan_retest(
     pattern_max_lookback: int,
     breakout_window: int,
     volume_lookback: int,
-    max_risk_pct: float,
     short_eligible: set[str] | None = None,
 ) -> list[Signal]:
     """The weekly leg of Price Action Breakout - `scan()` above is daily's.
@@ -435,14 +443,17 @@ def scan_retest(
 
     Entry is a resting buy-stop at the confirmation candle's own high.
     Stop-loss is the lower of the retest's own low and the confirmation
-    candle's low (the support just demonstrated holding) - but only up to
-    `max_risk_pct` away from entry; a signal whose natural stop sits
-    further than that is skipped outright, since entry already comes after
-    a breakout AND a held retest, so a stop this wide means the retest
-    itself was messy. Targets and the reward:risk gate work exactly as in
-    scan() (measured move off the base height, PRICE_ACTION_MIN_REWARD_RISK_
-    RATIO), just measured off the retest instead of today's own candle
-    range. Signals sort by the base's own range, largest first.
+    candle's low (the support just demonstrated holding) - no risk-pct cap
+    and no reward:risk gate, unlike scan() (daily). This is deliberately
+    the ORIGINAL, ungated retest logic (no PRICE_ACTION_MAX_RISK_PCT_WEEKLY
+    check, no PRICE_ACTION_MIN_REWARD_RISK_RATIO check) - per explicit
+    direction, reverted back to it from the gated version (20 signals, 45%
+    win, PF 2.15) to reproduce this version's own 5-year numbers (190
+    signals, 63% win rate, PF 1.10 - a real but thin edge, not a strong
+    one; see the module docstring's history). Targets are still a measured
+    move off the base height (PRICE_ACTION_TARGET_MULTIPLES), just no
+    longer gated by a minimum reward:risk ratio. Signals sort by the
+    base's own range, largest first.
 
     SHORT leg (breakdown): the exact mirror, gated to `short_eligible` -
     see scan()'s docstring for the F&O-eligibility reasoning, identical
@@ -501,22 +512,16 @@ def scan_retest(
                 risk = entry - stop_loss
             if risk <= 0:
                 continue
-            if risk / entry * 100 > max_risk_pct:
-                continue  # retest/today's extreme sits too far from entry - a messy retest, not a tight one
 
             pattern_height = pattern_high - pattern_low
             if bearish:
                 targets = [round(pattern_low - pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] >= entry:
                     continue  # target already sits behind entry - skip rather than take a guaranteed-bad trade
-                reward = entry - targets[0]
             else:
                 targets = [round(pattern_high + pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
                 if targets[0] <= entry:
                     continue
-                reward = targets[0] - entry
-            if reward / risk < config.PRICE_ACTION_MIN_REWARD_RISK_RATIO:
-                continue  # target sizing (base height) and stop sizing (retest) are independent - this one didn't earn its risk
 
             vol_ratio = float(breakout_row["volume"] / breakout_row[vol_col])
             candles_since_breakout = today_idx - b
