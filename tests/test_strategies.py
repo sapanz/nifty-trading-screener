@@ -410,8 +410,7 @@ class TestPriceActionBreakout:
         base_len: int = 20,
         base_low_start: float = 280.0,
         base_low_end: float = 305.0,
-        base_high_start: float = 310.0,
-        base_high_end: float = 310.0,
+        base_high: float = 310.0,
         breakout_volume: float = 300_000.0,
         breakout_open: float = 312.0,
         breakout_high: float = 317.0,
@@ -436,11 +435,10 @@ class TestPriceActionBreakout:
 
         base_dates = pd.bdate_range(start=dates[-1] + pd.Timedelta(days=1), periods=base_len)
         lows = [base_low_start + (base_low_end - base_low_start) * i / max(base_len - 1, 1) for i in range(base_len)]
-        highs = [base_high_start + (base_high_end - base_high_start) * i / max(base_len - 1, 1) for i in range(base_len)]
         base = pd.DataFrame(
             {
                 "open": [low + 1 for low in lows],
-                "high": highs,
+                "high": [base_high] * base_len,
                 "low": lows,
                 "close": [low + 2 for low in lows],  # green throughout (close > open) - accumulation-biased
                 "volume": 100_000.0,
@@ -497,7 +495,7 @@ class TestPriceActionBreakout:
         # rectangle, not a triangle. Same base height as the default
         # fixture (280 to 310) so the R:R math stays identical, just with a
         # flat instead of rising low.
-        df = self._base_breakout_df(base_low_start=280.0, base_low_end=280.0, base_high_start=310.0, base_high_end=310.0)
+        df = self._base_breakout_df(base_low_start=280.0, base_low_end=280.0, base_high=310.0)
         signals = self._scan(df)
         assert len(signals) == 1
         assert signals[0].extra["breakout_type"] == "Range"
@@ -562,7 +560,7 @@ class TestPriceActionBreakout:
         # `max_risk_pct` its caller passes rather than a single hardcoded
         # threshold.
         df = self._base_breakout_df(
-            base_low_start=200.0, base_low_end=200.0, base_high_start=238.0, base_high_end=238.0,
+            base_low_start=200.0, base_low_end=200.0, base_high=238.0,
             breakout_open=236.0, breakout_high=239.2, breakout_low=222.5, breakout_close=239.0,
         )
         assert self._scan(df) == []  # PRICE_ACTION_MAX_RISK_PCT_DAILY (5%) rejects ~7% risk
@@ -581,7 +579,7 @@ class TestPriceActionBreakout:
         # Base low starts far below the high - well past
         # PRICE_ACTION_RANGE_TIGHTNESS (20%) even at the shortest window,
         # so no length between MIN and MAX ever qualifies as a real base.
-        df = self._base_breakout_df(base_low_start=150.0, base_low_end=305.0, base_high_start=310.0, base_high_end=310.0)
+        df = self._base_breakout_df(base_low_start=150.0, base_low_end=305.0, base_high=310.0)
         assert self._scan(df) == []
 
     def _short_base_breakdown_df(
@@ -589,8 +587,7 @@ class TestPriceActionBreakout:
         base_len: int = 20,
         base_high_start: float = 320.0,
         base_high_end: float = 295.0,
-        base_low_start: float = 290.0,
-        base_low_end: float = 290.0,
+        base_low: float = 290.0,
         breakdown_volume: float = 280_000.0,
         breakdown_open: float = 287.5,
         breakdown_high: float = 288.0,
@@ -614,12 +611,11 @@ class TestPriceActionBreakout:
 
         base_dates = pd.bdate_range(start=dates[-1] + pd.Timedelta(days=1), periods=base_len)
         highs = [base_high_start + (base_high_end - base_high_start) * i / max(base_len - 1, 1) for i in range(base_len)]
-        lows = [base_low_start + (base_low_end - base_low_start) * i / max(base_len - 1, 1) for i in range(base_len)]
         base = pd.DataFrame(
             {
                 "open": [high - 1 for high in highs],
                 "high": highs,
-                "low": lows,
+                "low": [base_low] * base_len,
                 "close": [high - 2 for high in highs],  # red throughout (close < open) - distribution-biased
                 "volume": 100_000.0,
             },
@@ -731,14 +727,10 @@ class TestDetectBase:
     """Direct tests of the variable-length base search, independent of
     the full scan() pipeline."""
 
-    def _df(self, lead_in_level, base_lows, base_high, base_highs=None):
+    def _df(self, lead_in_level, base_lows, base_high):
         # Integer-indexed frame: lead-in candles (wide/incompatible with
-        # the base) followed by the actual base candles. `base_highs`, when
-        # given, overrides the flat `base_high` with a per-candle list - so
-        # a sloped top can be constructed for the trendline-projection
-        # tests below.
+        # the base) followed by the actual base candles.
         n_lead = 30
-        highs = base_highs if base_highs is not None else [base_high] * len(base_lows)
         lead = pd.DataFrame(
             {
                 "open": lead_in_level, "high": lead_in_level + 1, "low": lead_in_level - 1,
@@ -749,7 +741,7 @@ class TestDetectBase:
         base = pd.DataFrame(
             {
                 "open": [low + 1 for low in base_lows],
-                "high": highs,
+                "high": [base_high] * len(base_lows),
                 "low": base_lows,
                 "close": [low + 2 for low in base_lows],
                 "volume": 100_000.0,
@@ -766,16 +758,13 @@ class TestDetectBase:
             df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
         )
         assert result is not None
-        pattern, pattern_high, pattern_low, breakout_level = result
+        pattern, pattern_high, pattern_low = result
         # Longest window that still qualifies is exactly the 15 base
         # candles - anything longer pulls in the wide lead-in and fails
         # tightness.
         assert len(pattern) == 15
         assert pattern_high == 100.0
         assert pattern_low == 95.0
-        # Flat top -> the trendline projection matches the plain rolling
-        # max exactly.
-        assert breakout_level == pytest.approx(100.0)
 
     def test_returns_none_when_nothing_qualifies(self):
         base_lows = [50.0] * 15  # (100-50)/50 = 100%, nowhere near tight
@@ -785,67 +774,3 @@ class TestDetectBase:
             df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
         )
         assert result is None
-
-    def test_breakout_level_tracks_a_falling_top_not_just_the_rolling_max(self):
-        # A Descending-Triangle-shaped base: flat low, but a top that falls
-        # from 105 to 100 across the base - the rolling max stays pinned to
-        # the base's oldest (and highest) candle, while a real trendline
-        # breakout should track the falling top instead.
-        base_lows = [95.0] * 15
-        base_highs = [105.0 - 5.0 * i / 14 for i in range(15)]
-        df, breakout_idx = self._df(lead_in_level=50.0, base_lows=base_lows, base_high=0.0, base_highs=base_highs)
-        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
-        result = price_action_breakout._detect_base(
-            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands
-        )
-        assert result is not None
-        pattern, pattern_high, pattern_low, breakout_level = result
-        # Rolling max is still reported (used for tightness/height), and it
-        # stays pinned to the base's oldest, highest candle.
-        assert pattern_high == 105.0
-        # But the breakout trigger itself tracks the trendline projected one
-        # step past the base's last candle - well below the rolling max, so
-        # a later, lower high can now genuinely trigger a breakout.
-        assert breakout_level == pytest.approx(99.64, abs=0.01)
-        assert breakout_level < pattern_high
-
-    def test_breakdown_level_tracks_a_rising_bottom_not_just_the_rolling_min(self):
-        # The short-side mirror: a base with a flat top but a bottom that
-        # rises from 90 to 95 - the rolling min stays pinned to the base's
-        # oldest (and lowest) candle, while a real trendline breakdown
-        # should track the rising bottom instead (a higher, harder-to-hit
-        # level than the stale rolling min).
-        n = 15
-        base_highs = [105.0] * n
-        base_lows = [90.0 + 5.0 * i / (n - 1) for i in range(n)]
-        n_lead = 30
-        lead = pd.DataFrame(
-            {"open": 200.0, "high": 201.0, "low": 199.0, "close": 200.0, "volume": 100_000.0},
-            index=range(n_lead),
-        )
-        base = pd.DataFrame(
-            {
-                "open": [high + 1 for high in base_highs],
-                "high": base_highs,
-                "low": base_lows,
-                "close": [high - 2 for high in base_highs],  # red throughout - distribution-biased
-                "volume": 100_000.0,
-            },
-            index=range(n_lead, n_lead + n),
-        )
-        df = pd.concat([lead, base])
-        breakout_idx = n_lead + n
-        high_bands, low_bands = price_action_breakout._rolling_bands(df, pattern_min_lookback=5, pattern_max_lookback=25)
-        result = price_action_breakout._detect_base(
-            df, breakout_idx, pattern_min_lookback=5, pattern_max_lookback=25, high_bands=high_bands, low_bands=low_bands, bearish=True
-        )
-        assert result is not None
-        pattern, pattern_high, pattern_low, breakout_level = result
-        # Rolling min is still reported (used for tightness/height), and it
-        # stays pinned to the base's oldest, lowest candle.
-        assert pattern_low == 90.0
-        # But the breakdown trigger tracks the rising-bottom trendline
-        # projected one step past the base's last candle - well above the
-        # rolling min.
-        assert breakout_level == pytest.approx(95.36, abs=0.01)
-        assert breakout_level > pattern_low

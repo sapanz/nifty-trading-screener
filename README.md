@@ -277,13 +277,8 @@ them there rather than in the strategy code.
   detected per signal, not a fixed number, and `_classify_shape` labels
   its shape (Range, Ascending/Descending/Symmetrical Triangle,
   Rising/Falling Wedge) from the slopes of straight lines fit through its
-  highs and lows; and (2) **today itself** closing above the base's
-  **breakout level** (`_project_trendline`: a straight line fit through
-  the base's highs, projected one step past its last candle - not simply
-  the base's rolling max, which stays pinned to the base's oldest/highest
-  candle and can barely ever trigger for a falling-topped base like a
-  Descending Triangle; see the caveat below), bullish with a proper close,
-  on volume at least
+  highs and lows; and (2) **today itself** closing above the base's high,
+  bullish with a proper close, on volume at least
   `PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER` (2x - deliberately higher than
   every other strategy's volume bar, since "high volumes" was the explicit
   ask for the breakout itself). That's the whole trigger - entered
@@ -303,16 +298,11 @@ them there rather than in the strategy code.
   **Falling Wedge**. This is a real classification, but a heuristic one -
   slope sign and magnitude, not genuine trendline-touch-point geometry -
   and is labeled as such rather than dressed up as more rigorous than it
-  is. `pattern_high`/`pattern_low` (the plain rolling high-low band) are
-  still used, unchanged, for tightness scoring and the measured-move
-  height reported as `tightness_pct` - only the breakout *trigger* and
-  target *anchor* use the projected `breakout_level` instead. Every
-  signal's note and `extra` dict report the base's detected length
-  (`base_candles`), its calendar start/end (`base_start`/`base_end`), its
-  shape (`breakout_type`), and the projected level itself
-  (`breakout_level`); signals sort by the base's own range %
-  (`sort_key`), **largest range first**, per explicit request - not by
-  volume or recency.
+  is. Every signal's note and `extra` dict report the base's detected
+  length (`base_candles`), its calendar start/end (`base_start`/
+  `base_end`), and its shape (`breakout_type`); signals sort by the base's
+  own range % (`sort_key`), **largest range first**, per explicit request
+  - not by volume or recency.
 
   **Short leg (breakdown), F&O-eligible symbols only**: a cash-segment
   equity short can't be carried overnight in India for retail - it's
@@ -327,10 +317,9 @@ them there rather than in the strategy code.
   flipped: below the 200 SMA, `_detect_base` requires a **distribution**
   base (`is_distribution_range` - down-volume beats up-volume, not the
   long side's `is_accumulation_range`), and today itself closes *below*
-  the base's **breakdown level** (the same trendline projection, fit
-  through the base's lows instead of its highs), bearish with a proper
-  close (`is_bearish` + `is_proper_close_bearish`), on the same elevated
-  volume. No short-specific tuning anywhere in `config.py`.
+  the base's low, bearish with a proper close (`is_bearish` +
+  `is_proper_close_bearish`), on the same elevated volume. No
+  short-specific tuning anywhere in `config.py`.
 
   This immediate-entry version is unbacktested - every threshold above is
   a judgment call, not something mined from a backtest CSV the way the
@@ -388,9 +377,8 @@ them there rather than in the strategy code.
   than that is skipped outright, not tightened to fit (a breakout candle
   with that wide a range is a messy one). Targets are a measured move
   (`PRICE_ACTION_TARGET_MULTIPLES`, 1x/2x) - the base's own height
-  projected up from the (trendline-projected) breakout level, the same
-  idea as Weekly Range Breakout's `BREAKOUT_RANGE_MULTIPLES` off its own
-  range height -
+  projected up from the breakout level, the same idea as Weekly Range
+  Breakout's `BREAKOUT_RANGE_MULTIPLES` off its own range height -
   required to clear the stricter `PRICE_ACTION_MIN_REWARD_RISK_RATIO`
   (2:1) against the (already-capped) risk, checked independently of the
   risk cap since base height and the breakout candle's own range aren't
@@ -481,28 +469,6 @@ all-time-high check isn't silently capped at 6 years.
   heuristic, not real trendline-touch-point geometry the way a human
   chartist or a dedicated pattern-recognition library would do it; treat
   it as a useful label, not a rigorous one.
-- **The breakout/breakdown trigger is now a projected trendline, not a
-  plain rolling max/min - unbacktested since this change.** The 1,194/8
-  daily/weekly numbers above were measured under the old trigger (today's
-  close vs. the base's flat rolling high/low), which the backtest data
-  itself showed was structurally blind to falling-topped or
-  rising-bottomed bases: across those 1,194 daily signals, Rising Wedge
-  (766) and Range (364) - shapes where a flat/rising-favorable rolling
-  max/min happens to be accurate - dominated, while Descending Triangle
-  (4) and Symmetrical Triangle (0), whose real breakout only exists on a
-  falling trendline a rolling max can't see, were nearly absent.
-  `_detect_base` now fits a straight line through the base's highs (lows,
-  for shorts) and projects it one step past the base's last candle
-  (`_project_trendline`) - that projected level, not the plain rolling
-  max/min, is what today's close has to clear, and what the measured-move
-  target is anchored from. The two agree exactly whenever the relevant
-  line is flat or moves in the breakout's favor (i.e. every existing test
-  fixture, and the Range/Rising Wedge signals that already dominated), so
-  this isn't expected to change daily/weekly signal counts much on its
-  own - the expected effect is specifically on Descending Triangle and
-  Symmetrical Triangle counts, which should rise from their near-zero
-  baseline. Revisit this bullet once a fresh 5-year backtest exists under
-  the new trigger.
 - **Price Action Breakout's short leg is new and unbacktested at scale.**
   It's gated to F&O-eligible symbols (`data.fetch_fo_eligible_symbols`) -
   a much smaller slice of the universe than the long side's full ~500 -

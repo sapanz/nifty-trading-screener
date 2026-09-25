@@ -193,29 +193,14 @@ MIN_REWARD_RISK_RATIO = 1.0
 # sign and magnitude, not genuine trendline/touch-point geometry), labeled
 # as such rather than dressed up as more rigorous than it is.
 #
-# The breakout TRIGGER itself is a separate thing from that label:
-# _detect_base also projects a straight line through the base's highs (or,
-# for the short leg, its lows - _project_trendline) one step past the
-# base's last candle, and that projected value - not the base's plain
-# rolling max/min - is what today has to clear. The two agree whenever the
-# relevant line is flat or moves in the breakout's own favor (Range,
-# Ascending Triangle, Rising Wedge for longs), which is why a 5-year
-# backtest of the plain-rolling-max version found those shapes dominant
-# (Rising Wedge 766 signals, Range 364) while falling-topped shapes were
-# nearly invisible (Descending Triangle 4, Symmetrical Triangle 0) - a
-# rolling max stays pinned to a falling top's oldest, highest candle, so a
-# genuine breakout on a later, lower high almost never triggered. The
-# trendline projection fixes that without changing anything for the
-# flat/rising-favorable shapes that already worked.
-#
-# Beyond the base itself: today's own candle closing above that projected
-# breakout level on clearly elevated volume, bullish and properly closed
-# (is_bullish + is_proper_close - the existing "20%-wick" rule) IS the
-# entry trigger - no later retest/reclaim confirmation is waited for. An
-# earlier version of this strategy required a pullback that came back to
-# retest the broken level as support before entering (see git history for
-# price_action_breakout.py) - reverted per explicit direction: waiting for
-# that retest was making entries late relative to the breakout that
+# Beyond the base itself: today's own candle closing above the
+# consolidation's high on clearly elevated volume, bullish and properly
+# closed (is_bullish + is_proper_close - the existing "20%-wick" rule) IS
+# the entry trigger - no later retest/reclaim confirmation is waited for.
+# An earlier version of this strategy required a pullback that came back
+# to retest the broken level as support before entering (see git history
+# for price_action_breakout.py) - reverted per explicit direction: waiting
+# for that retest was making entries late relative to the breakout that
 # actually mattered, entering good distance into the move rather than at
 # its start.
 #
