@@ -170,51 +170,63 @@ MONTHLY_MIN_GAP_MONTHS = 3
 # just the universal 1:1 floor.
 MIN_REWARD_RISK_RATIO = 1.0
 
-# --- Price Action Breakout (consolidation -> high-volume breakout, entered immediately) ---
-# Runs on daily AND weekly candles (price_action_breakout.scan() is called
-# twice, once per timeframe, each with its own window sizes below - a
-# breakout worth trading looks the same shape at any zoom level). No
-# monthly leg - a 5-year backtest of the earlier retest-based version of
-# this strategy showed it never fired at all under these thresholds (too
-# little monthly history per stock to form a base this strict), and
-# Monthly ATH Breakout already covers the monthly timeframe.
+# --- Price Action Breakout (consolidation -> high-volume breakout) -------
+# Daily and weekly now run genuinely different entry logic, not the same
+# scan() with different window sizes - price_action_breakout.scan()
+# (daily, enters immediately on the breakout candle) and .scan_retest()
+# (weekly, waits for a later candle to retest the breakout level and
+# reclaim it). See that module's docstring for the full backtest history
+# behind the split: both legs started retest-based, both were rewritten to
+# immediate-entry per explicit direction ("due to retest, I am getting bit
+# late in trade"), daily's rewrite held up (845 -> 1,194 signals, PF 1.20
+# -> 1.23) but weekly's didn't (thinned to 8 signals, and a follow-up
+# trendline-projection fix made weekly's PF collapse to 0.26 - reverted
+# entirely), so weekly went back to retest-based per explicit direction
+# ("weekly retest price action was working") while daily kept the
+# immediate-entry rewrite. No monthly leg on either - a 5-year backtest of
+# the retest-based version showed it never fired at all under these
+# thresholds (too little monthly history per stock to form a base this
+# strict), and Monthly ATH Breakout already covers the monthly timeframe.
 #
-# The base's length is DETECTED, not fixed: for today's own candle,
-# _detect_base walks backward from it looking for the LONGEST window
-# (between the per-timeframe MIN/MAX bounds below) whose high-low band
-# still stays within PRICE_ACTION_RANGE_TIGHTNESS - real bases vary in how
-# long they take to form, and reporting that actual length (rather than a
-# fixed number that's the same for every stock) is the point of surfacing
-# it at all. Once the base is found, a lightweight shape classifier
-# (_classify_shape) fits a straight line through its highs and another
-# through its lows and labels the combination of slopes (flat/rising/
-# falling) as Range, Ascending/Descending/Symmetrical Triangle, or
-# Rising/Falling Wedge - a real classification, but a heuristic one (slope
-# sign and magnitude, not genuine trendline/touch-point geometry), labeled
-# as such rather than dressed up as more rigorous than it is.
+# The base's length is DETECTED, not fixed, on both legs: _detect_base
+# walks backward looking for the LONGEST window (between the per-timeframe
+# MIN/MAX bounds below) whose high-low band still stays within
+# PRICE_ACTION_RANGE_TIGHTNESS - real bases vary in how long they take to
+# form, and reporting that actual length (rather than a fixed number
+# that's the same for every stock) is the point of surfacing it at all.
+# Once the base is found, a lightweight shape classifier (_classify_shape)
+# fits a straight line through its highs and another through its lows and
+# labels the combination of slopes (flat/rising/falling) as Range,
+# Ascending/Descending/Symmetrical Triangle, or Rising/Falling Wedge - a
+# real classification, but a heuristic one (slope sign and magnitude, not
+# genuine trendline/touch-point geometry), labeled as such rather than
+# dressed up as more rigorous than it is. (A separate attempt to make the
+# breakout TRIGGER itself trendline-aware, not just the shape label, was
+# tried and reverted - see price_action_breakout.py's module docstring.)
 #
-# Beyond the base itself: today's own candle closing above the
-# consolidation's high on clearly elevated volume, bullish and properly
-# closed (is_bullish + is_proper_close - the existing "20%-wick" rule) IS
-# the entry trigger - no later retest/reclaim confirmation is waited for.
-# An earlier version of this strategy required a pullback that came back
-# to retest the broken level as support before entering (see git history
-# for price_action_breakout.py) - reverted per explicit direction: waiting
-# for that retest was making entries late relative to the breakout that
-# actually mattered, entering good distance into the move rather than at
-# its start.
+# Daily (scan()): today's own candle closing above the consolidation's
+# high on clearly elevated volume, bullish and properly closed
+# (is_bullish + is_proper_close - the existing "20%-wick" rule) IS the
+# entry trigger - no later retest/reclaim confirmation is waited for.
 #
-# This immediate-entry version is not backtest-tuned yet (every number
-# below is a judgment call sized to what was asked for - a tight base, a
-# genuinely high-volume break - not a threshold mined from a trade CSV the
-# way the older strategies' numbers were). Revisit once a real backtest
-# CSV exists to mine instead of guessing.
+# Weekly (scan_retest()): the breakout candle closing above the base's
+# high on the same elevated volume, THEN at least one later candle pulling
+# back to retest that broken level (PRICE_ACTION_RETEST_TOLERANCE) without
+# a close falling PRICE_ACTION_INVALIDATION_PCT below it, THEN today
+# closing back above the level, green and properly closed - the actual
+# signal trigger; everything before it is context this candle confirms.
 PRICE_ACTION_PATTERN_MIN_LOOKBACK_DAILY = 8      # shortest window that still counts as a real base, daily
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_DAILY = 40     # longest window _detect_base will consider, daily
 PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY = 5
 PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY = 20
 PRICE_ACTION_VOLUME_LOOKBACK_DAILY = 20
 PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
+
+# scan_retest() (weekly) only - how many recent candles back the breakout
+# itself may have happened, while still counting today as a valid
+# retest/reclaim confirmation. scan() (daily) has no equivalent since it
+# only ever looks at today's own candle.
+PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8
 
 # The base itself must be tight - reuses Weekly Range Breakout's own 20%
 # convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
@@ -228,17 +240,20 @@ PRICE_ACTION_RANGE_TIGHTNESS = BREAKOUT_RANGE_TIGHTNESS
 # conviction behind the actual breakout.
 PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER = 2.0
 
-# A signal whose natural stop-loss (today's own high/low - see scan()) implies
-# more risk than this gets skipped outright, not tightened to fit.
+# scan_retest() (weekly) only: how close a later candle has to come back
+# to the breakout level to count as a genuine retest, and how far a close
+# can dip below it in between without invalidating the setup entirely
+# (support reclaimed, not just tested).
+PRICE_ACTION_RETEST_TOLERANCE = 0.02
+PRICE_ACTION_INVALIDATION_PCT = 0.03  # a close this far below the breakout level invalidates the setup
+
+# A signal whose natural stop-loss implies more risk than this gets
+# skipped outright, not tightened to fit - today's own high/low for
+# scan() (daily), the lower of the retest's low and the confirmation
+# candle's low for scan_retest() (weekly).
 #
-# Split by timeframe, not one shared number, since a weekly candle's natural
-# range runs structurally wider as a % of price than a daily one's. The exact
-# 5%/10% split below was tuned against the earlier retest-based version of
-# this strategy (see git history for price_action_breakout.py before the
-# immediate-entry rewrite) - that version's stop was the lower of a retest low
-# and the confirmation candle's low, not today's own candle range, so these
-# numbers are carried over as a starting point, not re-derived for the new
-# mechanics. Revisit once this version has its own backtest CSV to mine.
+# Split by timeframe, not one shared number, since a weekly candle's/retest's
+# natural swing runs structurally wider as a % of price than a daily one's.
 PRICE_ACTION_MAX_RISK_PCT_DAILY = 5.0
 PRICE_ACTION_MAX_RISK_PCT_WEEKLY = 10.0
 

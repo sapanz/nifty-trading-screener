@@ -153,10 +153,11 @@ def main() -> None:
                 lambda: format_strategy_message(
                     PRICE_ACTION_WEEKLY_TITLE,
                     PRICE_ACTION_EMOJI,
-                    price_action_breakout.scan(
+                    price_action_breakout.scan_retest(
                         weekly,
                         pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
                         pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
+                        breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                         volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
                         max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
                         short_eligible=fo_symbols,

@@ -36,13 +36,17 @@ boundaries, and for monthly is capped at DAILY_HISTORY_YEARS rather than
 genuinely deep history. See scripts/run_backtest.py for the live wiring.
 
 Price Action Breakout runs twice - "price_action_breakout_daily" off
-`daily_data` and "_weekly" off `weekly_data` - kept as two separate result
-buckets rather than pooled together, since a daily-timeframe base/breakout
-and a weekly one are different trades with different holding periods, not
-the same signal at two resolutions. No monthly leg - a 5-year backtest of
-an earlier version of this strategy showed it never fired at all (too
-little monthly history per stock to form a base this strict), and Monthly
-ATH Breakout already covers that timeframe.
+`daily_data` via price_action_breakout.scan() (immediate entry) and
+"_weekly" off `weekly_data` via price_action_breakout.scan_retest()
+(waits for a retest/reclaim) - two different functions, not the same one
+called twice, since the two timeframes now run genuinely different entry
+logic (see that module's docstring for why). Kept as two separate result
+buckets rather than pooled together either way, since a daily-timeframe
+base/breakout and a weekly one are different trades with different
+holding periods, not the same signal at two resolutions. No monthly leg -
+a 5-year backtest of an earlier version of this strategy showed it never
+fired at all (too little monthly history per stock to form a base this
+strict), and Monthly ATH Breakout already covers that timeframe.
 """
 from __future__ import annotations
 
@@ -324,10 +328,11 @@ def run_backtest(
                     results["weekly_breakout"].append(simulate_forward("weekly_breakout", signal, asof, daily_data[signal.symbol]))
 
             if "price_action_breakout_weekly" in wanted:
-                pa_weekly_signals = price_action_breakout.scan(
+                pa_weekly_signals = price_action_breakout.scan_retest(
                     sliced_weekly,
                     pattern_min_lookback=config.PRICE_ACTION_PATTERN_MIN_LOOKBACK_WEEKLY,
                     pattern_max_lookback=config.PRICE_ACTION_PATTERN_MAX_LOOKBACK_WEEKLY,
+                    breakout_window=config.PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY,
                     volume_lookback=config.PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY,
                     max_risk_pct=config.PRICE_ACTION_MAX_RISK_PCT_WEEKLY,
                     short_eligible=short_eligible,

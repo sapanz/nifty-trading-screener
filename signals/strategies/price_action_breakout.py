@@ -1,14 +1,34 @@
-"""Price Action Breakout: base -> high-volume breakout, entered immediately
-on the breakout candle itself - no retest wait. Runs on daily AND weekly
-candles (see scripts/run_signals.py and signals/backtest.py, which each
-call scan() twice with a different set of window sizes below - the same
-shape of setup, just zoomed to a different timeframe). No monthly leg - a
-5-year backtest of the (since-replaced) retest-based version showed it
-never fired under these thresholds (too little monthly history per stock
-to form a base this strict), and Monthly ATH Breakout already covers that
-timeframe.
+"""Price Action Breakout: base -> high-volume breakout. Two different entry
+mechanisms live in this module now, one per timeframe - `scan()` (daily,
+enters immediately on the breakout candle) and `scan_retest()` (weekly,
+waits for a later candle to retest the breakout level and reclaim it
+before entering). See scripts/run_signals.py and signals/backtest.py for
+which function each timeframe actually calls, with its own set of window
+sizes below. No monthly leg - a 5-year backtest of the retest-based
+version showed it never fired under these thresholds (too little monthly
+history per stock to form a base this strict), and Monthly ATH Breakout
+already covers that timeframe.
 
-A stock qualifies for a LONG when:
+Both timeframes originally ran the retest-based logic (`scan_retest()`
+below) - 5-year backtest: daily 2,654 signals/48% win/PF 1.13, weekly 190
+signals/63% win/PF 1.10 (before the risk cap and reward:risk gate
+existed). Per explicit direction ("due to retest, I am getting bit late
+in trade"), both timeframes were rewritten to enter immediately on the
+breakout candle instead (`scan()`, no retest wait) - daily improved (845
+-> 1,194 signals, win rate flat ~29-30%, PF 1.20 -> 1.23) but weekly
+shrank to too few signals to trust (8 signals, PF 1.45). A follow-up fix
+projected the breakout level via a fitted trendline instead of a plain
+rolling max/min (to catch falling-topped bases a flat rolling max
+couldn't) - it worked as designed (Descending Triangle detections went
+4 -> 24) but made both timeframes worse in aggregate (daily PF 1.23 ->
+1.15, weekly PF 1.45 -> 0.26, a losing strategy) and was reverted
+entirely (see git history for that version). Per explicit direction,
+daily now keeps the immediate-entry `scan()` (it was working) and weekly
+is back on the original retest-based `scan_retest()` (it "was working");
+the two timeframes run genuinely different entry logic, not the same
+function with different window sizes.
+
+`scan()` (daily): a stock qualifies for a LONG when:
   - it is above its own 200-period SMA (long-term uptrend, same baseline
     filter every other strategy here uses)
   - _detect_base finds a **base** ending right before today: the longest
@@ -32,15 +52,13 @@ A stock qualifies for a LONG when:
 Entry is a resting buy-stop at today's (the breakout candle's) own high,
 same construction every other strategy here uses - the trade only fills
 once a later candle actually trades up through it. Stop-loss is today's
-own low - but only up to `max_risk_pct` away from entry
-(PRICE_ACTION_MAX_RISK_PCT_DAILY/_WEEKLY in config.py - split by
-timeframe since a weekly candle's natural range runs structurally wider
-than a daily one's); a signal whose natural stop sits further than that is
-skipped outright rather than tightened to fit. Targets are a measured
-move: the base's own height projected up from the breakout level - but
-only if that reward is at least PRICE_ACTION_MIN_REWARD_RISK_RATIO (2:1)
-times the actual risk being taken; the risk cap above bounds how much is
-risked in absolute terms, this bounds whether the reward on offer
+own low - but only up to `max_risk_pct` (PRICE_ACTION_MAX_RISK_PCT_DAILY
+in config.py) away from entry; a signal whose natural stop sits further
+than that is skipped outright rather than tightened to fit. Targets are a
+measured move: the base's own height projected up from the breakout level
+- but only if that reward is at least PRICE_ACTION_MIN_REWARD_RISK_RATIO
+(2:1) times the actual risk being taken; the risk cap above bounds how
+much is risked in absolute terms, this bounds whether the reward on offer
 justifies it, and the two are checked independently since base height and
 the breakout candle's own range aren't tied to each other. Signals sort by
 the base's own range (high-low as a % of low), largest first - not by
@@ -62,17 +80,13 @@ targets project the base's height down from the breakdown level. Every
 threshold is identical to the long side's, just mirrored - no separate
 short-specific tuning in config.py.
 
-Replaces an earlier version of this strategy that waited for a later
-candle to retest the breakout level and reclaim it before entering - per
-explicit direction, that confirmation stage was making entries late
-relative to the breakout that actually mattered. The retest-based
-version's 5-year backtest numbers (daily: 2,654 signals, 48% win rate, PF
-1.13; weekly: 190 signals, 63% win rate, PF 1.10, before the risk cap and
-reward:risk gate existed) no longer describe this code - see git history
-for that version if it's ever worth reverting to. This immediate-entry
-version is unbacktested; every threshold in signals/config.py's Price
-Action Breakout section is still a judgment call, not something mined
-from a backtest CSV the way the older strategies' numbers were.
+`scan_retest()` (weekly): the exact same base-detection and shape
+classification, but the trigger is a two-stage sequence instead of just
+today's own candle - see its own docstring below for the full mechanics
+(breakout candle -> retest -> confirmation candle). PRICE_ACTION_MAX_RISK_
+PCT_WEEKLY, the same PRICE_ACTION_MIN_REWARD_RISK_RATIO, and the same
+target-multiple/sort-by-range conventions apply there too, just measured
+off the retest instead of today's own candle range.
 """
 from __future__ import annotations
 
@@ -196,16 +210,14 @@ def scan(
     max_risk_pct: float,
     short_eligible: set[str] | None = None,
 ) -> list[Signal]:
-    """`short_eligible`, when given, is the set of symbols the short
+    """The daily leg of Price Action Breakout (see scripts/run_signals.py /
+    signals/backtest.py) - `scan_retest()` below is weekly's.
+
+    `short_eligible`, when given, is the set of symbols the short
     (breakdown) leg is allowed to fire on - see data.fetch_fo_eligible_symbols.
     None (the default) means no shorts at all, same as before this leg
     existed. The long leg is unaffected either way and still runs on every
     symbol in `price_data`.
-
-    `max_risk_pct` is timeframe-specific (PRICE_ACTION_MAX_RISK_PCT_DAILY /
-    _WEEKLY in config.py) - pass whichever matches the timeframe of
-    `price_data`, since a weekly candle's natural range is structurally
-    wider as a % of price than a daily one's.
 
     Today's own candle is the breakout candle - there's no retest/reclaim
     wait, so this only ever looks at whether *today* qualifies, not
@@ -304,6 +316,230 @@ def scan(
                     note=(
                         f"{shape} | Base {base_len} candles ({base_start} to {base_end}), range {range_pct:.1f}% | "
                         f"Break{'down' if bearish else 'out'} {today['close']:.2f} ({vol_ratio:.1f}x vol)"
+                    ),
+                    candle_date=today.name.date(),
+                    extra={
+                        "vol_ratio": round(vol_ratio, 2),
+                        "tightness_pct": round(range_pct, 2),
+                        "breakout_type": shape,
+                        "base_candles": base_len,
+                        "base_start": base_start.isoformat(),
+                        "base_end": base_end.isoformat(),
+                    },
+                )
+            )
+
+    signals.sort(key=lambda s: s.sort_key, reverse=True)
+    return signals
+
+
+def _find_setup(
+    df: pd.DataFrame,
+    today_idx: int,
+    pattern_min_lookback: int,
+    pattern_max_lookback: int,
+    breakout_window: int,
+    vol_col: str,
+    high_bands: dict[int, np.ndarray],
+    low_bands: dict[int, np.ndarray],
+    bearish: bool,
+) -> tuple[int, pd.DataFrame, float, float, float, pd.Series] | None:
+    """Find the most recent valid base -> breakout -> retest setup within
+    `breakout_window` candles of today, for one direction - `bearish=False`
+    is the long logic (breakout above resistance); `bearish=True` is its
+    mirror (breakdown below support). Used by scan_retest() only - scan()
+    above needs none of this since it only ever looks at today's own
+    candle. Returns (breakout_idx, base pattern, pattern_high, pattern_low,
+    retest_extreme, breakout_row) - `retest_extreme` is the retest's low
+    for a long (how far it dipped back toward the level) or its high for a
+    short (how far it rallied back toward the level)."""
+    today = df.iloc[today_idx]
+    for b in range(today_idx - 1, today_idx - 1 - breakout_window, -1):
+        if b - pattern_min_lookback < 0:
+            break
+
+        base = _detect_base(df, b, pattern_min_lookback, pattern_max_lookback, high_bands, low_bands, bearish=bearish)
+        if base is None:
+            continue
+        pattern, pattern_high, pattern_low = base
+
+        breakout_row = df.iloc[b]
+        if bearish:
+            if not breakout_row["close"] < pattern_low:
+                continue
+            if not (is_bearish(breakout_row) and is_proper_close_bearish(breakout_row)):
+                continue
+        else:
+            if not breakout_row["close"] > pattern_high:
+                continue
+            if not (is_bullish(breakout_row) and is_proper_close(breakout_row)):
+                continue
+        if pd.isna(breakout_row.get(vol_col)):
+            continue
+        if not is_volume_candle(breakout_row, vol_col, config.PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER):
+            continue  # the breakout/breakdown itself must come on clearly elevated volume
+
+        between = df.iloc[b + 1 : today_idx]  # candles after the breakout, before today
+        if between.empty:
+            continue  # need at least one candle to have actually retested the level
+
+        if bearish:
+            if float(between["close"].max()) > pattern_low * (1 + config.PRICE_ACTION_INVALIDATION_PCT):
+                continue  # a close this far back above the breakdown level - support reclaimed, not "retested"
+            retest_extreme = float(between["high"].max())
+            if retest_extreme < pattern_low * (1 - config.PRICE_ACTION_RETEST_TOLERANCE):
+                continue  # price never actually rallied back up to retest the level
+            if not today["close"] < pattern_low:
+                continue  # today must re-break below the level, not just be red somewhere above it
+        else:
+            if float(between["close"].min()) < pattern_high * (1 - config.PRICE_ACTION_INVALIDATION_PCT):
+                continue  # a close this far back below the breakout level - the level failed, not "retested"
+            retest_extreme = float(between["low"].min())
+            if retest_extreme > pattern_high * (1 + config.PRICE_ACTION_RETEST_TOLERANCE):
+                continue  # price never actually came back down to retest the level
+            if not today["close"] > pattern_high:
+                continue  # today must reclaim the breakout level, not just be green somewhere below it
+
+        return b, pattern, pattern_high, pattern_low, retest_extreme, breakout_row
+    return None
+
+
+def scan_retest(
+    price_data: dict[str, pd.DataFrame],
+    pattern_min_lookback: int,
+    pattern_max_lookback: int,
+    breakout_window: int,
+    volume_lookback: int,
+    max_risk_pct: float,
+    short_eligible: set[str] | None = None,
+) -> list[Signal]:
+    """The weekly leg of Price Action Breakout - `scan()` above is daily's.
+    Base -> high-volume breakout -> retest -> confirmation candle, per
+    explicit direction to revert weekly back to this after the
+    immediate-entry rewrite (`scan()`) backtested far worse on this
+    timeframe (see the module docstring's history). A stock qualifies for
+    a LONG when:
+      - it is above its own 200-period SMA
+      - looking back from a candle within the last `breakout_window`
+        candles, _detect_base finds a **base** ending right before it (see
+        _detect_base's docstring), and that candle ("the breakout candle")
+        closes above the base's high, bullish and properly closed, on
+        clearly elevated volume (PRICE_ACTION_BREAKOUT_VOLUME_MULTIPLIER)
+      - at least one candle after the breakout pulled back to retest that
+        broken level (within PRICE_ACTION_RETEST_TOLERANCE) without any
+        close in between falling PRICE_ACTION_INVALIDATION_PCT below it -
+        the level held as support rather than failing
+      - today is a green, properly-closed candle that closes back above
+        the breakout level - the actual signal trigger; everything above
+        it is context this candle confirms
+
+    Entry is a resting buy-stop at the confirmation candle's own high.
+    Stop-loss is the lower of the retest's own low and the confirmation
+    candle's low (the support just demonstrated holding) - but only up to
+    `max_risk_pct` away from entry; a signal whose natural stop sits
+    further than that is skipped outright, since entry already comes after
+    a breakout AND a held retest, so a stop this wide means the retest
+    itself was messy. Targets and the reward:risk gate work exactly as in
+    scan() (measured move off the base height, PRICE_ACTION_MIN_REWARD_RISK_
+    RATIO), just measured off the retest instead of today's own candle
+    range. Signals sort by the base's own range, largest first.
+
+    SHORT leg (breakdown): the exact mirror, gated to `short_eligible` -
+    see scan()'s docstring for the F&O-eligibility reasoning, identical
+    here."""
+    signals: list[Signal] = []
+    vol_col = f"avg_vol{volume_lookback}"
+    min_len = config.SMA_LONG + pattern_max_lookback + breakout_window + 2
+    sma_col = f"sma{config.SMA_LONG}"
+
+    for symbol, raw_df in price_data.items():
+        df = raw_df.copy()
+        if len(df) < min_len:
+            continue
+
+        add_sma(df, config.SMA_LONG)
+        add_avg_volume(df, volume_lookback)
+
+        today_idx = len(df) - 1
+        today = df.iloc[today_idx]
+
+        if pd.isna(today.get(sma_col)):
+            continue
+
+        # Which direction(s) today's own candle even qualifies to trigger -
+        # checked before the (relatively expensive) rolling-bands precompute
+        # below, so a symbol matching neither skips that work entirely.
+        directions = []
+        if is_above_sma(today, sma_col) and is_bullish(today) and is_proper_close(today):
+            directions.append(False)  # long
+        if (
+            short_eligible and symbol in short_eligible
+            and is_below_sma(today, sma_col) and is_bearish(today) and is_proper_close_bearish(today)
+        ):
+            directions.append(True)  # short
+        if not directions:
+            continue
+
+        high_bands, low_bands = _rolling_bands(df, pattern_min_lookback, pattern_max_lookback)
+
+        for bearish in directions:
+            setup = _find_setup(
+                df, today_idx, pattern_min_lookback, pattern_max_lookback, breakout_window,
+                vol_col, high_bands, low_bands, bearish,
+            )
+            if setup is None:
+                continue
+            b, pattern, pattern_high, pattern_low, retest_extreme, breakout_row = setup
+
+            if bearish:
+                entry = float(today["low"])
+                stop_loss = float(max(retest_extreme, today["high"]))
+                risk = stop_loss - entry
+            else:
+                entry = float(today["high"])
+                stop_loss = float(min(retest_extreme, today["low"]))
+                risk = entry - stop_loss
+            if risk <= 0:
+                continue
+            if risk / entry * 100 > max_risk_pct:
+                continue  # retest/today's extreme sits too far from entry - a messy retest, not a tight one
+
+            pattern_height = pattern_high - pattern_low
+            if bearish:
+                targets = [round(pattern_low - pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
+                if targets[0] >= entry:
+                    continue  # target already sits behind entry - skip rather than take a guaranteed-bad trade
+                reward = entry - targets[0]
+            else:
+                targets = [round(pattern_high + pattern_height * mult, 2) for mult in config.PRICE_ACTION_TARGET_MULTIPLES]
+                if targets[0] <= entry:
+                    continue
+                reward = targets[0] - entry
+            if reward / risk < config.PRICE_ACTION_MIN_REWARD_RISK_RATIO:
+                continue  # target sizing (base height) and stop sizing (retest) are independent - this one didn't earn its risk
+
+            vol_ratio = float(breakout_row["volume"] / breakout_row[vol_col])
+            candles_since_breakout = today_idx - b
+            base_len = len(pattern)
+            base_start = pattern.index[0].date()
+            base_end = pattern.index[-1].date()
+            range_pct = pattern_height / pattern_low * 100
+            shape = _classify_shape(pattern)
+            level = pattern_low if bearish else pattern_high
+
+            signals.append(
+                Signal(
+                    symbol=symbol,
+                    entry=round(entry, 2),
+                    stop_loss=round(stop_loss, 2),
+                    targets=targets,
+                    direction="short" if bearish else "long",
+                    sort_key=range_pct,
+                    note=(
+                        f"{shape} | Base {base_len} candles ({base_start} to {base_end}), range {range_pct:.1f}% | "
+                        f"Break{'down' if bearish else 'out'} {breakout_row['close']:.2f} "
+                        f"({candles_since_breakout} candles ago, {vol_ratio:.1f}x vol) | "
+                        f"Retest held {level:.2f}"
                     ),
                     candle_date=today.name.date(),
                     extra={
