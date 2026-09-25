@@ -226,7 +226,7 @@ PRICE_ACTION_VOLUME_LOOKBACK_WEEKLY = 12
 # itself may have happened, while still counting today as a valid
 # retest/reclaim confirmation. scan() (daily) has no equivalent since it
 # only ever looks at today's own candle.
-PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 8
+PRICE_ACTION_BREAKOUT_WINDOW_WEEKLY = 6
 
 # The base itself must be tight - reuses Weekly Range Breakout's own 20%
 # convention (BREAKOUT_RANGE_TIGHTNESS) rather than inventing a
