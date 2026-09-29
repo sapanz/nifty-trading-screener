@@ -48,9 +48,13 @@ a 5-year backtest of an earlier version of this strategy showed it never
 fired at all (too little monthly history per stock to form a base this
 strict), and Monthly ATH Breakout already covers that timeframe.
 
-Weekly Value Stocks Breakout ("value_breakout") also runs off
-`weekly_data`, gated by `value_universe` (a fundamentally-screened subset
-of the universe - see signals/value_universe.py) - built as a candidate
+Weekly Value Stocks Breakout ("value_breakout") runs off its own
+`value_weekly_data`/`value_daily_data` fetches, not `weekly_data`/
+`daily_data` - unlike every other strategy here, it screens the full NSE
+via screener.in (`value_universe`, a fundamentally-screened symbol set -
+see signals/value_universe.py), not the fixed Nifty 500 universe the rest
+of this module scans, so it needs price history for whatever symbols that
+screen returns rather than the Nifty 500's. Built as a candidate
 replacement for Price Action Breakout (Weekly), pending a backtest
 comparing the two. Unlike every other strategy here, it has no fixed
 stop-loss or target at all - it's walked forward with
@@ -316,6 +320,8 @@ def run_backtest(
     strategies: set[str] | None = None,
     short_eligible: set[str] | None = None,
     value_universe: set[str] | None = None,
+    value_weekly_data: dict[str, pd.DataFrame] | None = None,
+    value_daily_data: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest active strategies over the trailing `months` months.
 
@@ -353,6 +359,18 @@ def run_backtest(
     every other strategy. Same *today's*-snapshot-applied-across-history
     caveat as `short_eligible` above, for the same reason: screener.in has
     no historical snapshot of past fundamentals either.
+
+    `value_weekly_data`/`value_daily_data` are Weekly Value Stocks
+    Breakout's own weekly/daily fetches, scoped to exactly the symbols
+    screener.in's query returned - unlike every other strategy here, this
+    one screens the full NSE, not the fixed Nifty 500 universe
+    `daily_data`/`weekly_data` cover, since the fundamental screen is the
+    whole point of using screener.in instead of just filtering the Nifty
+    500 by price action alone. If omitted, each falls back to
+    `weekly_data`/`daily_data` respectively - fine for a quick local
+    backtest, but means the scan only ever sees the Nifty 500 subset of
+    the value universe, same limitation this had before these two
+    parameters existed.
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
@@ -360,6 +378,10 @@ def run_backtest(
 
     if weekly_data is None:
         weekly_data = data.to_weekly(daily_data)
+    if value_weekly_data is None:
+        value_weekly_data = weekly_data
+    if value_daily_data is None:
+        value_daily_data = daily_data
     if monthly_data is None:
         monthly_data = data.to_monthly(daily_data)
 
@@ -393,19 +415,23 @@ def run_backtest(
             sliced_weekly = _scan_as_of(weekly_data, asof)
 
             if "value_breakout" in wanted and value_universe:
-                for signal in value_breakout.scan(sliced_weekly, value_universe):
+                # Scoped to value_weekly_data (the full-NSE fetch for
+                # exactly the symbols screener.in's query returned), not
+                # sliced_weekly (the fixed Nifty 500 universe every other
+                # strategy here uses) - see value_weekly_data's docstring.
+                for signal in value_breakout.scan(_scan_as_of(value_weekly_data, asof), value_universe):
                     # The exit walk needs both this symbol's full weekly
                     # history (to recompute the trailing SMA each future
                     # week) and its daily bars (for the next-trading-day
                     # fill once the SMA is breached - see
                     # simulate_weekly_trailing_sma) - skip if either is
                     # missing, same reasoning as weekly_breakout below.
-                    if signal.symbol not in daily_data or signal.symbol not in weekly_data:
+                    if signal.symbol not in value_daily_data or signal.symbol not in value_weekly_data:
                         continue
                     results["value_breakout"].append(
                         simulate_weekly_trailing_sma(
                             "value_breakout", signal, asof,
-                            weekly_data[signal.symbol], daily_data[signal.symbol], config.BREAKOUT_TREND_SMA,
+                            value_weekly_data[signal.symbol], value_daily_data[signal.symbol], config.BREAKOUT_TREND_SMA,
                         )
                     )
 

@@ -34,7 +34,12 @@ fundamentally-screened symbol set scraped from screener.in (see
 signals/value_universe.py) - a candidate replacement for Price Action
 Breakout (Weekly), pending a backtest comparing the two; both run live
 for now. Same failure-isolation pattern as the F&O fetch: a scrape
-failure disables just this strategy for the run.
+failure disables just this strategy for the run. Unlike every other
+strategy here, it isn't scoped to the fixed Nifty 500 universe - the
+whole point of screening fundamentals via screener.in instead of just
+filtering the Nifty 500 by price action alone is to reach the full NSE,
+so it gets its own instrument map and weekly Upstox fetch scoped to
+exactly the symbols screener.in's query returned that day.
 
 Requires UPSTOX_ACCESS_TOKEN, refreshed daily - see
 tools/refresh_upstox_token.py.
@@ -180,18 +185,26 @@ def main() -> None:
                 # reasoning as the F&O fetch above: a scrape failure
                 # shouldn't take down Weekly Range Breakout or Price Action
                 # Breakout's weekly leg, which just ran fine above.
+                #
+                # This strategy screens the full NSE, not the fixed Nifty
+                # 500 universe `weekly`/`instrument_map` above cover - it
+                # needs its own instrument map and weekly fetch scoped to
+                # exactly the symbols screener.in's query returned.
                 value_symbols = value_universe.fetch_value_stock_symbols(
                     runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
                 )
+                value_instrument_map = data.build_instrument_map(client, sorted(value_symbols))
+                value_weekly = data.fetch_weekly_history(client, value_instrument_map)
             except Exception as exc:  # noqa: BLE001 - additive; see comment above
                 logger.warning("Failed to fetch value stock universe, Weekly Value Stocks Breakout skipped this run: %s", exc)
                 value_symbols = None
-            if value_symbols:
+                value_weekly = None
+            if value_symbols and value_weekly:
                 run(
                     VALUE_BREAKOUT_TITLE,
                     VALUE_BREAKOUT_EMOJI,
                     lambda: format_strategy_message(
-                        VALUE_BREAKOUT_TITLE, VALUE_BREAKOUT_EMOJI, value_breakout.scan(weekly, value_symbols), today
+                        VALUE_BREAKOUT_TITLE, VALUE_BREAKOUT_EMOJI, value_breakout.scan(value_weekly, value_symbols), today
                     ),
                 )
 

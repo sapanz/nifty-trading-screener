@@ -29,9 +29,13 @@ native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
 all-time-high check. Plus one instrument-master fetch (no price history)
 for the F&O-eligible symbol set that gates Price Action Breakout's short
 leg - see data.fetch_fo_eligible_symbols. Plus, when Weekly Value Stocks
-Breakout is in scope, one screener.in scrape (no Upstox call) for the
-fundamentally-screened symbol set that gates it - see
-signals/value_universe.py.
+Breakout is in scope: one screener.in scrape (no Upstox call) for the
+fundamentally-screened symbol set that gates it (signals/value_universe.py),
+then its own separate instrument map and weekly+daily Upstox fetches
+scoped to exactly those symbols - unlike every other strategy here, this
+one screens the full NSE, not the fixed ~500-symbol universe the rest of
+this run uses, so its price history has to reach whatever screener.in
+actually returns.
 """
 import os
 import sys
@@ -108,18 +112,28 @@ def main() -> None:
         # "today's F&O universe applied across the whole window" caveat.
         fo_symbols = data.fetch_fo_eligible_symbols(client)
         # Gates Weekly Value Stocks Breakout entirely - only attempted when
-        # that strategy is actually in scope, since the underlying scraper
-        # (signals/value_universe.py) is new and unverified against the
-        # live site; no reason to risk failing an otherwise-unrelated
-        # scoped backtest run over it.
+        # that strategy is actually in scope, so an unrelated scoped
+        # backtest run doesn't pay for a screener.in login/scrape it
+        # doesn't need. Unlike every other strategy, this one screens the
+        # full NSE (not the fixed `instrument_map`/`weekly`/`daily` above),
+        # so it needs its own instrument map and weekly/daily fetches
+        # scoped to exactly the symbols screener.in's query returned - see
+        # backtest.run_backtest's value_weekly_data/value_daily_data
+        # docstring.
         value_symbols = None
+        value_weekly = None
+        value_daily = None
         if strategies is None or "value_breakout" in strategies:
             value_symbols = value_universe.fetch_value_stock_symbols(
                 runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
             )
+            value_instrument_map = data.build_instrument_map(client, sorted(value_symbols))
+            value_weekly = data.fetch_weekly_history(client, value_instrument_map)
+            value_daily = data.fetch_daily(client, value_instrument_map)
         results = backtest.run_backtest(
             daily, months=months, weekly_data=weekly, monthly_data=monthly,
             strategies=strategies, short_eligible=fo_symbols, value_universe=value_symbols,
+            value_weekly_data=value_weekly, value_daily_data=value_daily,
         )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))

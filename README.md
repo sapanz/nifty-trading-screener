@@ -1,7 +1,9 @@
 # nifty-trading-screener
 
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
-levels to Telegram, on a schedule, for six strategies:
+levels to Telegram, on a schedule, for six strategies (one of which,
+Weekly Value Stocks Breakout, screens the full NSE instead of the Nifty
+500 - see the table below):
 
 | Strategy | When | Trigger |
 |---|---|---|
@@ -10,7 +12,7 @@ levels to Telegram, on a schedule, for six strategies:
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | The same base-detection and shape classifier as the daily leg above (5-20 week base), but a different, retest-based trigger, not the daily leg's immediate entry - see [How the rules are encoded](#how-the-rules-are-encoded) for why the two timeframes diverge. **Long:** above 200 SMA; a base breaks out on clearly elevated volume (within the last 6 weekly candles), a later candle pulls back to retest that level without invalidating it, then today closes back above it, bullish and properly closed - entry is a resting buy-stop at today's high, stop-loss the lower of the retest's low and today's low. **No risk-pct cap and no reward:risk gate** on this leg, unlike the daily leg - a signal fires whenever the sequence completes, whatever risk/reward that implies. **Short (F&O-eligible symbols only):** the exact mirror. This exact combination (6-candle window, ungated) hasn't been backtested yet - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
-| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | Only considers stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in). Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in at least 52 candles (a genuinely multi-year-old high, not a recent rolling peak) - no bullish-candle, proper-close, or volume filter on top, per explicit direction, since the fundamentally-screened universe is already small. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtest: 13 signals, 83% win rate, PF 83 - promising but too small a sample to call validated yet - see [Known limitations](#known-limitations) |
+| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | The only strategy here not limited to the Nifty 500 - it screens the **full NSE** for stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in), since that's the whole point of using a fundamental screen instead of just filtering the Nifty 500 by price action. Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in at least 52 candles (a genuinely multi-year-old high, not a recent rolling peak) - no bullish-candle, proper-close, or volume filter on top, per explicit direction, since the fundamentally-screened universe is already small. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtest: 13 signals, 83% win rate, PF 83 (Nifty-500-scoped, before the full-NSE universe fix) - promising but too small a sample to call validated yet - see [Known limitations](#known-limitations) |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see
@@ -271,7 +273,14 @@ them there rather than in the strategy code.
   feature for `VALUE_SCREEN_QUERY` (config.py: profit growth > 25%, debt/equity
   < 0.5, market cap > ₹5000 Cr) - only symbols currently passing that screen
   are even considered,
-  regardless of price action. Within that universe, the only price-action
+  regardless of price action. Unlike every other strategy here, this isn't
+  scoped to the fixed Nifty 500 universe - the whole point of using a
+  fundamental screen is to reach the full NSE, so `scripts/run_signals.py`/
+  `scripts/run_backtest.py` build a separate instrument map and weekly
+  (plus, for the backtest, daily) Upstox fetch scoped to exactly the
+  symbols screener.in's query returns, rather than reusing the shared
+  Nifty 500 fetch every other weekly strategy shares. Within that universe,
+  the only price-action
   condition is this week's close above the highest weekly close in at
   least `VALUE_BREAKOUT_MIN_GAP_WEEKS` (52) candles - a genuinely old
   high, not a recent rolling peak, so "multi-year breakout" is literal.
@@ -641,9 +650,23 @@ all-time-high check isn't silently capped at 6 years.
   design that was tried on Weekly Range Breakout and Monthly ATH Breakout
   earlier in this project and reverted there (see git history), though not
   necessarily because the mechanism itself was flawed for those strategies
-  specifically. Built as a candidate replacement for Price Action Breakout
-  (Weekly) per explicit direction; both run live until a larger sample
-  settles it.
+  specifically. That first backtest (and the filter-removal one that
+  followed it, 22 signals/90% win/PF 108) was also **scoped to the Nifty
+  500 only** - a real bug, since the whole point of screening fundamentals
+  via screener.in rather than just filtering the Nifty 500 by price action
+  is to reach the full NSE. Fixed by giving this strategy its own
+  instrument map and weekly (plus, for the backtest, daily) Upstox fetch
+  scoped to exactly the symbols screener.in's query returns, instead of
+  reusing the shared Nifty 500 fetch - but that fix is itself
+  **unbacktested against the live site so far**: a much larger, less
+  curated symbol set than the Nifty 500 could plausibly hit a lower
+  Upstox instrument-match ratio (`MIN_INSTRUMENT_MATCH_RATIO` in
+  config.py - screener.in's symbol slugs aren't guaranteed to match
+  Upstox's tradingsymbols as cleanly as the Nifty 500 list does), and the
+  extra ~500+ additional weekly/daily Upstox calls this adds haven't been
+  timed against a live run yet. Built as a candidate replacement for Price
+  Action Breakout (Weekly) per explicit direction; both run live until a
+  larger, correctly-scoped sample settles it.
 
 ## Backtesting
 

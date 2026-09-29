@@ -432,6 +432,53 @@ class TestRunBacktest:
         results = backtest.run_backtest(daily_data, months=1)
         assert results["weekly_breakout"] == []  # too little history to signal, but no error
 
+    def test_value_breakout_uses_its_own_universe_not_the_nifty500_one(self, monkeypatch):
+        # value_breakout screens the full NSE via screener.in
+        # (value_universe), not the fixed Nifty 500 weekly_data/daily_data
+        # every other weekly strategy here uses - it should be scanned
+        # against value_weekly_data/value_daily_data instead, so a symbol
+        # that only exists there (outside the Nifty 500 fetch) still gets
+        # backtested.
+        from signals.strategies import value_breakout as vb
+
+        today = pd.Timestamp.today().normalize()
+        nifty_weekly = {"NIFTYCO": pd.DataFrame({"close": [100.0]}, index=[today])}
+        nifty_daily = {"NIFTYCO": _daily_df([100, 101, 102, 103, 104])}
+        value_weekly = {"OUTSIDECO": pd.DataFrame({"close": [100.0]}, index=[today])}
+        value_daily = {"OUTSIDECO": _daily_df([100, 101, 102, 103, 104])}
+
+        seen_universes = []
+
+        def fake_scan(weekly_data, value_universe):
+            seen_universes.append(set(weekly_data))
+            return [Signal(symbol="OUTSIDECO", entry=100.0, stop_loss=95.0, targets=[])]
+
+        monkeypatch.setattr(vb, "scan", fake_scan)
+
+        results = backtest.run_backtest(
+            nifty_daily, months=1, weekly_data=nifty_weekly,
+            strategies={"value_breakout"}, value_universe={"OUTSIDECO"},
+            value_weekly_data=value_weekly, value_daily_data=value_daily,
+        )
+
+        assert seen_universes and all(u == {"OUTSIDECO"} for u in seen_universes)
+        assert [t.symbol for t in results["value_breakout"]] == ["OUTSIDECO"]
+
+    def test_value_breakout_defaults_to_weekly_data_and_daily_data(self):
+        # Omitting value_weekly_data/value_daily_data falls back to
+        # weekly_data/daily_data - a quick local backtest without the
+        # extra Upstox fetches, same fallback pattern weekly_data/
+        # monthly_data already have.
+        today = pd.Timestamp.today().normalize()
+        weekly_data = {"TESTCO": pd.DataFrame({"close": [100.0]}, index=[today])}
+        daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
+
+        results = backtest.run_backtest(
+            daily_data, months=1, weekly_data=weekly_data,
+            strategies={"value_breakout"}, value_universe={"TESTCO"},
+        )
+        assert results["value_breakout"] == []  # too little history to signal, but no error
+
     def test_strategies_filter_limits_which_keys_come_back(self):
         daily_data = {"TESTCO": _daily_df([100, 101, 102, 103, 104])}
         results = backtest.run_backtest(
