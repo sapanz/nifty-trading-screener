@@ -71,6 +71,15 @@ def fetch_value_stock_symbols(query: str = config.VALUE_SCREEN_QUERY, timeout: i
             symbols.add(match.group(1))
 
     if not symbols:
+        # Logged (not just raised) so a real CI run's logs show exactly what
+        # screener.in sent back - the previous failure here was a guess that
+        # turned out wrong (wrong endpoint entirely), so this time diagnose
+        # from evidence instead of guessing again blind.
+        snippet = response.text[:1000].replace("\n", " ")
+        logger.error(
+            "screener.in returned 0 symbols. status=%d final_url=%s content-length=%s snippet=%r",
+            response.status_code, response.url, len(response.text), snippet,
+        )
         raise RuntimeError(
             "screener.in query returned 0 matching symbols - either the query genuinely "
             "matched nothing, or the page structure/login requirement changed and this "

@@ -4,9 +4,10 @@ from signals import value_universe
 
 
 class _FakeResponse:
-    def __init__(self, text: str, status_code: int = 200):
+    def __init__(self, text: str, status_code: int = 200, url: str = "https://www.screener.in/screen/raw/"):
         self.text = text
         self.status_code = status_code
+        self.url = url
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
