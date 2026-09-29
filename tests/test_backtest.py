@@ -697,3 +697,20 @@ class TestSummarize:
         ]
         text = backtest.summarize(trades)
         assert "no decided trades yet" in text
+
+    def test_open_trades_are_named_not_just_counted(self):
+        # "how many are open" (the headline count) isn't enough to actually
+        # act on - someone tracking a strategy needs to know *which*
+        # symbols, sorted best-to-worst so it's not just an unordered dump.
+        trades = [
+            backtest.TradeResult("value_breakout", "LOWRET", pd.Timestamp("2024-01-01"), 100, 95, [], "open", pd.Timestamp("2024-06-01"), 105, 5.0, 150),
+            backtest.TradeResult("value_breakout", "HIGHRET", pd.Timestamp("2024-01-01"), 100, 95, [], "open", pd.Timestamp("2024-09-01"), 150, 50.0, 240),
+        ]
+        text = backtest.summarize(trades)
+        assert "Open: HIGHRET +50.0% (240d), LOWRET +5.0% (150d)" in text
+
+    def test_no_open_line_when_no_open_trades(self):
+        trades = [
+            backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
+        ]
+        assert "Open:" not in backtest.summarize(trades)

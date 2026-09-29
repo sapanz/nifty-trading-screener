@@ -526,6 +526,18 @@ def summarize(trades: list[TradeResult]) -> str:
         lines.append("Best: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in top))
     if bottom:
         lines.append("Worst: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}%" for t in bottom))
+    if opens:
+        # Named explicitly, not just counted - "still open, no fixed
+        # target" is exactly the kind of question someone tracking a
+        # strategy (especially Weekly Value Stocks Breakout, which never
+        # closes on its own target) actually wants answered, not just a
+        # number. send_message already chunks long text across multiple
+        # Telegram messages, so this isn't capped even for a strategy with
+        # many open positions.
+        ranked_opens = sorted(opens, key=lambda t: t.return_pct, reverse=True)
+        lines.append(
+            "Open: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}% ({t.holding_days}d)" for t in ranked_opens)
+        )
 
     # Price Action Breakout's own diagnostics - only present on that
     # strategy's trades, so these lines only appear there, not on every
