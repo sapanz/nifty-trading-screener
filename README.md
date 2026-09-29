@@ -10,7 +10,7 @@ levels to Telegram, on a schedule, for six strategies:
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | The same base-detection and shape classifier as the daily leg above (5-20 week base), but a different, retest-based trigger, not the daily leg's immediate entry - see [How the rules are encoded](#how-the-rules-are-encoded) for why the two timeframes diverge. **Long:** above 200 SMA; a base breaks out on clearly elevated volume (within the last 6 weekly candles), a later candle pulls back to retest that level without invalidating it, then today closes back above it, bullish and properly closed - entry is a resting buy-stop at today's high, stop-loss the lower of the retest's low and today's low. **No risk-pct cap and no reward:risk gate** on this leg, unlike the daily leg - a signal fires whenever the sequence completes, whatever risk/reward that implies. **Short (F&O-eligible symbols only):** the exact mirror. This exact combination (6-candle window, ungated) hasn't been backtested yet - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
-| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | Only considers stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in) - within that universe, weekly close breaks above the highest weekly close in at least 52 candles (a genuinely multi-year-old high, not a recent rolling peak), bullish with a proper close, on elevated volume. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. Entirely unbacktested and the screener.in scraper is unverified against the live site - see [Known limitations](#known-limitations) |
+| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | Only considers stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in). Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in at least 52 candles (a genuinely multi-year-old high, not a recent rolling peak) - no bullish-candle, proper-close, or volume filter on top, per explicit direction, since the fundamentally-screened universe is already small. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtest: 13 signals, 83% win rate, PF 83 - promising but too small a sample to call validated yet - see [Known limitations](#known-limitations) |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see
@@ -271,15 +271,16 @@ them there rather than in the strategy code.
   feature for `VALUE_SCREEN_QUERY` (config.py: profit growth > 25%, debt/equity
   < 0.5, market cap > ₹5000 Cr) - only symbols currently passing that screen
   are even considered,
-  regardless of price action. Within that universe, the breakout condition
-  is a near-copy of Monthly ATH Breakout's, just weekly-timeframe with a
-  bounded (not literally all-time) lookback: this week's close above the
-  highest weekly close in at least `VALUE_BREAKOUT_MIN_GAP_WEEKS` (52)
-  candles - a genuinely old high, not a recent rolling peak, so "multi-year
-  breakout" is literal - bullish with a proper close, on elevated volume
-  (`WEEKLY_VOLUME_MULTIPLIER`, the same convention Weekly Range Breakout
-  uses). Unlike every other strategy here, there's no fixed stop-loss or
-  target at all - see the entry/stop-loss bullets below and
+  regardless of price action. Within that universe, the only price-action
+  condition is this week's close above the highest weekly close in at
+  least `VALUE_BREAKOUT_MIN_GAP_WEEKS` (52) candles - a genuinely old
+  high, not a recent rolling peak, so "multi-year breakout" is literal.
+  Unlike Monthly ATH Breakout and Price Action Breakout, there's no
+  bullish-candle check, no "proper close" check, and no volume
+  confirmation - per explicit direction, since this fundamentally-screened
+  universe is already small, stacking technical filters on top of the
+  fundamental one would starve it of trades further. Unlike every other
+  strategy here, there's no fixed stop-loss or target at all - see
   `backtest.simulate_weekly_trailing_sma` for the trailing-exit mechanics.
   Built as a candidate replacement for Price Action Breakout (Weekly), per
   explicit direction, pending a backtest comparing the two - both run live
@@ -609,42 +610,40 @@ all-time-high check isn't silently capped at 6 years.
   automatically a net positive for every strategy just because it sounds
   universal - each application needs its own backtest before being
   trusted, not just the reasoning behind it.
-- **Weekly Value Stocks Breakout is brand new, entirely unbacktested, and
-  its data source is still unverified end-to-end against the live site.**
-  `signals/value_universe.py` scrapes screener.in's custom-screen query
-  feature - two real test runs (via GitHub Actions, which has actual
-  network access unlike this development environment) each found a wrong
-  assumption: first the endpoint itself was guessed wrong (404), then the
-  corrected endpoint turned out to require a logged-in screener.in account
-  at all - anonymous requests get redirected to screener.in's registration
-  page, no matter the URL. It now logs in first (`SCREENER_EMAIL`/
-  `SCREENER_PASSWORD`, a standard Django-style CSRF-protected form login),
-  but that login flow itself is *still* unconfirmed against the real site,
-  since this development environment's network egress is blocked to
-  screener.in. The likeliest remaining ways it breaks: login field names
-  or the CSRF cookie name differing from the Django default assumed here,
-  bot protection (a captcha, rate limiting) on the login form that a plain
-  `requests.Session` can't get past (would need a headless-browser login
-  instead, like `signals/upstox_login.py` already does for Upstox), a
-  logged-in-but-free account still being capped on how many rows it sees,
-  or the results table's HTML structure simply changing over time. A
-  failure raises rather than silently returning an empty set, and both
-  `scripts/run_signals.py` and `scripts/run_backtest.py` catch that and
-  disable just this strategy for the run rather than take down everything
-  else - but "the scraper works at all" itself still needs a real test run
-  to confirm. Separately, even once it works, a backtest can only ever
-  apply *today's* screen result uniformly across the whole historical
-  window - screener.in has no historical snapshot of past fundamentals,
-  the same kind of approximation Price Action Breakout's F&O short leg
-  already lives with (see above) for a similar reason. And its exit
-  mechanic (a trailing 30-week-SMA stop with no fixed target,
-  `backtest.simulate_weekly_trailing_sma`) is itself untested at scale on
-  this strategy - a similar trailing-SMA exit was tried on Weekly Range
-  Breakout and Monthly ATH Breakout earlier in this project and reverted
-  (see git history), though not necessarily because the mechanism itself
-  was flawed for those strategies specifically. Built as a candidate
-  replacement for Price Action Breakout (Weekly) per explicit direction;
-  both run live until a backtest comparing the two settles it.
+- **Weekly Value Stocks Breakout's data source and login are now confirmed
+  working against the live site, but its backtest sample is still very
+  small.** Getting here took three real test runs (via GitHub Actions,
+  which has actual network access unlike this development environment) to
+  correct three wrong assumptions in turn: the scrape endpoint itself was
+  guessed wrong at first (404); the corrected endpoint turned out to
+  require a logged-in screener.in account (anonymous requests redirect to
+  screener.in's registration page); and the login flow (`SCREENER_EMAIL`/
+  `SCREENER_PASSWORD`, a standard Django-style CSRF-protected form login)
+  then worked on the very first real attempt once a password existed on
+  the account (it had been Google-sign-in-only). The first real 5-year
+  backtest came back with 13 signals, 83% win rate, PF 83 - but **N=13 is
+  too small to trust that PF number**: it's dominated by one outsized
+  winner (avg holding is ~10.5 months with no fixed target, so a single
+  huge run skews the average hard), and the fundamentally-screened
+  universe is inherently small by design, so this won't grow to a large
+  sample quickly. Per explicit direction, the strategy also carries no
+  bullish-candle, proper-close, or volume-confirmation filter on top of
+  the breakout condition (unlike Monthly ATH Breakout and Price Action
+  Breakout) specifically to avoid starving an already-small universe of
+  trades further - a deliberate trade of precision for sample size that
+  hasn't itself been split-tested against the filtered version. Separately,
+  even a solid backtest here can only ever apply *today's* screen result
+  uniformly across the whole historical window - screener.in has no
+  historical snapshot of past fundamentals, the same kind of approximation
+  Price Action Breakout's F&O short leg already lives with (see above) for
+  a similar reason. And its exit mechanic (a trailing 30-week-SMA stop
+  with no fixed target, `backtest.simulate_weekly_trailing_sma`) is a
+  design that was tried on Weekly Range Breakout and Monthly ATH Breakout
+  earlier in this project and reverted there (see git history), though not
+  necessarily because the mechanism itself was flawed for those strategies
+  specifically. Built as a candidate replacement for Price Action Breakout
+  (Weekly) per explicit direction; both run live until a larger sample
+  settles it.
 
 ## Backtesting
 

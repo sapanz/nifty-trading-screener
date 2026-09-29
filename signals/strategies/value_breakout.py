@@ -2,25 +2,21 @@
 (signals/value_universe.py, scraping screener.in - VALUE_SCREEN_QUERY in
 config.py: profit growth > 25%, debt/equity < 0.5, market cap > 5000 Cr)
 gates which symbols are even considered, then a stock qualifies when, on
-the weekly timeframe:
-  - this week's close is above the highest weekly close in at least
-    VALUE_BREAKOUT_MIN_GAP_WEEKS candles (~1 year) - a genuinely old high,
-    not just a recent rolling-window peak, so "multi-year breakout" is
-    literal: the high being broken could be from many years back if the
-    stock spent that whole time below it
-  - the breakout candle is bullish (closed above its own open) and closed
-    properly (in the top 20% of its own range, i.e. a small upper wick)
-  - volume was elevated (WEEKLY_VOLUME_MULTIPLIER - the same convention
-    Weekly Range Breakout uses)
+the weekly timeframe, this week's close is above the highest weekly close
+in at least VALUE_BREAKOUT_MIN_GAP_WEEKS candles (~1 year) - a genuinely
+old high, not just a recent rolling-window peak, so "multi-year breakout"
+is literal: the high being broken could be from many years back if the
+stock spent that whole time below it.
 
-The breakout condition mirrors Monthly ATH Breakout's mechanic (see that
-module), just weekly-timeframe with a bounded (not literally all-time)
-lookback, per explicit direction ("at least a year or multi-year breakout
-with proper closing above previous high and also add volume
-confirmation"). Unlike Monthly ATH Breakout, this doesn't need to check
-being above the 200-period SMA - by the time a stock closes above a high
-it hasn't touched in a year or more, on a proper close and real volume,
-it's definitionally already well above any such SMA.
+That's the only price-action condition - no bullish-candle check, no
+"proper close" (small upper wick) check, no volume-confirmation check.
+Per explicit direction: this fundamentally-screened universe is already
+small (a handful of signals over 5 years in the first real backtest), so
+stacking technical filters on top of the fundamental one just starves the
+strategy of trades further for a benefit that's unproven at this sample
+size - unlike Monthly ATH Breakout and Price Action Breakout, which lean
+on those filters precisely because their much larger unfiltered universes
+can afford to trade off quantity for quality.
 
 Entry is the breakout candle's own close (open-ended breakouts have no
 prior resistance to set a resting buy-stop against). There is NO fixed
@@ -55,7 +51,7 @@ from __future__ import annotations
 import pandas as pd
 
 from signals import config
-from signals.indicators import add_avg_volume, add_sma, is_bullish, is_proper_close, is_volume_candle
+from signals.indicators import add_avg_volume, add_sma
 from signals.models import Signal
 
 VOL_COL = f"avg_vol{config.VOLUME_LOOKBACK}"
@@ -89,12 +85,6 @@ def scan(weekly_data: dict[str, pd.DataFrame], value_universe: set[str]) -> list
         prior_high_date = prior["close"].idxmax()
 
         if not row["close"] > prior_high:
-            continue
-        if not is_bullish(row):
-            continue  # a gap-up-then-fade week can still close at a fresh high while red
-        if not is_proper_close(row):
-            continue
-        if not is_volume_candle(row, VOL_COL, config.WEEKLY_VOLUME_MULTIPLIER):
             continue
 
         current_date = df.index[-1]

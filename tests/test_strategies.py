@@ -463,19 +463,20 @@ class TestValueBreakout:
         df = self._value_weekly_df(prior_high_week=69)  # 79 - 69 = 10 weeks
         assert self._scan(df) == []
 
-    def test_no_signal_when_volume_not_elevated(self):
-        df = self._value_weekly_df(breakout_volume=110_000.0)  # 1.1x - below WEEKLY_VOLUME_MULTIPLIER (1.3)
-        assert self._scan(df) == []
-
-    def test_no_signal_when_not_bullish(self):
-        df = self._value_weekly_df(breakout_close=124.5)  # closes below its own open (125)
-        assert self._scan(df) == []
-
-    def test_no_signal_when_upper_wick_too_large(self):
-        # Closes well above the prior high, bullish, but with a large upper
-        # wick - not a "proper close".
-        df = self._value_weekly_df(breakout_high=140.0)
-        assert self._scan(df) == []
+    def test_signal_fires_despite_low_volume_non_bullish_and_large_wick(self):
+        # Per explicit direction, this strategy has no volume, bullish-candle,
+        # or proper-close filter - only the fundamental screen plus "close
+        # above a prior high at least a year old" matter. A breakout week
+        # that would fail all three of those filters (were they still
+        # checked) should still signal.
+        df = self._value_weekly_df(
+            breakout_volume=110_000.0,  # 1.1x - would fail WEEKLY_VOLUME_MULTIPLIER (1.3)
+            breakout_close=124.5,  # below its own open (125) - not bullish
+            breakout_high=140.0,  # large upper wick - not a "proper close"
+        )
+        signals = self._scan(df)
+        assert len(signals) == 1
+        assert signals[0].entry == 124.5
 
     def test_no_signal_when_not_above_prior_high(self):
         df = self._value_weekly_df(
