@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from signals import config, data
-from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, value_breakout, weekly_breakout
 
 
 def _ramp_then_flat_df(
@@ -390,6 +390,98 @@ class TestMonthlyBreakout:
 
         signals = monthly_breakout.scan({"TESTCO": df})
         assert signals == []
+
+
+class TestValueBreakout:
+    def _value_weekly_df(
+        self,
+        n_weeks: int = 80,
+        base_close: float = 100.0,
+        prior_high: float = 110.0,
+        prior_high_week: int = 5,
+        breakout_open: float = 125.0,
+        breakout_high: float = 131.0,
+        breakout_low: float = 124.0,
+        breakout_close: float = 130.0,
+        breakout_volume: float = 300_000.0,
+    ) -> pd.DataFrame:
+        """80 flat weeks at `base_close` (100), a single older week
+        (`prior_high_week`, default index 5) bumped up to `prior_high`
+        (110) - a genuinely multi-year-old high, ~74 weeks before the
+        final breakout week - then the last week overwritten with the
+        breakout candle. Defaults produce a valid signal; each test
+        overrides exactly the field it's checking."""
+        dates = pd.date_range("2023-01-06", periods=n_weeks, freq="W-FRI")
+        closes = [base_close] * n_weeks
+        closes[prior_high_week] = prior_high
+        df = pd.DataFrame(
+            {
+                "open": [c - 1 for c in closes],
+                "high": [c + 1 for c in closes],
+                "low": [c - 2 for c in closes],
+                "close": closes,
+                "volume": [100_000.0] * n_weeks,
+            },
+            index=dates,
+        )
+        df.iloc[-1, df.columns.get_loc("open")] = breakout_open
+        df.iloc[-1, df.columns.get_loc("high")] = breakout_high
+        df.iloc[-1, df.columns.get_loc("low")] = breakout_low
+        df.iloc[-1, df.columns.get_loc("close")] = breakout_close
+        df.iloc[-1, df.columns.get_loc("volume")] = breakout_volume
+        return df
+
+    def _scan(self, df: pd.DataFrame, universe=frozenset({"TESTCO"})) -> list:
+        return value_breakout.scan({"TESTCO": df}, universe)
+
+    def test_detects_value_breakout(self):
+        df = self._value_weekly_df()
+        signals = self._scan(df)
+        assert len(signals) == 1
+        sig = signals[0]
+
+        assert sig.entry == 130.0
+        # No fixed target - held until the trailing-SMA exit fires instead.
+        assert sig.targets == []
+        # stop_loss is the 30-week SMA at signal time (informational only -
+        # see module docstring) - always below entry (proven algebraically
+        # in scan(), not just true by luck of this fixture).
+        assert sig.stop_loss < sig.entry
+        assert sig.candle_date == df.index[-1].date()
+        assert sig.extra["weeks_gap"] >= config.VALUE_BREAKOUT_MIN_GAP_WEEKS
+        assert sig.extra["vol_ratio"] == pytest.approx(3.0, abs=0.01)
+        assert "Trail" in sig.note
+
+    def test_no_signal_when_symbol_not_in_value_universe(self):
+        df = self._value_weekly_df()
+        assert self._scan(df, universe=frozenset()) == []
+
+    def test_no_signal_when_breakout_too_recent(self):
+        # The old high sits only 10 weeks before the breakout - nowhere
+        # near VALUE_BREAKOUT_MIN_GAP_WEEKS (52), so this isn't the
+        # "at least a year" breakout the strategy targets.
+        df = self._value_weekly_df(prior_high_week=69)  # 79 - 69 = 10 weeks
+        assert self._scan(df) == []
+
+    def test_no_signal_when_volume_not_elevated(self):
+        df = self._value_weekly_df(breakout_volume=110_000.0)  # 1.1x - below WEEKLY_VOLUME_MULTIPLIER (1.3)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_not_bullish(self):
+        df = self._value_weekly_df(breakout_close=124.5)  # closes below its own open (125)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_upper_wick_too_large(self):
+        # Closes well above the prior high, bullish, but with a large upper
+        # wick - not a "proper close".
+        df = self._value_weekly_df(breakout_high=140.0)
+        assert self._scan(df) == []
+
+    def test_no_signal_when_not_above_prior_high(self):
+        df = self._value_weekly_df(
+            breakout_open=107.0, breakout_high=109.5, breakout_low=106.0, breakout_close=109.0,  # below prior_high (110)
+        )
+        assert self._scan(df) == []
 
 
 class TestPriceActionBreakout:

@@ -279,6 +279,100 @@ class TestSimulateForwardMaxHoldingDays:
         assert result.exit_date == dates[3]  # 2nd trading day after the day-2 fill
 
 
+def _weekly_df(closes: list[float]) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-05", periods=len(closes), freq="W-FRI")
+    df = pd.DataFrame({"close": closes}, index=dates)
+    df["open"] = df["close"]
+    df["high"] = [c * 1.01 for c in closes]
+    df["low"] = [c * 0.99 for c in closes]
+    df["volume"] = 100_000.0
+    return df
+
+
+class TestSimulateWeeklyTrailingSma:
+    """value_breakout.py's exit mechanic - no fixed stop-loss or target,
+    just a trailing weekly-close-vs-SMA condition, filled the next trading
+    day after the breach (not at the triggering week's own close)."""
+
+    def test_exits_next_trading_day_open_after_sma_breach(self):
+        # sma_period=3: rolling mean of the last 3 closes (incl. today).
+        # index0=100 (signal week); index1=110 (sma NaN, <3 points yet);
+        # index2=112 (sma3=107.33, 112 >= that - no breach);
+        # index3=108 (sma3=110.0, 108 < that - BREACH here).
+        weekly = _weekly_df([100, 110, 112, 108, 90, 95])
+        signal_date = weekly.index[0]
+        breach_date = weekly.index[3]
+        next_day = breach_date + pd.tseries.offsets.BDay(1)
+        daily = pd.DataFrame(
+            {"open": [107.5], "high": [108.0], "low": [106.0], "close": [107.0], "volume": [1000.0]},
+            index=[next_day],
+        )
+        signal = _signal(entry=100.0, stop_loss=95.0, targets=[])
+
+        result = backtest.simulate_weekly_trailing_sma("value_breakout", signal, signal_date, weekly, daily, sma_period=3)
+        assert result.outcome == "trailing_sma_exit"
+        # Exit fills at the NEXT trading day's open, not the breaching
+        # week's own close (108) - can't react to a Friday close until
+        # markets reopen.
+        assert result.exit_price == 107.5
+        assert result.exit_date == next_day
+
+    def test_return_is_net_of_round_trip_transaction_cost(self):
+        weekly = _weekly_df([100, 110, 112, 108, 90, 95])
+        signal_date = weekly.index[0]
+        breach_date = weekly.index[3]
+        next_day = breach_date + pd.tseries.offsets.BDay(1)
+        daily = pd.DataFrame(
+            {"open": [107.5], "high": [108.0], "low": [106.0], "close": [107.0], "volume": [1000.0]},
+            index=[next_day],
+        )
+        signal = _signal(entry=100.0, targets=[])
+
+        result = backtest.simulate_weekly_trailing_sma("value_breakout", signal, signal_date, weekly, daily, sma_period=3)
+        gross_return_pct = (107.5 / 100.0 - 1) * 100
+        assert result.return_pct == pytest.approx(gross_return_pct - config.ROUND_TRIP_COST_PCT)
+
+    def test_ignores_signal_stop_loss_entirely(self):
+        # A stop_loss far above every future close would trigger a "stop_loss"
+        # outcome instantly under simulate_forward's model - this function
+        # never checks it at all; only the trailing-SMA condition drives
+        # the exit, since signal.stop_loss is informational-only here (see
+        # value_breakout.py's docstring).
+        weekly = _weekly_df([100, 110, 112, 108, 90, 95])
+        signal_date = weekly.index[0]
+        breach_date = weekly.index[3]
+        next_day = breach_date + pd.tseries.offsets.BDay(1)
+        daily = pd.DataFrame(
+            {"open": [107.5], "high": [108.0], "low": [106.0], "close": [107.0], "volume": [1000.0]},
+            index=[next_day],
+        )
+        signal = _signal(entry=100.0, stop_loss=999.0, targets=[])
+
+        result = backtest.simulate_weekly_trailing_sma("value_breakout", signal, signal_date, weekly, daily, sma_period=3)
+        assert result.outcome == "trailing_sma_exit"
+
+    def test_still_open_when_no_daily_data_past_breach_week(self):
+        # The SMA is breached at the very last available weekly candle, but
+        # there's no later daily bar yet to fill the exit on - reported
+        # "open" rather than guessing a fill that hasn't happened.
+        weekly = _weekly_df([100, 110, 112, 108])  # sma3 breach at index3 (last week)
+        signal_date = weekly.index[0]
+        daily = pd.DataFrame(columns=["open", "high", "low", "close", "volume"], index=pd.DatetimeIndex([]))
+        signal = _signal(entry=100.0, targets=[])
+
+        result = backtest.simulate_weekly_trailing_sma("value_breakout", signal, signal_date, weekly, daily, sma_period=3)
+        assert result.outcome == "open"
+
+    def test_still_open_when_sma_never_breached(self):
+        weekly = _weekly_df([100, 105, 110, 115, 120])  # steadily rising, always above its own trailing SMA
+        signal_date = weekly.index[0]
+        daily = pd.DataFrame(columns=["open", "high", "low", "close", "volume"], index=pd.DatetimeIndex([]))
+        signal = _signal(entry=100.0, targets=[])
+
+        result = backtest.simulate_weekly_trailing_sma("value_breakout", signal, signal_date, weekly, daily, sma_period=3)
+        assert result.outcome == "open"
+
+
 class TestRunBacktest:
     def test_monthly_signal_for_symbol_missing_from_daily_data_is_skipped(self, monkeypatch):
         # monthly_data can come from a separate Upstox fetch than daily_data

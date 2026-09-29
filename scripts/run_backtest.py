@@ -28,14 +28,17 @@ Swing, native-weekly (WEEKLY_HISTORY_YEARS) for Weekly Range Breakout, and
 native-monthly (MONTHLY_ATH_HISTORY_YEARS) for Monthly ATH Breakout's
 all-time-high check. Plus one instrument-master fetch (no price history)
 for the F&O-eligible symbol set that gates Price Action Breakout's short
-leg - see data.fetch_fo_eligible_symbols.
+leg - see data.fetch_fo_eligible_symbols. Plus, when Weekly Value Stocks
+Breakout is in scope, one screener.in scrape (no Upstox call) for the
+fundamentally-screened symbol set that gates it - see
+signals/value_universe.py.
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import backtest, data, runtime, universe  # noqa: E402
+from signals import backtest, data, runtime, universe, value_universe  # noqa: E402
 from signals.telegram import send_message  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -49,6 +52,7 @@ STRATEGY_LABELS = {
     "monthly_breakout": ("Monthly ATH Breakout", "🏔️"),
     "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
     "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
+    "value_breakout": ("Weekly Value Stocks Breakout", "💎"),
 }
 
 # "price_action_breakout" alone means both of its timeframe legs -
@@ -103,9 +107,17 @@ def main() -> None:
         # backtest.run_backtest's `short_eligible` docstring for the
         # "today's F&O universe applied across the whole window" caveat.
         fo_symbols = data.fetch_fo_eligible_symbols(client)
+        # Gates Weekly Value Stocks Breakout entirely - only attempted when
+        # that strategy is actually in scope, since the underlying scraper
+        # (signals/value_universe.py) is new and unverified against the
+        # live site; no reason to risk failing an otherwise-unrelated
+        # scoped backtest run over it.
+        value_symbols = None
+        if strategies is None or "value_breakout" in strategies:
+            value_symbols = value_universe.fetch_value_stock_symbols()
         results = backtest.run_backtest(
             daily, months=months, weekly_data=weekly, monthly_data=monthly,
-            strategies=strategies, short_eligible=fo_symbols,
+            strategies=strategies, short_eligible=fo_symbols, value_universe=value_symbols,
         )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))

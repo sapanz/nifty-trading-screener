@@ -47,6 +47,18 @@ holding periods, not the same signal at two resolutions. No monthly leg -
 a 5-year backtest of an earlier version of this strategy showed it never
 fired at all (too little monthly history per stock to form a base this
 strict), and Monthly ATH Breakout already covers that timeframe.
+
+Weekly Value Stocks Breakout ("value_breakout") also runs off
+`weekly_data`, gated by `value_universe` (a fundamentally-screened subset
+of the universe - see signals/value_universe.py) - built as a candidate
+replacement for Price Action Breakout (Weekly), pending a backtest
+comparing the two. Unlike every other strategy here, it has no fixed
+stop-loss or target at all - it's walked forward with
+simulate_weekly_trailing_sma instead of simulate_forward: held as long as
+the weekly close stays above its own trailing 30-week SMA
+(BREAKOUT_TREND_SMA), exiting at the next trading day's open the first
+week it closes back below (can't react to a Friday close until markets
+reopen the following week).
 """
 from __future__ import annotations
 
@@ -58,7 +70,7 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, value_breakout, weekly_breakout
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -219,6 +231,61 @@ def simulate_forward(
     )
 
 
+def simulate_weekly_trailing_sma(
+    strategy: str, signal: Signal, signal_date: pd.Timestamp,
+    weekly_df: pd.DataFrame, daily_df: pd.DataFrame, sma_period: int,
+) -> TradeResult:
+    """Walk the weekly close forward after `signal_date`. There's no fixed
+    stop-loss or target (see e.g. value_breakout.py's docstring) - the
+    trade is held as long as each week's close stays above that week's own
+    trailing `sma_period`-week SMA, and exits the first week the close
+    falls back below it (a classic Weinstein/Minervini-style trend trail).
+    `signal.stop_loss` is never checked here - it's informational only
+    (the SMA's value at signal time; see the calling strategy's docstring)
+    since the real exit level is recomputed fresh every future week, not
+    fixed at entry.
+
+    Per explicit direction, the exit isn't filled at the triggering week's
+    own close - a Friday close isn't knowable/actionable until markets
+    reopen - so `daily_df` (the same symbol's daily bars) is used to find
+    the next actual trading day after that week and exit at *its* open
+    ("next week Monday morning"). If daily data doesn't yet extend past
+    the triggering week (a very recent signal), the trade is reported
+    "open" rather than guessing a fill that hasn't happened yet.
+    """
+    future = weekly_df[weekly_df.index > signal_date]
+    sma = weekly_df["close"].rolling(sma_period).mean()
+
+    for dt, row in future.iterrows():
+        sma_value = sma.get(dt)
+        if pd.isna(sma_value) or row["close"] >= sma_value:
+            continue
+        after = daily_df[daily_df.index > dt]
+        if after.empty:
+            break  # SMA breached, but no later trading day yet to fill the exit on
+        exit_date = after.index[0]
+        exit_price = float(after["open"].iloc[0])
+        return TradeResult(
+            strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+            outcome="trailing_sma_exit", exit_date=exit_date, exit_price=exit_price,
+            return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, exit_price)),
+            holding_days=(exit_date - signal_date).days, direction=signal.direction,
+        )
+
+    if not future.empty:
+        last_date = future.index[-1]
+        last_close = float(future["close"].iloc[-1])
+    else:
+        last_date = signal_date
+        last_close = signal.entry
+    return TradeResult(
+        strategy, signal.symbol, signal_date, signal.entry, signal.stop_loss, signal.targets,
+        outcome="open", exit_date=last_date, exit_price=last_close,
+        return_pct=_net_return_pct(_gross_return_pct(signal.direction, signal.entry, last_close)),
+        holding_days=(last_date - signal_date).days, direction=signal.direction,
+    )
+
+
 def _dates_in_window(datasets: dict[str, pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     all_dates: set[pd.Timestamp] = set()
     for df in datasets.values():
@@ -237,7 +304,7 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 
 ALL_STRATEGIES = frozenset({
     "daily_swing", "weekly_breakout", "monthly_breakout",
-    "price_action_breakout_daily", "price_action_breakout_weekly",
+    "price_action_breakout_daily", "price_action_breakout_weekly", "value_breakout",
 })
 
 
@@ -248,6 +315,7 @@ def run_backtest(
     monthly_data: dict[str, pd.DataFrame] | None = None,
     strategies: set[str] | None = None,
     short_eligible: set[str] | None = None,
+    value_universe: set[str] | None = None,
 ) -> dict[str, list[TradeResult]]:
     """Backtest active strategies over the trailing `months` months.
 
@@ -277,6 +345,14 @@ def run_backtest(
     a given past date - a real but unavoidable approximation, same kind of
     limitation the old Futures OI Buildup strategy had with futures price
     history itself (see git history).
+
+    `value_universe` (see signals/value_universe.fetch_value_stock_symbols)
+    gates Weekly Value Stocks Breakout entirely - if omitted (None), that
+    strategy's key simply returns no trades rather than raising, so a
+    caller that couldn't fetch it (e.g. the scraper failing) can still run
+    every other strategy. Same *today's*-snapshot-applied-across-history
+    caveat as `short_eligible` above, for the same reason: screener.in has
+    no historical snapshot of past fundamentals either.
     """
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
@@ -312,9 +388,26 @@ def run_backtest(
                         simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
                     )
 
-    if "weekly_breakout" in wanted or "price_action_breakout_weekly" in wanted:
+    if "weekly_breakout" in wanted or "price_action_breakout_weekly" in wanted or "value_breakout" in wanted:
         for asof in _dates_in_window(weekly_data, start, end):
             sliced_weekly = _scan_as_of(weekly_data, asof)
+
+            if "value_breakout" in wanted and value_universe:
+                for signal in value_breakout.scan(sliced_weekly, value_universe):
+                    # The exit walk needs both this symbol's full weekly
+                    # history (to recompute the trailing SMA each future
+                    # week) and its daily bars (for the next-trading-day
+                    # fill once the SMA is breached - see
+                    # simulate_weekly_trailing_sma) - skip if either is
+                    # missing, same reasoning as weekly_breakout below.
+                    if signal.symbol not in daily_data or signal.symbol not in weekly_data:
+                        continue
+                    results["value_breakout"].append(
+                        simulate_weekly_trailing_sma(
+                            "value_breakout", signal, asof,
+                            weekly_data[signal.symbol], daily_data[signal.symbol], config.BREAKOUT_TREND_SMA,
+                        )
+                    )
 
             if "weekly_breakout" in wanted:
                 for signal in weekly_breakout.scan(sliced_weekly):

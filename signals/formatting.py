@@ -28,7 +28,7 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
         direction_tag = " \U0001f534 SHORT" if sig.direction == "short" else ""
         lines.append(f"{i}. <b>{symbol}</b>{direction_tag}")
         lines.append(f"   Entry: {sig.entry:.2f} | SL: {sig.stop_loss:.2f} ({risk_pct:.1f}% risk)")
-        if sig.targets:  # some strategies (e.g. Daily Swing) use a trailing stop instead of a fixed target
+        if sig.targets:  # Weekly Value Stocks Breakout has none - a trailing-SMA exit instead of a fixed target
             lines.append(f"   {_fmt_targets(sig.targets)}")
         if sig.note:
             lines.append(f"   <i>{html.escape(sig.note)}</i>")

@@ -29,6 +29,13 @@ overnight in India without a futures contract to actually sell (see
 data.fetch_fo_eligible_symbols). A failure fetching it disables shorts
 for that run rather than taking down the long-only pipeline.
 
+Also runs Weekly Value Stocks Breakout on Fridays, gated by a
+fundamentally-screened symbol set scraped from screener.in (see
+signals/value_universe.py) - a candidate replacement for Price Action
+Breakout (Weekly), pending a backtest comparing the two; both run live
+for now. Same failure-isolation pattern as the F&O fetch: a scrape
+failure disables just this strategy for the run.
+
 Requires UPSTOX_ACCESS_TOKEN, refreshed daily - see
 tools/refresh_upstox_token.py.
 """
@@ -42,10 +49,10 @@ import sys
 # lives.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import config, data, runtime, universe  # noqa: E402
+from signals import config, data, runtime, universe, value_universe  # noqa: E402
 from signals.calendar_utils import ist_today, is_last_trading_day_of_month
 from signals.formatting import format_strategy_message
-from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, weekly_breakout
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, value_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
 logger = logging.getLogger(__name__)
@@ -59,6 +66,8 @@ MONTHLY_EMOJI = "🏔️"
 PRICE_ACTION_DAILY_TITLE = "Price Action Breakout (Daily)"
 PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
 PRICE_ACTION_EMOJI = "🎯"
+VALUE_BREAKOUT_TITLE = "Weekly Value Stocks Breakout"
+VALUE_BREAKOUT_EMOJI = "💎"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
 
@@ -164,6 +173,25 @@ def main() -> None:
                     today,
                 ),
             )
+
+            try:
+                # Gates Weekly Value Stocks Breakout entirely (see
+                # signals/value_universe.py) - its own try/except, same
+                # reasoning as the F&O fetch above: a scrape failure
+                # shouldn't take down Weekly Range Breakout or Price Action
+                # Breakout's weekly leg, which just ran fine above.
+                value_symbols = value_universe.fetch_value_stock_symbols()
+            except Exception as exc:  # noqa: BLE001 - additive; see comment above
+                logger.warning("Failed to fetch value stock universe, Weekly Value Stocks Breakout skipped this run: %s", exc)
+                value_symbols = None
+            if value_symbols:
+                run(
+                    VALUE_BREAKOUT_TITLE,
+                    VALUE_BREAKOUT_EMOJI,
+                    lambda: format_strategy_message(
+                        VALUE_BREAKOUT_TITLE, VALUE_BREAKOUT_EMOJI, value_breakout.scan(weekly, value_symbols), today
+                    ),
+                )
 
     if is_last_trading_day_of_month(today) or os.environ.get("FORCE_MONTHLY") == "true":
         # Fetched once, outside either strategy's own error isolation, same
