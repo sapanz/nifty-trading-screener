@@ -180,7 +180,9 @@ def main() -> None:
                 # reasoning as the F&O fetch above: a scrape failure
                 # shouldn't take down Weekly Range Breakout or Price Action
                 # Breakout's weekly leg, which just ran fine above.
-                value_symbols = value_universe.fetch_value_stock_symbols()
+                value_symbols = value_universe.fetch_value_stock_symbols(
+                    runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
+                )
             except Exception as exc:  # noqa: BLE001 - additive; see comment above
                 logger.warning("Failed to fetch value stock universe, Weekly Value Stocks Breakout skipped this run: %s", exc)
                 value_symbols = None

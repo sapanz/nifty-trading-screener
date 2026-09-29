@@ -65,6 +65,8 @@ jobs:
           # written by the login step above via $GITHUB_ENV.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCREENER_EMAIL: ${{ secrets.SCREENER_EMAIL }}
+          SCREENER_PASSWORD: ${{ secrets.SCREENER_PASSWORD }}
           BACKTEST_MONTHS: ${{ inputs.months }}
           BACKTEST_STRATEGIES: ${{ inputs.strategies }}
         run: python scripts/run_backtest.py

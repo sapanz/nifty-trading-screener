@@ -146,6 +146,8 @@ In this repo: **Settings → Secrets and variables → Actions → New repositor
 | `UPSTOX_MOBILE_NUMBER` | your Upstox login mobile number — exactly 10 digits, no `+91`/`91` prefix |
 | `UPSTOX_TOTP_SECRET` | from step 3 |
 | `UPSTOX_PIN` | your 6-digit Upstox login PIN |
+| `SCREENER_EMAIL` | your screener.in account email — needed only for Weekly Value Stocks Breakout's fundamental screen; screener.in requires a logged-in (free) account to run a custom-screen query at all, anonymous requests get redirected to its registration page |
+| `SCREENER_PASSWORD` | your screener.in account password |
 
 (The real flow, confirmed against a live account: mobile number → a
 verification code screen, where the TOTP code from step 3 fills the
@@ -263,9 +265,12 @@ them there rather than in the strategy code.
   PF 1.42 (1510 trades) to PF 1.66 (530 trades).
 - **Weekly Value Stocks Breakout**: `signals/strategies/value_breakout.py`.
   A fundamental screen gates the universe first - `signals/value_universe.py`
-  scrapes screener.in's custom-screen query feature for `VALUE_SCREEN_QUERY`
-  (config.py: profit growth > 25%, debt/equity < 0.5, market cap > ₹5000
-  Cr) - only symbols currently passing that screen are even considered,
+  logs into screener.in (`SCREENER_EMAIL`/`SCREENER_PASSWORD` - a custom-screen
+  query is gated behind a logged-in account, anonymous requests get redirected
+  to screener.in's registration page) and scrapes its custom-screen query
+  feature for `VALUE_SCREEN_QUERY` (config.py: profit growth > 25%, debt/equity
+  < 0.5, market cap > ₹5000 Cr) - only symbols currently passing that screen
+  are even considered,
   regardless of price action. Within that universe, the breakout condition
   is a near-copy of Monthly ATH Breakout's, just weekly-timeframe with a
   bounded (not literally all-time) lookback: this week's close above the
@@ -605,26 +610,34 @@ all-time-high check isn't silently capped at 6 years.
   universal - each application needs its own backtest before being
   trusted, not just the reasoning behind it.
 - **Weekly Value Stocks Breakout is brand new, entirely unbacktested, and
-  its data source is unverified against the live site.** `signals/
-  value_universe.py` scrapes screener.in's custom-screen query feature
-  with a plain HTTP GET + HTML parse - this development environment's
-  network egress is blocked to screener.in, so none of it has actually
-  been exercised against a real response yet. The likeliest ways it
-  breaks: screener.in capping how many rows an unauthenticated request
-  can see, the results table being rendered client-side via JavaScript
-  (in which case a plain GET sees no rows at all and this would need a
-  headless-browser fetch instead, like `signals/upstox_login.py` already
-  does for Upstox), or the page's HTML structure simply changing over
-  time. A failure raises rather than silently returning an empty set, and
-  both `scripts/run_signals.py` and `scripts/run_backtest.py` catch that
-  and disable just this strategy for the run rather than take down
-  everything else - but "the scraper works at all" itself needs a real
-  test run to confirm. Separately, even once it works, a backtest can
-  only ever apply *today's* screen result uniformly across the whole
-  historical window - screener.in has no historical snapshot of past
-  fundamentals, the same kind of approximation Price Action Breakout's
-  F&O short leg already lives with (see above) for a similar reason. And
-  its exit mechanic (a trailing 30-week-SMA stop with no fixed target,
+  its data source is still unverified end-to-end against the live site.**
+  `signals/value_universe.py` scrapes screener.in's custom-screen query
+  feature - two real test runs (via GitHub Actions, which has actual
+  network access unlike this development environment) each found a wrong
+  assumption: first the endpoint itself was guessed wrong (404), then the
+  corrected endpoint turned out to require a logged-in screener.in account
+  at all - anonymous requests get redirected to screener.in's registration
+  page, no matter the URL. It now logs in first (`SCREENER_EMAIL`/
+  `SCREENER_PASSWORD`, a standard Django-style CSRF-protected form login),
+  but that login flow itself is *still* unconfirmed against the real site,
+  since this development environment's network egress is blocked to
+  screener.in. The likeliest remaining ways it breaks: login field names
+  or the CSRF cookie name differing from the Django default assumed here,
+  bot protection (a captcha, rate limiting) on the login form that a plain
+  `requests.Session` can't get past (would need a headless-browser login
+  instead, like `signals/upstox_login.py` already does for Upstox), a
+  logged-in-but-free account still being capped on how many rows it sees,
+  or the results table's HTML structure simply changing over time. A
+  failure raises rather than silently returning an empty set, and both
+  `scripts/run_signals.py` and `scripts/run_backtest.py` catch that and
+  disable just this strategy for the run rather than take down everything
+  else - but "the scraper works at all" itself still needs a real test run
+  to confirm. Separately, even once it works, a backtest can only ever
+  apply *today's* screen result uniformly across the whole historical
+  window - screener.in has no historical snapshot of past fundamentals,
+  the same kind of approximation Price Action Breakout's F&O short leg
+  already lives with (see above) for a similar reason. And its exit
+  mechanic (a trailing 30-week-SMA stop with no fixed target,
   `backtest.simulate_weekly_trailing_sma`) is itself untested at scale on
   this strategy - a similar trailing-SMA exit was tried on Weekly Range
   Breakout and Monthly ATH Breakout earlier in this project and reverted
@@ -692,6 +705,7 @@ pytest -q                      # runs against synthetic OHLCV data, no network n
 export UPSTOX_ACCESS_TOKEN=...    # get one from tools/refresh_upstox_token.py, or export manually
 export TELEGRAM_BOT_TOKEN=...
 export TELEGRAM_CHAT_ID=...
+export SCREENER_EMAIL=... SCREENER_PASSWORD=...   # optional - only needed for Weekly Value Stocks Breakout (Fridays); its absence just disables that one strategy for the run
 python scripts/run_signals.py                              # daily swing only, on a non-Friday/month-end day
 FORCE_WEEKLY=true FORCE_MONTHLY=true python scripts/run_signals.py   # exercise every strategy
 

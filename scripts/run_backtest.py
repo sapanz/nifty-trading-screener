@@ -114,7 +114,9 @@ def main() -> None:
         # scoped backtest run over it.
         value_symbols = None
         if strategies is None or "value_breakout" in strategies:
-            value_symbols = value_universe.fetch_value_stock_symbols()
+            value_symbols = value_universe.fetch_value_stock_symbols(
+                runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
+            )
         results = backtest.run_backtest(
             daily, months=months, weekly_data=weekly, monthly_data=monthly,
             strategies=strategies, short_eligible=fo_symbols, value_universe=value_symbols,

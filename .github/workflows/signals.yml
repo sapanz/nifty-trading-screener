@@ -75,6 +75,8 @@ jobs:
           # written by the login step above via $GITHUB_ENV.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCREENER_EMAIL: ${{ secrets.SCREENER_EMAIL }}
+          SCREENER_PASSWORD: ${{ secrets.SCREENER_PASSWORD }}
           FORCE_WEEKLY: ${{ inputs.force_weekly && 'true' || '' }}
           FORCE_MONTHLY: ${{ inputs.force_monthly && 'true' || '' }}
         run: python scripts/run_signals.py
