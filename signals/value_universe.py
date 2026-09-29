@@ -3,10 +3,16 @@ query feature (VALUE_SCREEN_QUERY in config.py), for Weekly Value Stocks
 Breakout's fundamental gate - see signals/strategies/value_breakout.py.
 
 screener.in has no official/documented API - this scrapes its public
-custom-screen results page. **Unverified against the live site**: this
-development environment's network egress is blocked to screener.in, so
-none of this has actually been run against a real response. Likely
-failure points once it is tested for real:
+custom-screen results page. A first real run (via GitHub Actions, which
+has actual network access unlike this dev sandbox) confirmed the
+original endpoint guessed here, `/screens/new/`, doesn't exist (404) -
+`/screen/new/` is the human-facing "create a new screen" page, which
+loads its live query preview asynchronously from a separate endpoint.
+This now points at that endpoint, `/screen/raw/`, which returns just the
+results table's HTML rather than a full page - but this specific path is
+still **unverified against the live site**, since this dev sandbox's
+network egress is blocked to screener.in. Likely failure points once it
+is tested for real:
   - screener.in may cap how many rows an unauthenticated request sees
     (a logged-in/premium session could see the full list; this doesn't
     log in at all)
@@ -37,7 +43,7 @@ from signals import config
 
 logger = logging.getLogger(__name__)
 
-SCREENER_URL = "https://www.screener.in/screens/new/"
+SCREENER_URL = "https://www.screener.in/screen/raw/"
 # A real browser User-Agent - screener.in (like many sites) may reject or
 # serve a different/reduced response to the default python-requests UA.
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
