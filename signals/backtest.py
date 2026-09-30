@@ -531,12 +531,19 @@ def summarize(trades: list[TradeResult]) -> str:
         # target" is exactly the kind of question someone tracking a
         # strategy (especially Weekly Value Stocks Breakout, which never
         # closes on its own target) actually wants answered, not just a
-        # number. send_message already chunks long text across multiple
-        # Telegram messages, so this isn't capped even for a strategy with
-        # many open positions.
+        # number. Capped (unlike a raw count) because a strategy that fires
+        # often can rack up hundreds of open positions in a multi-year
+        # backtest - beyond being unreadable as one line, a single
+        # comma-separated line that long once produced a chunk bigger than
+        # Telegram's own hard message-size cap, which telegram.py's
+        # chunking couldn't split further (see that module's docstring for
+        # the fix) - crashing the whole run instead of just this one line
+        # looking ugly.
         ranked_opens = sorted(opens, key=lambda t: t.return_pct, reverse=True)
+        shown = ranked_opens[:20]
+        remainder = f" (+{len(ranked_opens) - 20} more)" if len(ranked_opens) > 20 else ""
         lines.append(
-            "Open: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}% ({t.holding_days}d)" for t in ranked_opens)
+            "Open: " + ", ".join(f"{t.symbol} {t.return_pct:+.1f}% ({t.holding_days}d)" for t in shown) + remainder
         )
 
     # Price Action Breakout's own diagnostics - only present on that

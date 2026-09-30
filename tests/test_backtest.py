@@ -714,3 +714,22 @@ class TestSummarize:
             backtest.TradeResult("weekly_breakout", "A", pd.Timestamp("2024-01-01"), 100, 95, [110], "target1", pd.Timestamp("2024-01-05"), 110, 10.0, 4),
         ]
         assert "Open:" not in backtest.summarize(trades)
+
+    def test_open_trades_line_is_capped_with_a_remainder_count(self):
+        # A strategy that fires often can rack up hundreds of open trades in
+        # a multi-year backtest - a single comma-separated line listing all
+        # of them isn't just unreadable, it once produced a Telegram message
+        # too long for even send_message's chunking to save, crashing the
+        # whole run (see telegram.py's _chunk docstring). Capped at 20, with
+        # a remainder count instead of silently truncating.
+        trades = [
+            backtest.TradeResult(
+                "value_breakout", f"SYM{i}", pd.Timestamp("2024-01-01"), 100, 95, [],
+                "open", pd.Timestamp("2024-06-01"), 100 + i, float(i), 100,
+            )
+            for i in range(25)
+        ]
+        text = backtest.summarize(trades)
+        open_line = next(line for line in text.splitlines() if line.startswith("Open:"))
+        assert open_line.count(",") == 19  # 20 shown -> 19 separators
+        assert "(+5 more)" in open_line
