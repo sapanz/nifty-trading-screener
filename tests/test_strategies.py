@@ -448,7 +448,7 @@ class TestValueBreakout:
         # in scan(), not just true by luck of this fixture).
         assert sig.stop_loss < sig.entry
         assert sig.candle_date == df.index[-1].date()
-        assert sig.extra["weeks_gap"] >= config.VALUE_BREAKOUT_MIN_GAP_WEEKS
+        assert sig.extra["weeks_gap"] == 74  # see _value_weekly_df's own docstring
         assert sig.extra["vol_ratio"] == pytest.approx(3.0, abs=0.01)
         assert "Trail" in sig.note
 
@@ -456,19 +456,23 @@ class TestValueBreakout:
         df = self._value_weekly_df()
         assert self._scan(df, universe=frozenset()) == []
 
-    def test_no_signal_when_breakout_too_recent(self):
-        # The old high sits only 10 weeks before the breakout - nowhere
-        # near VALUE_BREAKOUT_MIN_GAP_WEEKS (52), so this isn't the
-        # "at least a year" breakout the strategy targets.
+    def test_signal_fires_even_when_breakout_is_recent(self):
+        # No minimum age on the prior high anymore - VALUE_BREAKOUT_MIN_GAP_WEEKS
+        # was removed per explicit direction (see module docstring): it was
+        # excluding stocks like Engineers India that clear the fundamental
+        # screen easily but, being already mid-trend, only ever break highs
+        # that are a few weeks old, never a year+. A high set just 10 weeks
+        # ago should now signal just as readily as an old one.
         df = self._value_weekly_df(prior_high_week=69)  # 79 - 69 = 10 weeks
-        assert self._scan(df) == []
+        signals = self._scan(df)
+        assert len(signals) == 1
+        assert signals[0].extra["weeks_gap"] == 10
 
     def test_signal_fires_despite_low_volume_non_bullish_and_large_wick(self):
         # Per explicit direction, this strategy has no volume, bullish-candle,
         # or proper-close filter - only the fundamental screen plus "close
-        # above a prior high at least a year old" matter. A breakout week
-        # that would fail all three of those filters (were they still
-        # checked) should still signal.
+        # above the prior high" matter. A breakout week that would fail all
+        # three of those filters (were they still checked) should still signal.
         df = self._value_weekly_df(
             breakout_volume=110_000.0,  # 1.1x - would fail WEEKLY_VOLUME_MULTIPLIER (1.3)
             breakout_close=124.5,  # below its own open (125) - not bullish

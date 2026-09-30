@@ -370,37 +370,24 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 # --- Weekly Value Stocks Breakout -----------------------------------------
 # Combines a fundamental screen (signals/value_universe.py, scraping
 # screener.in - see that module's docstring for the mechanics and its
-# caveats) with a breakout mechanic that's otherwise a near-exact copy of
-# Monthly ATH Breakout's, just on weekly candles: break above the highest
-# weekly close in at least VALUE_BREAKOUT_MIN_GAP_WEEKS candles (so a
-# genuinely multi-year-old high counts, not just a recent rolling window),
-# bullish and properly closed, on elevated volume - per explicit direction
-# ("at least a year or multi-year breakout with proper closing above
-# previous high and also add volume confirmation"). Uses the *value*
-# universe (a fundamentally-screened subset) instead of the full Nifty
-# 500 - a symbol outside that set is skipped regardless of its price
-# action, since the whole premise here is combining a fundamental filter
-# with a technical trigger, not a general breakout scanner.
+# caveats) with a single technical trigger: this week's close above the
+# highest weekly close in the symbol's available history. No minimum age
+# on that prior high (VALUE_BREAKOUT_MIN_GAP_WEEKS, requiring it be at
+# least ~a year old, was removed - see git history and
+# signals/strategies/value_breakout.py's docstring for why), no
+# bullish-candle/proper-close/volume filter either - per explicit
+# direction, since this fundamentally-screened universe is small enough
+# that every extra technical filter measurably starves it of trades. Uses
+# the *value* universe (a fundamentally-screened subset of the full NSE,
+# not just the Nifty 500) - a symbol outside that set is skipped
+# regardless of its price action, since the whole premise here is
+# combining a fundamental filter with a technical trigger, not a general
+# breakout scanner.
 #
-# Reuses VOLUME_LOOKBACK/WEEKLY_VOLUME_MULTIPLIER (the same weekly volume
-# convention Weekly Range Breakout uses), SL_BUFFER, and
-# ATH_BREAKOUT_TARGET_PCTS (already generic, not monthly-specific) rather
-# than duplicating near-identical constants; WEEKLY_HISTORY_YEARS above
-# supplies the weekly candles (same fetch Weekly Range Breakout and Price
-# Action Breakout's weekly leg already share on Fridays - no extra Upstox
-# call).
-#
-# Built to eventually replace Price Action Breakout (Weekly) - per
-# explicit direction, that decision is pending a backtest comparing the
-# two; both run live until that comparison is made (see git history /
-# README's Known Limitations for whenever that decision lands).
-#
-# screener.in's query-screen syntax, verbatim, per explicit direction -
-# not yet validated against the live site from a real run (this
-# development environment's network egress is blocked to screener.in), so
-# treat this as unverified until a real fetch has been checked.
+# Confirmed live and working against screener.in as of the login fix (see
+# git history) - screener.in requires a logged-in account
+# (SCREENER_EMAIL/SCREENER_PASSWORD) to run this query at all.
 VALUE_SCREEN_QUERY = "Profit growth > 25 AND Debt to equity < 0.5 AND Market Capitalization > 5000"
-VALUE_BREAKOUT_MIN_GAP_WEEKS = 52  # "at least a year" per explicit direction
 
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct

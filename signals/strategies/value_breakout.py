@@ -3,20 +3,33 @@
 config.py: profit growth > 25%, debt/equity < 0.5, market cap > 5000 Cr)
 gates which symbols are even considered, then a stock qualifies when, on
 the weekly timeframe, this week's close is above the highest weekly close
-in at least VALUE_BREAKOUT_MIN_GAP_WEEKS candles (~1 year) - a genuinely
-old high, not just a recent rolling-window peak, so "multi-year breakout"
-is literal: the high being broken could be from many years back if the
-stock spent that whole time below it.
+in its entire available history - no minimum age on that prior high at
+all. No bullish-candle check, no "proper close" (small upper wick) check,
+no volume-confirmation check either.
 
-That's the only price-action condition - no bullish-candle check, no
-"proper close" (small upper wick) check, no volume-confirmation check.
-Per explicit direction: this fundamentally-screened universe is already
-small (a handful of signals over 5 years in the first real backtest), so
-stacking technical filters on top of the fundamental one just starves the
-strategy of trades further for a benefit that's unproven at this sample
-size - unlike Monthly ATH Breakout and Price Action Breakout, which lean
-on those filters precisely because their much larger unfiltered universes
-can afford to trade off quantity for quality.
+There used to be a VALUE_BREAKOUT_MIN_GAP_WEEKS floor (the high being
+broken had to be at least ~52 weeks old, i.e. a genuinely dormant-value
+breakout, not a stock already mid-trend) - removed per explicit
+direction, after it turned out to be excluding real, fundamentally-
+qualifying stocks for the wrong reason. Engineers India (ENGINERSIN) is
+the case that surfaced this: it clears the fundamental screen
+comfortably (>25% profit growth, near-zero debt, market cap well past
+5000 Cr) but had been up ~57% over the trailing year - a stock making
+frequent new highs sets each new one only weeks after the last, so it can
+never clear a 52-week-old-high requirement no matter how well it
+otherwise fits the strategy's thesis. Removing the floor means a stock
+already in a strong uptrend can now signal on every fresh closing high it
+makes, not just a first breakout after a long dormant stretch - a real
+behavior change (more frequent, possibly repeat, signals for trending
+names in the value universe), not just a filter tweak.
+
+Per explicit direction generally: this fundamentally-screened universe is
+already small (a handful of signals over 5 years in the first real
+backtest), so stacking technical filters on top of the fundamental one
+just starves the strategy of trades further for a benefit that's unproven
+at this sample size - unlike Monthly ATH Breakout and Price Action
+Breakout, which lean on those filters precisely because their much larger
+unfiltered universes can afford to trade off quantity for quality.
 
 Entry is the breakout candle's own close (open-ended breakouts have no
 prior resistance to set a resting buy-stop against). There is NO fixed
@@ -36,9 +49,8 @@ going forward.
 
 Built to eventually replace Price Action Breakout (Weekly) - per explicit
 direction, pending a backtest comparing the two; both run live until that
-decision is made. Entirely unbacktested so far: the value-universe
-scraper itself is unverified against the live screener.in site (see
-signals/value_universe.py), and even once it works, a backtest can only
+decision is made. The value-universe scraper (see signals/value_universe.py)
+is confirmed working live against screener.in, but a backtest can only
 ever apply *today's* value-screen result uniformly across the whole
 historical window - screener.in has no historical snapshot of past
 fundamentals, so a stock that only recently started passing the screen
@@ -88,9 +100,11 @@ def scan(weekly_data: dict[str, pd.DataFrame], value_universe: set[str]) -> list
             continue
 
         current_date = df.index[-1]
+        # No minimum-age gate on this anymore (see module docstring) -
+        # weeks_gap is still computed and shown/sorted on, since "how old
+        # was the high being broken" stays useful context even though it's
+        # no longer a pass/fail condition.
         weeks_gap = int(round((current_date - prior_high_date).days / 7))
-        if weeks_gap < config.VALUE_BREAKOUT_MIN_GAP_WEEKS:
-            continue  # too recent a high - not the "at least a year" breakout this strategy targets
 
         entry = float(row["close"])
         # Informational only - see module docstring. The real exit is the
