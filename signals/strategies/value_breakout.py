@@ -3,33 +3,44 @@
 config.py: profit growth > 25%, debt/equity < 0.5, market cap > 5000 Cr)
 gates which symbols are even considered, then a stock qualifies when, on
 the weekly timeframe, this week's close is above the highest weekly close
-in its entire available history - no minimum age on that prior high at
-all. No bullish-candle check, no "proper close" (small upper wick) check,
-no volume-confirmation check either.
+in at least VALUE_BREAKOUT_MIN_GAP_WEEKS candles (~1 year) - a genuinely
+old high, not just a recent rolling-window peak. No bullish-candle check,
+no "proper close" (small upper wick) check, no volume-confirmation check.
 
-There used to be a VALUE_BREAKOUT_MIN_GAP_WEEKS floor (the high being
-broken had to be at least ~52 weeks old, i.e. a genuinely dormant-value
-breakout, not a stock already mid-trend) - removed per explicit
-direction, after it turned out to be excluding real, fundamentally-
-qualifying stocks for the wrong reason. Engineers India (ENGINERSIN) is
-the case that surfaced this: it clears the fundamental screen
-comfortably (>25% profit growth, near-zero debt, market cap well past
-5000 Cr) but had been up ~57% over the trailing year - a stock making
-frequent new highs sets each new one only weeks after the last, so it can
-never clear a 52-week-old-high requirement no matter how well it
-otherwise fits the strategy's thesis. Removing the floor means a stock
-already in a strong uptrend can now signal on every fresh closing high it
-makes, not just a first breakout after a long dormant stretch - a real
-behavior change (more frequent, possibly repeat, signals for trending
-names in the value universe), not just a filter tweak.
+This min-gap floor has been removed and restored once already - worth
+recording both halves so it isn't re-litigated from scratch next time.
+Removed: investigating why Engineers India (ENGINERSIN) never appeared
+despite clearing the fundamental screen comfortably (>25% profit growth,
+near-zero debt, market cap well past 5000 Cr) found that it had been up
+~57% over the trailing year - a stock making frequent new highs sets each
+one only weeks after the last, so it can never clear a 52-week-old-high
+requirement no matter how well it otherwise fits. Removed per explicit
+direction to let it through. Restored: a real backtest run with the floor
+off, explicitly for testing only (never intended to go live), confirmed
+the floor is load-bearing in a way the Engineers India case didn't
+reveal - signal count jumped from 31 to 1114 over the same 5-year window,
+almost entirely from the same handful of already-trending stocks
+re-signaling on nearly every subsequent weekly high (one symbol, CUPID,
+alone accounted for 19 of the 20 most recent "open" trades, each about a
+week apart). That isn't 19 independent opportunities, it's one move
+sliced into 19 overlapping pseudo-trades, which both floods a live
+Telegram feed with near-duplicate alerts for a position already signalled
+and statistically invalidates any win-rate/profit-factor number computed
+across them (massive autocorrelation, not independent samples). Restored
+per explicit direction for live use - the Engineers India gap is an
+accepted, known cost of avoiding that failure mode, not an oversight.
 
 Per explicit direction generally: this fundamentally-screened universe is
-already small (a handful of signals over 5 years in the first real
-backtest), so stacking technical filters on top of the fundamental one
-just starves the strategy of trades further for a benefit that's unproven
-at this sample size - unlike Monthly ATH Breakout and Price Action
-Breakout, which lean on those filters precisely because their much larger
-unfiltered universes can afford to trade off quantity for quality.
+already small (a handful of signals over 5 years with the floor in
+place), so stacking the OTHER technical filters (bullish candle, proper
+close, volume) on top of the fundamental one just starves the strategy of
+trades further for a benefit that's unproven at this sample size - unlike
+Monthly ATH Breakout and Price Action Breakout, which lean on those
+filters precisely because their much larger unfiltered universes can
+afford to trade off quantity for quality. The min-gap floor is a
+different kind of filter from those three, though (see above) - it's not
+just trading quantity for quality, it's preventing the same move from
+being counted repeatedly, so it stays even though the others don't.
 
 Entry is the breakout candle's own close (open-ended breakouts have no
 prior resistance to set a resting buy-stop against). There is NO fixed
@@ -100,11 +111,16 @@ def scan(weekly_data: dict[str, pd.DataFrame], value_universe: set[str]) -> list
             continue
 
         current_date = df.index[-1]
-        # No minimum-age gate on this anymore (see module docstring) -
-        # weeks_gap is still computed and shown/sorted on, since "how old
-        # was the high being broken" stays useful context even though it's
-        # no longer a pass/fail condition.
         weeks_gap = int(round((current_date - prior_high_date).days / 7))
+        if weeks_gap < config.VALUE_BREAKOUT_MIN_GAP_WEEKS:
+            # Too recent a high - not a genuinely dormant-value breakout.
+            # This floor was briefly removed and restored - see module
+            # docstring for why it stays despite excluding real cases like
+            # Engineers India: without it, an already-trending stock
+            # re-signals on nearly every subsequent weekly high instead of
+            # once, which is both a live-alert-spam problem and makes the
+            # backtest's trade count statistically meaningless.
+            continue
 
         entry = float(row["close"])
         # Informational only - see module docstring. The real exit is the

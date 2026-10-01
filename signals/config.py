@@ -370,14 +370,18 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 # --- Weekly Value Stocks Breakout -----------------------------------------
 # Combines a fundamental screen (signals/value_universe.py, scraping
 # screener.in - see that module's docstring for the mechanics and its
-# caveats) with a single technical trigger: this week's close above the
-# highest weekly close in the symbol's available history. No minimum age
-# on that prior high (VALUE_BREAKOUT_MIN_GAP_WEEKS, requiring it be at
-# least ~a year old, was removed - see git history and
-# signals/strategies/value_breakout.py's docstring for why), no
-# bullish-candle/proper-close/volume filter either - per explicit
-# direction, since this fundamentally-screened universe is small enough
-# that every extra technical filter measurably starves it of trades. Uses
+# caveats) with a technical trigger: this week's close above the highest
+# weekly close in at least VALUE_BREAKOUT_MIN_GAP_WEEKS candles (so a
+# genuinely dormant-value breakout counts, not a stock already mid-trend
+# re-signalling on every fresh high). No bullish-candle/proper-close/
+# volume filter on top, per explicit direction, since this
+# fundamentally-screened universe is small enough that every extra
+# technical filter measurably starves it of trades - but the min-gap
+# floor itself was briefly removed and then restored; see
+# signals/strategies/value_breakout.py's docstring for the full story
+# (Engineers India showed what removing it misses, a test run with it off
+# showed what keeping it prevents: 31 signals became 1114, almost all
+# repeat signals on the same already-trending handful of stocks). Uses
 # the *value* universe (a fundamentally-screened subset of the full NSE,
 # not just the Nifty 500) - a symbol outside that set is skipped
 # regardless of its price action, since the whole premise here is
@@ -388,6 +392,7 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 # git history) - screener.in requires a logged-in account
 # (SCREENER_EMAIL/SCREENER_PASSWORD) to run this query at all.
 VALUE_SCREEN_QUERY = "Profit growth > 25 AND Debt to equity < 0.5 AND Market Capitalization > 5000"
+VALUE_BREAKOUT_MIN_GAP_WEEKS = 52  # "at least a year" - restored, see docstrings above/in value_breakout.py
 
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct

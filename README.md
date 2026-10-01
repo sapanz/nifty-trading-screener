@@ -12,7 +12,7 @@ Weekly Value Stocks Breakout, screens the full NSE instead of the Nifty
 | **Price Action Breakout (Weekly)** | Fridays, 5pm IST | The same base-detection and shape classifier as the daily leg above (5-20 week base), but a different, retest-based trigger, not the daily leg's immediate entry - see [How the rules are encoded](#how-the-rules-are-encoded) for why the two timeframes diverge. **Long:** above 200 SMA; a base breaks out on clearly elevated volume (within the last 6 weekly candles), a later candle pulls back to retest that level without invalidating it, then today closes back above it, bullish and properly closed - entry is a resting buy-stop at today's high, stop-loss the lower of the retest's low and today's low. **No risk-pct cap and no reward:risk gate** on this leg, unlike the daily leg - a signal fires whenever the sequence completes, whatever risk/reward that implies. **Short (F&O-eligible symbols only):** the exact mirror. This exact combination (6-candle window, ungated) hasn't been backtested yet - see [Known limitations](#known-limitations) |
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
-| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | The only strategy here not limited to the Nifty 500 - it screens the **full NSE** for stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in), since that's the whole point of using a fundamental screen instead of just filtering the Nifty 500 by price action. Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in its entire available history - **no minimum age on that prior high** (a floor requiring it be ~a year+ old was tried and dropped - it was excluding fundamentally-qualifying stocks already mid-uptrend, like Engineers India, which can never clear an old-high requirement since each new high it sets is only weeks past the last one), and no bullish-candle, proper-close, or volume filter on top either, per explicit direction, since the fundamentally-screened universe is already small. A real consequence: a stock already trending can now signal repeatedly, once per fresh closing high, not just once on a first breakout after a long dormant stretch. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtests (Nifty-500-scoped, then full-NSE, both before this age-floor removal): up to 31 signals, 81% win rate, PF 53 - promising but too small a sample, and now stale against the current rules, so not yet validated - see [Known limitations](#known-limitations) |
+| **Weekly Value Stocks Breakout** | Fridays, 5pm IST | The only strategy here not limited to the Nifty 500 - it screens the **full NSE** for stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in), since that's the whole point of using a fundamental screen instead of just filtering the Nifty 500 by price action. Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in at least 52 candles (a genuinely dormant-value high, not a stock already mid-trend) - no bullish-candle, proper-close, or volume filter on top, per explicit direction, since the fundamentally-screened universe is already small. The 52-week floor was briefly removed, then restored for live use once a test run confirmed why it's needed: without it, an already-trending stock re-signals on nearly every subsequent weekly high instead of once (one test run went from 31 signals to 1114 over the same window, almost entirely repeat signals on a handful of trending names) - see [Known limitations](#known-limitations) for the full story, including the real stock (Engineers India) that motivated trying to remove it in the first place. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtest (full-NSE, with the floor in place): 31 signals, 81% win rate, PF 53 - promising but too small a sample to call validated yet |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see
@@ -281,13 +281,16 @@ them there rather than in the strategy code.
   symbols screener.in's query returns, rather than reusing the shared
   Nifty 500 fetch every other weekly strategy shares. Within that universe,
   the only price-action condition is this week's close above the highest
-  weekly close in its entire available history - no minimum age on that
-  prior high (a `VALUE_BREAKOUT_MIN_GAP_WEEKS` floor requiring it be
-  ~a year+ old was tried and removed - see git history and
-  `signals/strategies/value_breakout.py`'s docstring: it was excluding
-  fundamentally-qualifying stocks already mid-uptrend, which can never
-  clear an old-high requirement). Unlike Monthly ATH Breakout and Price
-  Action Breakout, there's no
+  weekly close in at least `VALUE_BREAKOUT_MIN_GAP_WEEKS` (52) candles - a
+  genuinely dormant-value high, not a stock already mid-trend. This floor
+  was briefly removed (it was excluding fundamentally-qualifying stocks
+  already mid-uptrend, like Engineers India, which can never clear an
+  old-high requirement) and then restored for live use once removing it
+  was actually tested: signal count went from 31 to 1114 over the same
+  5-year window, almost entirely repeat signals on the same handful of
+  already-trending stocks (see Known Limitations and
+  `signals/strategies/value_breakout.py`'s docstring for the full story).
+  Unlike Monthly ATH Breakout and Price Action Breakout, there's no
   bullish-candle check, no "proper close" check, and no volume
   confirmation - per explicit direction, since this fundamentally-screened
   universe is already small, stacking technical filters on top of the
@@ -662,23 +665,33 @@ all-time-high check isn't silently capped at 6 years.
   scoped to exactly the symbols screener.in's query returns, instead of
   reusing the shared Nifty 500 fetch - confirmed working on the first live
   run after the fix (31 signals, 81% win, PF 53, no instrument-match or
-  Upstox-load issues). That number is itself now stale, though:
-  investigating why a well-known, comfortably-qualifying stock (Engineers
-  India) never appeared surfaced a second bug - the `VALUE_BREAKOUT_MIN_GAP_WEEKS`
-  floor (requiring the high being broken to be ~a year+ old) was quietly
-  excluding any fundamentally-qualifying stock already mid-uptrend, since
-  such a stock's own new highs are always recent, never old. Removed per
-  explicit direction (see `signals/strategies/value_breakout.py`'s
-  docstring) - which means every backtest number in this section so far
-  (13, then 22, then 31 signals) was run under a rule that no longer
-  exists, and a fresh backtest is needed before any of these numbers mean
-  anything again. The behavior change is real, not cosmetic: a stock
-  already trending can now signal repeatedly, once per fresh closing high,
-  which will likely raise the signal count noticeably but also concentrate
-  more of it in names already well underway rather than fresh, dormant-value
-  breakouts. Built as a candidate replacement for Price Action Breakout
-  (Weekly) per explicit direction; both run live until a larger, correctly-
-  scoped, current-rules sample settles it.
+  Upstox-load issues). Separately: investigating why a well-known,
+  comfortably-qualifying stock (Engineers India) never appeared surfaced a
+  real gap in `VALUE_BREAKOUT_MIN_GAP_WEEKS` (requiring the high being
+  broken to be ~a year+ old) - it was quietly excluding any
+  fundamentally-qualifying stock already mid-uptrend, since such a stock's
+  own new highs are always recent, never old. Removed, for testing only,
+  to see what it was actually filtering out - and that test (not a live
+  run) answered the question decisively: signal count went from 31 to
+  1114 over the same window, almost entirely repeat signals on the same
+  handful of already-trending stocks (one symbol, CUPID, alone accounted
+  for 19 of the 20 most recent "open" trades, each about a week apart -
+  one move sliced into 19 overlapping pseudo-trades, not 19 independent
+  opportunities). That both floods a live Telegram feed with near-
+  duplicate alerts and statistically invalidates any win-rate/PF number
+  computed across the result (massive autocorrelation, not independent
+  samples) - so the floor is restored for live use, per explicit
+  direction, and the Engineers India gap is an accepted, known cost of
+  avoiding that failure mode rather than an oversight. (That same
+  no-floor test run also surfaced and fixed a real bug on its own: a
+  single very long summary line - the kind many-open-trades runs like
+  that one produce - could exceed even `telegram.py`'s own chunking,
+  crashing the whole script with a Telegram "message too long" error;
+  `_chunk` now hard-splits any individual oversized line, and `summarize()`
+  caps the "Open:" list at 20 with a remainder count, independent of
+  whether the min-gap floor itself is ever revisited again.) Built as a
+  candidate replacement for Price Action Breakout (Weekly) per explicit
+  direction; both run live until a larger sample settles it.
 
 ## Backtesting
 
