@@ -34,7 +34,14 @@ def _fetch_csv_text(session: requests.Session, url: str) -> str:
 
 
 def fetch_nifty500_symbols() -> list[str]:
-    """Return NSE trading symbols (without exchange suffix) for Nifty 500.
+    """Return NSE trading symbols (without exchange suffix) for Nifty 500."""
+    return sorted(fetch_nifty500_constituents())
+
+
+def fetch_nifty500_constituents() -> dict[str, str]:
+    """Return {NSE symbol: industry} for Nifty 500, the industry taken from
+    the constituent list's own "Industry" column (e.g. "Capital Goods",
+    "Financial Services") - used as each stock's sector.
 
     Raises RuntimeError if none of the known sources could be reached, so
     callers can surface a loud failure (e.g. a Telegram alert) instead of
@@ -51,11 +58,15 @@ def fetch_nifty500_symbols() -> list[str]:
         try:
             text = _fetch_csv_text(session, url)
             reader = csv.DictReader(io.StringIO(text))
-            symbols = [row["Symbol"].strip() for row in reader if row.get("Symbol")]
-            if len(symbols) >= 400:  # sanity check, list should have ~500 rows
-                return sorted(set(symbols))
+            constituents = {
+                row["Symbol"].strip(): (row.get("Industry") or "").strip()
+                for row in reader
+                if row.get("Symbol")
+            }
+            if len(constituents) >= 400:  # sanity check, list should have ~500 rows
+                return constituents
             last_error = RuntimeError(
-                f"{url} returned only {len(symbols)} symbols, expected ~500"
+                f"{url} returned only {len(constituents)} symbols, expected ~500"
             )
         except Exception as exc:  # noqa: BLE001 - we want to try the next mirror
             last_error = exc

@@ -199,3 +199,28 @@ def test_add_rsi_nan_before_period_elapses():
     df = pd.DataFrame({"close": [100.0 + i for i in range(10)]})
     indicators.add_rsi(df, period=14)
     assert pd.isna(df["rsi14"].iloc[-1])
+
+
+def _ohlc(closes, half_range=1.0):
+    return pd.DataFrame({
+        "open": closes, "high": [c + half_range for c in closes],
+        "low": [c - half_range for c in closes], "close": closes, "volume": [1000.0] * len(closes),
+    })
+
+
+def test_add_ema_is_nan_until_period_then_tracks_price():
+    df = indicators.add_ema(_ohlc([100.0] * 25), 20)
+    assert df["ema20"].iloc[:19].isna().all()
+    assert df["ema20"].iloc[-1] == 100.0
+
+
+def test_add_atr_of_constant_range_equals_that_range():
+    df = indicators.add_atr(_ohlc([100.0] * 30, half_range=1.5), 14)
+    assert df["atr14"].iloc[-1] == 3.0
+
+
+def test_add_atr_counts_gaps_via_previous_close():
+    # flat 2-point ranges, but each day gaps up 10 from the prior close; enough
+    # rows for Wilder smoothing to forget the first bar (which has no prior close)
+    df = indicators.add_atr(_ohlc([100.0 + 10 * i for i in range(300)]), 14)
+    assert round(df["atr14"].iloc[-1], 6) == 11.0  # high - prev close = (c+1) - (c-10)

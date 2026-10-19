@@ -394,6 +394,37 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 VALUE_SCREEN_QUERY = "Profit growth > 25 AND Debt to equity < 0.5 AND Market Capitalization > 5000"
 VALUE_BREAKOUT_MIN_GAP_WEEKS = 52  # "at least a year" - restored, see docstrings above/in value_breakout.py
 
+# --- Intraday Watchlist -----------------------------------------------------
+# A next-day watchlist, not a trade generator: bull/bear bias plus the
+# reasons for it, no entry/stop/target (see
+# signals/strategies/intraday_watchlist.py). Untuned starting points, not
+# backtested - there's no entry/exit to backtest against.
+INTRADAY_EMA_FAST = 20
+INTRADAY_EMA_SLOW = 50
+INTRADAY_EMA_SLOPE_LOOKBACK = 5        # fast EMA must be rising/falling vs this many days back
+INTRADAY_BREAKOUT_LOOKBACK = 10        # "breakout close" = close beyond the prior N days' high/low
+INTRADAY_BREAKOUT_VOLUME_MULTIPLIER = 1.5
+INTRADAY_STRONG_CLOSE_LOCATION = 0.75  # close in the top 25% of the day's range (bottom 25% for bear)
+INTRADAY_NR_LOOKBACK = 7               # NR7: today's range is the narrowest of the last N days
+INTRADAY_SECTOR_LOOKBACK = 5           # sector strength = median N-day % change of its members
+INTRADAY_SECTOR_MIN_MEMBERS = 3        # fewer members than this -> sector not used either way
+INTRADAY_ATR_PERIOD = 14
+# "No excessive volatility": skip stocks that are chronically wild...
+INTRADAY_MAX_ATR_PCT = 5.0
+# ...and stocks whose candle today looks news-driven even if no event was
+# on the calendar (an unscheduled announcement, block deal, rumour): a big
+# opening gap, or a day's range far beyond its usual.
+INTRADAY_MAX_GAP_PCT = 4.0
+INTRADAY_MAX_RANGE_ATR_MULTIPLE = 2.5
+# Corporate events (results, board meetings, dividends, splits...) from
+# NSE's event calendar are excluded within this many calendar days around
+# today - before, because results usually land after hours and move the
+# stock the next day; after, because the post-result days stay volatile.
+# The lookahead covers a weekend when the run is on a Friday.
+NSE_EVENT_CALENDAR_URL = "https://www.nseindia.com/api/event-calendar"
+INTRADAY_EVENT_LOOKBACK_DAYS = 2
+INTRADAY_EVENT_LOOKAHEAD_DAYS = 4
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small

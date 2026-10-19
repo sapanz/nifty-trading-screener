@@ -55,3 +55,48 @@ def test_direction_tag_for_short_signal():
     # risk_per_share must still come out positive for a short (stop_loss -
     # entry, not entry - stop_loss) so the displayed risk % isn't negative.
     assert "5.0% risk" in msg
+
+
+def _watchlist():
+    from signals.strategies.intraday_watchlist import IntradayPick, WatchlistResult
+
+    return WatchlistResult(
+        picks=[
+            IntradayPick("BULLCO", "bull", "Breakout close", ["Closed above 10-day high"],
+                         candle_date=date(2026, 10, 16)),
+            IntradayPick("BEARCO", "bear", "Coiled in trend", ["NR7 - narrowest range in 7 days"],
+                         candle_date=date(2026, 10, 16)),
+        ],
+        skipped_events=["TCS", "INFY"],
+        skipped_shock=["XYZ"],
+    )
+
+
+def test_intraday_watchlist_lists_bias_and_reasons_without_levels():
+    from signals.formatting import format_intraday_watchlist
+
+    msg = format_intraday_watchlist("Intraday Watchlist", "🔭", _watchlist(), date(2026, 10, 16), True)
+    assert "Bullish (1)" in msg and "Bearish (1)" in msg
+    assert "<b>BULLCO</b> — Breakout close" in msg
+    assert "• Closed above 10-day high" in msg
+    assert "Skipped: 2 with results/events, 1 with a news-like gap/range today" in msg
+    assert "Entry" not in msg and "SL" not in msg and "T1" not in msg
+    assert "NOT filtered" not in msg
+
+
+def test_intraday_watchlist_flags_unfiltered_events():
+    from signals.formatting import format_intraday_watchlist
+
+    msg = format_intraday_watchlist("Intraday Watchlist", "🔭", _watchlist(), date(2026, 10, 16), False)
+    assert "results/events NOT filtered" in msg
+    assert "with results/events" not in msg
+
+
+def test_intraday_watchlist_empty_sections_and_stale_candle():
+    from signals.formatting import format_intraday_watchlist
+    from signals.strategies.intraday_watchlist import IntradayPick, WatchlistResult
+
+    result = WatchlistResult(picks=[IntradayPick("OLDCO", "bull", "Coiled in trend", [], candle_date=date(2026, 10, 15))])
+    msg = format_intraday_watchlist("Intraday Watchlist", "🔭", result, date(2026, 10, 16), True)
+    assert "Bearish (0)</b>\nNone today." in msg
+    assert "Candle date: 15 Oct 2026 (not today)" in msg

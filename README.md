@@ -3,7 +3,8 @@
 Automated Nifty 500 technical screener that posts Entry / Stop-Loss / Target
 levels to Telegram, on a schedule, for six strategies (one of which,
 Weekly Value Stocks Breakout, screens the full NSE instead of the Nifty
-500 - see the table below):
+500 - see the table below), plus a daily Intraday Watchlist that posts a
+bull/bear bias with reasons and no levels at all:
 
 | Strategy | When | Trigger |
 |---|---|---|
@@ -13,6 +14,7 @@ Weekly Value Stocks Breakout, screens the full NSE instead of the Nifty
 | **Weekly Range Breakout** | Fridays, 5pm IST | Above 200 SMA, rising 30 SMA, last 6 weekly candles form a tight range with more volume on up candles than down (accumulation), close breaks above the range by 4-12% (not a weak break, not already extended), breakout candle is bullish (green) with a proper close, volume candle, and the resulting target clears at least 1:1 reward:risk against the entry-to-stop distance; entry is a resting buy-stop at the breakout candle's high, filled only once a later candle trades through it |
 | **Monthly ATH Breakout** | Last trading day of the month, 5pm IST | Monthly close breaks above its prior all-time high on volume, the breakout candle is bullish (green) with a proper close, at least `MONTHLY_MIN_GAP_MONTHS` (3) months after that prior high; reports how many months it took, sorted longest-dormant first. No reward:risk floor here, unlike the other strategies - tried and reverted, see [Known limitations](#known-limitations) |
 | **Weekly Value Stocks Breakout** | Fridays, 5pm IST | The only strategy here not limited to the Nifty 500 - it screens the **full NSE** for stocks currently passing a fundamental value screen (profit growth > 25%, debt/equity < 0.5, market cap > ₹5000 Cr - scraped from screener.in, which requires logging in), since that's the whole point of using a fundamental screen instead of just filtering the Nifty 500 by price action. Within that universe, the only price-action condition is weekly close breaking above the highest weekly close in at least 52 candles (a genuinely dormant-value high, not a stock already mid-trend) - no bullish-candle, proper-close, or volume filter on top, per explicit direction, since the fundamentally-screened universe is already small. The 52-week floor was briefly removed, then restored for live use once a test run confirmed why it's needed: without it, an already-trending stock re-signals on nearly every subsequent weekly high instead of once (one test run went from 31 signals to 1114 over the same window, almost entirely repeat signals on a handful of trending names) - see [Known limitations](#known-limitations) for the full story, including the real stock (Engineers India) that motivated trying to remove it in the first place. Entry is the breakout candle's own close; **no fixed stop-loss and no profit target at all** - held as long as the weekly close stays above its own 30-week SMA, exiting the next trading day's open the first week it closes back below. A candidate replacement for Price Action Breakout (Weekly), pending a backtest comparing the two - both run live for now. First real 5-year backtest (full-NSE, with the floor in place): 31 signals, 81% win rate, PF 53 - promising but too small a sample to call validated yet |
+| **Intraday Watchlist** | Every trading day, 5pm IST | A next-day watchlist, not a trade generator: **no entry, stop-loss or target**, just each stock's bull/bear bias and the reasons for it - find your own entry intraday. From the daily chart: an established trend (above a rising 20 EMA above the 50 EMA, as of the prior day, or the mirror for bear) plus either a **breakout/breakdown close** (beyond the prior 10 days' high/low, in the top/bottom quarter of the day's range, on 1.5x+ average volume) or a **coiled** day (NR7 or inside day, closing on the trend's side of its range). The stock's sector (the Nifty 500 list's own Industry column) must not be moving against it (median 5-day change). **Excludes event-driven volatility**: stocks with a corporate event (results, board meeting, dividend...) from 2 days before to 4 days after today on NSE's event calendar, stocks whose day looks news-driven even without a calendar event (gap > 4%, or range > 2.5x their usual ATR), and chronically wild stocks (ATR > 5% of price). Full Nifty 500, no cap on picks. Not backtested - see [Known limitations](#known-limitations) |
 
 No manual judgement calls at run time — every "properly closed candle" /
 "volume candle" / "support test" rule is a precise, testable condition (see
@@ -499,6 +501,18 @@ all-time-high check isn't silently capped at 6 years.
 
 ## Known limitations
 
+- **The Intraday Watchlist is untested against live data and unbacktested.**
+  Its thresholds (`INTRADAY_*` in config.py) are reasonable starting points,
+  not tuned values - with no entry or exit there's nothing for the existing
+  backtest engine to walk forward, so how often its bias actually plays out
+  next day hasn't been measured. Its event filter depends on NSE's
+  `event-calendar` JSON API, which sits behind NSE's bot protection and
+  couldn't be reached from the environment this was built in: if a live
+  run can't fetch it, the watchlist still goes out with a "results/events
+  NOT filtered" warning rather than silently treating the gap as "no
+  events". The price-based shock filter (big gap / abnormally wide day)
+  is the only guard against *unscheduled* news either way - no calendar
+  lists those.
 - **The login automation is inherently fragile.** It drives Upstox's own
   login page rather than a documented API, so a layout change on their
   end will break it. When it breaks, the run fails loudly with a
@@ -770,13 +784,14 @@ HEADLESS=false python scripts/login_upstox.py
 ```
 signals/
   config.py          tunable thresholds
-  universe.py        Nifty 500 constituent list (from NSE)
+  universe.py        Nifty 500 constituent list + each stock's industry (from NSE)
+  events.py          NSE corporate event calendar (gates the Intraday Watchlist)
   upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)
   data.py            daily/weekly/monthly-ATH fetch orchestration, resampling fallbacks, circuit breaker
   value_universe.py  screener.in fundamental-screen scraper (gates Weekly Value Stocks Breakout)
-  indicators.py      SMA, volume avg, candle-quality checks
+  indicators.py      SMA, EMA, ATR, volume avg, candle-quality checks
   models.py          Signal dataclass (entry/SL/targets/note)
   strategies/        one module per strategy, each exposing scan(data) -> list[Signal]
     daily_swing.py            Daily Swing (SMA50/lower-BB confluence)
@@ -784,6 +799,7 @@ signals/
     weekly_breakout.py        Weekly Range Breakout
     monthly_breakout.py       Monthly ATH Breakout
     value_breakout.py         Weekly Value Stocks Breakout (fundamental screen + multi-year high breakout, trailing-SMA exit)
+    intraday_watchlist.py     Intraday Watchlist (next-day bull/bear bias with reasons - no levels, own result type)
   formatting.py       Signal list -> Telegram HTML message
   telegram.py         Telegram Bot API sender (with message chunking)
   runtime.py          env var handling, logging, error reporting to Telegram

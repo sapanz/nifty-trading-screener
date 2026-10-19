@@ -29,6 +29,21 @@ def add_bollinger_bands(
     return df
 
 
+def add_ema(df: pd.DataFrame, period: int, column: str = "close") -> pd.DataFrame:
+    df[f"ema{period}"] = df[column].ewm(span=period, adjust=False, min_periods=period).mean()
+    return df
+
+
+def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Wilder's Average True Range, as column atr{period}."""
+    prev_close = df["close"].shift(1)
+    true_range = pd.concat(
+        [df["high"] - df["low"], (df["high"] - prev_close).abs(), (df["low"] - prev_close).abs()], axis=1
+    ).max(axis=1)
+    df[f"atr{period}"] = true_range.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    return df
+
+
 def add_avg_volume(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
     # shift(1) so today's own volume never inflates its own baseline
     df[f"avg_vol{lookback}"] = df["volume"].shift(1).rolling(lookback).mean()
