@@ -62,6 +62,12 @@ class IntradayPick:
     reasons: list[str]
     sort_key: tuple = ()
     candle_date: date | None = None
+    # Diagnostic features of the signal candle, direction-adjusted (positive =
+    # with the pick's bias). Not shown to the user or gated on: the watchlist
+    # backtest writes them next to each pick's next-day result so they can be
+    # mined for what separates picks that followed through from those that
+    # didn't, rather than tuning thresholds by guesswork.
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -112,6 +118,29 @@ def _trend(df: pd.DataFrame) -> str | None:
     if prev[FAST_COL] < prev[SLOW_COL] and prev[FAST_COL] < fast_then and today["close"] < today[FAST_COL]:
         return "bear"
     return None
+
+
+def _metrics(df: pd.DataFrame, trend: str, usual_range: float, close_location: float,
+             sector_change: float | None) -> dict[str, float]:
+    today, prev = df.iloc[-1], df.iloc[-2]
+    sign = 1.0 if trend == "bull" else -1.0
+    prior = df.iloc[-1 - config.INTRADAY_BREAKOUT_LOOKBACK:-1]
+    level = prior["high"].max() if trend == "bull" else prior["low"].min()
+    day_range = today["high"] - today["low"]
+    return {
+        "vol_ratio": float(today["volume"] / today[VOL_COL]),
+        "close_strength": close_location if trend == "bull" else 1 - close_location,
+        "range_atr": float(day_range / usual_range),
+        "signal_gap_pct": sign * (today["open"] / prev["close"] - 1) * 100,
+        "signal_day_pct": sign * (today["close"] / prev["close"] - 1) * 100,
+        "atr_pct": float(usual_range / prev["close"] * 100),
+        "ema_spread_pct": sign * (prev[FAST_COL] / prev[SLOW_COL] - 1) * 100,
+        "ext_ema20_pct": sign * (today["close"] / today[FAST_COL] - 1) * 100,
+        "mom5_pct": sign * (today["close"] / df["close"].iloc[-6] - 1) * 100,
+        "beyond_level_pct": sign * (today["close"] / level - 1) * 100,
+        "sector_change_pct": sign * sector_change if sector_change is not None else float("nan"),
+        "weekday": float(df.index[-1].weekday()),
+    }
 
 
 def _breakout(df: pd.DataFrame, trend: str, close_location: float) -> tuple[str, list[str], float] | None:
@@ -235,6 +264,7 @@ def scan(
         result.picks.append(IntradayPick(
             symbol=symbol, direction=trend, setup=setup, reasons=reasons,
             sort_key=sort_key, candle_date=df.index[-1].date(),
+            metrics=_metrics(df, trend, float(usual_range), float(close_location), sector_change),
         ))
 
     result.picks.sort(key=lambda p: p.sort_key)
