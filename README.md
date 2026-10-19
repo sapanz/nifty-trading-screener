@@ -501,18 +501,30 @@ all-time-high check isn't silently capped at 6 years.
 
 ## Known limitations
 
-- **The Intraday Watchlist is untested against live data and unbacktested.**
-  Its thresholds (`INTRADAY_*` in config.py) are reasonable starting points,
-  not tuned values - with no entry or exit there's nothing for the existing
-  backtest engine to walk forward, so how often its bias actually plays out
-  next day hasn't been measured. Its event filter depends on NSE's
-  `event-calendar` JSON API, which sits behind NSE's bot protection and
-  couldn't be reached from the environment this was built in: if a live
-  run can't fetch it, the watchlist still goes out with a "results/events
-  NOT filtered" warning rather than silently treating the gap as "no
-  events". The price-based shock filter (big gap / abnormally wide day)
-  is the only guard against *unscheduled* news either way - no calendar
-  lists those.
+- **The Intraday Watchlist is untested against live data, and its backtest
+  can only measure follow-through, not trading results.** Its thresholds
+  (`INTRADAY_*` in config.py) are reasonable starting points, not tuned
+  values. With no entry or exit there's nothing for the trade simulator to
+  walk forward, so `signals/watchlist_backtest.py` (run it with
+  `BACKTEST_STRATEGIES=intraday_watchlist` - opt-in, not part of a blank
+  "everything" run, since it's slow) instead replays the real scan on every
+  historical date and measures each pick's *next trading day*: open→close
+  in the bias direction, the overnight gap, how far it traveled my way vs.
+  against me, and the day's range - always next to the same numbers for
+  every Nifty 500 stock on those days, since "moved 2%" means little if the
+  average stock did too. Its limits: historical corporate events can't be
+  filtered (NSE's calendar only looks forward), so past results days stay
+  in and can inflate next-day movement vs. live; it's daily OHLC only, so
+  it measures how far a pick traveled, not whether anyone could have
+  caught it (no entries, slippage or costs; open→close assumes the opening
+  price); and the universe is today's Nifty 500 across the whole window.
+  Its event filter depends on NSE's `event-calendar` JSON API, which sits
+  behind NSE's bot protection and couldn't be reached from the environment
+  this was built in: if a live run can't fetch it, the watchlist still goes
+  out with a "results/events NOT filtered" warning rather than silently
+  treating the gap as "no events". The price-based shock filter (big gap /
+  abnormally wide day) is the only guard against *unscheduled* news either
+  way - no calendar lists those.
 - **The login automation is inherently fragile.** It drives Upstox's own
   login page rather than a documented API, so a layout change on their
   end will break it. When it breaks, the run fails loudly with a
@@ -786,6 +798,7 @@ signals/
   config.py          tunable thresholds
   universe.py        Nifty 500 constituent list + each stock's industry (from NSE)
   events.py          NSE corporate event calendar (gates the Intraday Watchlist)
+  watchlist_backtest.py  next-day follow-through backtest for the Intraday Watchlist (vs. a Nifty 500 baseline)
   upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)

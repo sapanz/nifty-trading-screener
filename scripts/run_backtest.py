@@ -42,11 +42,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import backtest, data, runtime, universe, value_universe  # noqa: E402
+from signals import backtest, data, runtime, universe, value_universe, watchlist_backtest  # noqa: E402
 from signals.telegram import send_message  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
 CSV_PATH = "backtest_trades.csv"
+WATCHLIST_CSV_PATH = "watchlist_backtest.csv"
 FETCH_TITLE = "Backtest (data fetch)"
 FETCH_EMOJI = "🧪"
 
@@ -58,6 +59,14 @@ STRATEGY_LABELS = {
     "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
     "value_breakout": ("Weekly Value Stocks Breakout", "💎"),
 }
+
+# The Intraday Watchlist has no entry/exit, so it isn't a backtest.run_backtest
+# strategy (no TradeResults) - it's measured by watchlist_backtest instead.
+# Opt-in only: it replays the watchlist scan on every historical date, which
+# is slow, so a blank BACKTEST_STRATEGIES ("everything") does not include it.
+WATCHLIST_KEY = "intraday_watchlist"
+WATCHLIST_TITLE = "Intraday Watchlist - next-day follow-through"
+WATCHLIST_EMOJI = "🔭"
 
 # "price_action_breakout" alone means both of its timeframe legs -
 # a convenient shorthand since they're always the same underlying strategy.
@@ -80,7 +89,7 @@ def _parse_strategies(raw: str | None) -> set[str] | None:
         if not token:
             continue
         wanted |= STRATEGY_SHORTHANDS.get(token, {token})
-    unknown = wanted - set(STRATEGY_LABELS)
+    unknown = wanted - set(STRATEGY_LABELS) - {WATCHLIST_KEY}
     if unknown:
         raise ValueError(f"Unknown BACKTEST_STRATEGIES entries: {sorted(unknown)}")
     return wanted
@@ -94,47 +103,63 @@ def main() -> None:
     token = runtime.get_env("TELEGRAM_BOT_TOKEN")
     chat_id = runtime.get_env("TELEGRAM_CHAT_ID")
 
+    run_watchlist = strategies is not None and WATCHLIST_KEY in strategies
+    # What's left for backtest.run_backtest once the watchlist is peeled off.
+    # None = everything (blank env var); an empty set = watchlist only, in
+    # which case none of the trade-strategy fetches below are needed at all.
+    trade_strategies = None if strategies is None else strategies - {WATCHLIST_KEY}
+    run_trades = trade_strategies is None or bool(trade_strategies)
+    results: dict = {}
+    watchlist_summary = None
+    outcomes: list = []
+
     try:
         client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
-        symbols = universe.fetch_nifty500_symbols()
-        instrument_map = data.build_instrument_map(client, symbols)
+        industries = universe.fetch_nifty500_constituents()
+        instrument_map = data.build_instrument_map(client, sorted(industries))
         daily = data.fetch_daily(client, instrument_map)
-        # Weekly Range Breakout and Monthly ATH Breakout each get their own
-        # native fetch rather than a resample of `daily` above - weekly so
-        # its candles match live Upstox week boundaries, monthly because
-        # its all-time-high check needs much deeper history than
-        # DAILY_HISTORY_YEARS (see WEEKLY_HISTORY_YEARS /
-        # MONTHLY_ATH_HISTORY_YEARS in config.py).
-        weekly = data.fetch_weekly_history(client, instrument_map)
-        monthly = data.fetch_monthly_ath_history(client, instrument_map)
-        # Gates Price Action Breakout's short leg - see
-        # backtest.run_backtest's `short_eligible` docstring for the
-        # "today's F&O universe applied across the whole window" caveat.
-        fo_symbols = data.fetch_fo_eligible_symbols(client)
-        # Gates Weekly Value Stocks Breakout entirely - only attempted when
-        # that strategy is actually in scope, so an unrelated scoped
-        # backtest run doesn't pay for a screener.in login/scrape it
-        # doesn't need. Unlike every other strategy, this one screens the
-        # full NSE (not the fixed `instrument_map`/`weekly`/`daily` above),
-        # so it needs its own instrument map and weekly/daily fetches
-        # scoped to exactly the symbols screener.in's query returned - see
-        # backtest.run_backtest's value_weekly_data/value_daily_data
-        # docstring.
-        value_symbols = None
-        value_weekly = None
-        value_daily = None
-        if strategies is None or "value_breakout" in strategies:
-            value_symbols = value_universe.fetch_value_stock_symbols(
-                runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
+
+        if run_watchlist:
+            outcomes, baseline, days = watchlist_backtest.run_watchlist_backtest(daily, months, industries)
+            watchlist_summary = watchlist_backtest.summarize_watchlist(outcomes, baseline, days, months)
+
+        if run_trades:
+            # Weekly Range Breakout and Monthly ATH Breakout each get their own
+            # native fetch rather than a resample of `daily` above - weekly so
+            # its candles match live Upstox week boundaries, monthly because
+            # its all-time-high check needs much deeper history than
+            # DAILY_HISTORY_YEARS (see WEEKLY_HISTORY_YEARS /
+            # MONTHLY_ATH_HISTORY_YEARS in config.py).
+            weekly = data.fetch_weekly_history(client, instrument_map)
+            monthly = data.fetch_monthly_ath_history(client, instrument_map)
+            # Gates Price Action Breakout's short leg - see
+            # backtest.run_backtest's `short_eligible` docstring for the
+            # "today's F&O universe applied across the whole window" caveat.
+            fo_symbols = data.fetch_fo_eligible_symbols(client)
+            # Gates Weekly Value Stocks Breakout entirely - only attempted when
+            # that strategy is actually in scope, so an unrelated scoped
+            # backtest run doesn't pay for a screener.in login/scrape it
+            # doesn't need. Unlike every other strategy, this one screens the
+            # full NSE (not the fixed `instrument_map`/`weekly`/`daily` above),
+            # so it needs its own instrument map and weekly/daily fetches
+            # scoped to exactly the symbols screener.in's query returned - see
+            # backtest.run_backtest's value_weekly_data/value_daily_data
+            # docstring.
+            value_symbols = None
+            value_weekly = None
+            value_daily = None
+            if trade_strategies is None or "value_breakout" in trade_strategies:
+                value_symbols = value_universe.fetch_value_stock_symbols(
+                    runtime.get_env("SCREENER_EMAIL"), runtime.get_env("SCREENER_PASSWORD")
+                )
+                value_instrument_map = data.build_instrument_map(client, sorted(value_symbols))
+                value_weekly = data.fetch_weekly_history(client, value_instrument_map)
+                value_daily = data.fetch_daily(client, value_instrument_map)
+            results = backtest.run_backtest(
+                daily, months=months, weekly_data=weekly, monthly_data=monthly,
+                strategies=trade_strategies, short_eligible=fo_symbols, value_universe=value_symbols,
+                value_weekly_data=value_weekly, value_daily_data=value_daily,
             )
-            value_instrument_map = data.build_instrument_map(client, sorted(value_symbols))
-            value_weekly = data.fetch_weekly_history(client, value_instrument_map)
-            value_daily = data.fetch_daily(client, value_instrument_map)
-        results = backtest.run_backtest(
-            daily, months=months, weekly_data=weekly, monthly_data=monthly,
-            strategies=strategies, short_eligible=fo_symbols, value_universe=value_symbols,
-            value_weekly_data=value_weekly, value_daily_data=value_daily,
-        )
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
         raise
@@ -149,8 +174,15 @@ def main() -> None:
         print(f"\n=== {title} ===\n{summary}")  # also visible in the Actions run log, not just Telegram
         all_trades.extend(trades)
 
-    backtest.write_csv(all_trades, CSV_PATH)
-    print(f"Wrote {len(all_trades)} trades to {CSV_PATH}")
+    if run_trades:
+        backtest.write_csv(all_trades, CSV_PATH)
+        print(f"Wrote {len(all_trades)} trades to {CSV_PATH}")
+
+    if watchlist_summary is not None:
+        send_message(token, chat_id, f"{WATCHLIST_EMOJI} <b>{WATCHLIST_TITLE}</b>\n{watchlist_summary}")
+        print(f"\n=== {WATCHLIST_TITLE} ===\n{watchlist_summary}")
+        watchlist_backtest.write_watchlist_csv(outcomes, WATCHLIST_CSV_PATH)
+        print(f"Wrote {len(outcomes)} watchlist picks to {WATCHLIST_CSV_PATH}")
 
 
 if __name__ == "__main__":

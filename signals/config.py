@@ -425,6 +425,14 @@ NSE_EVENT_CALENDAR_URL = "https://www.nseindia.com/api/event-calendar"
 INTRADAY_EVENT_LOOKBACK_DAYS = 2
 INTRADAY_EVENT_LOOKAHEAD_DAYS = 4
 
+# Watchlist backtest (signals/watchlist_backtest.py): what a pick did the
+# next trading day. "Gave movement" = it traveled at least this far from the
+# open in the bias direction at some point in the day (high for a bull, low
+# for a bear), and the same day-range bar is applied to every stock as the
+# baseline to compare against.
+INTRADAY_BACKTEST_MOVE_PCT = 1.0
+INTRADAY_BACKTEST_RANGE_PCT = 2.0
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small

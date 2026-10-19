@@ -8,6 +8,7 @@ by eye - "did this candle close properly", "is this a support test", etc.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from signals import config
@@ -36,11 +37,14 @@ def add_ema(df: pd.DataFrame, period: int, column: str = "close") -> pd.DataFram
 
 def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """Wilder's Average True Range, as column atr{period}."""
-    prev_close = df["close"].shift(1)
-    true_range = pd.concat(
-        [df["high"] - df["low"], (df["high"] - prev_close).abs(), (df["low"] - prev_close).abs()], axis=1
-    ).max(axis=1)
-    df[f"atr{period}"] = true_range.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    high, low = df["high"].to_numpy(), df["low"].to_numpy()
+    prev_close = df["close"].shift(1).to_numpy()
+    # fmax (not maximum): the first bar has no prior close, and its NaN gap
+    # terms must be ignored, leaving high - low, rather than poisoning it.
+    true_range = np.fmax.reduce([high - low, np.abs(high - prev_close), np.abs(low - prev_close)])
+    df[f"atr{period}"] = pd.Series(true_range, index=df.index).ewm(
+        alpha=1 / period, adjust=False, min_periods=period
+    ).mean()
     return df
 
 
