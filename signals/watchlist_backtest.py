@@ -76,6 +76,19 @@ class DayBaseline:
     open_to_close_pct: float
     range_pct: float
 
+    def flow(self, direction: str) -> bool:
+        return _is_flow(self.open_to_close_pct if direction == "bull" else -self.open_to_close_pct, self.range_pct)
+
+
+# A "flow" (trend) day in the pick's direction: the open -> close move covers
+# at least this share of the day's whole range, i.e. it went one way instead
+# of chopping. Scale-free, so a quiet stock and a wild one are judged alike.
+_FLOW_SHARE = 0.5
+
+
+def _is_flow(directional_open_to_close_pct: float, range_pct: float) -> bool:
+    return range_pct > 0 and directional_open_to_close_pct >= _FLOW_SHARE * range_pct
+
 
 def _next_day(df: pd.DataFrame, asof: pd.Timestamp) -> tuple[pd.Timestamp, pd.Series] | None:
     """The row after `asof`, only if the stock actually traded on `asof`
@@ -183,6 +196,7 @@ def _group_line(label: str, group: list[WatchlistOutcome]) -> str:
         f"vs mkt {mean(o.excess_open_to_close_pct for o in group):+.2f}%, "
         f"right way {_pct(sum(o.open_to_close_pct > 0 for o in group), n):.0f}% | "
         f"moved ≥{config.INTRADAY_BACKTEST_MOVE_PCT:g}% my way {_pct(moved, n):.0f}% | "
+        f"trend day {_pct(sum(_is_flow(o.open_to_close_pct, o.range_pct) for o in group), n):.0f}% | "
         f"avg best {mean(o.favorable_pct for o in group):.2f}% / worst {mean(o.adverse_pct for o in group):.2f}% | "
         f"gap {mean(o.gap_pct for o in group):+.2f}%"
     )
@@ -208,6 +222,9 @@ def summarize_watchlist(
         f"Closed above open: all stocks {_pct(sum(b.open_to_close_pct > 0 for b in baseline), len(baseline)):.0f}% "
         f"| closed below: {_pct(sum(b.open_to_close_pct < 0 for b in baseline), len(baseline)):.0f}% "
         f"(what bulls / bears had to beat)",
+        f"Trend day (close covers ≥{_FLOW_SHARE:.0%} of the day's range): all stocks up "
+        f"{_pct(sum(b.flow('bull') for b in baseline), len(baseline)):.0f}% | down "
+        f"{_pct(sum(b.flow('bear') for b in baseline), len(baseline)):.0f}%",
         "",
         "<b>Did the bias work?</b> (return = open→close in the pick's direction)",
         _group_line("Bull", bulls),
@@ -245,18 +262,25 @@ _BUCKETS = 4
 def _bucket_stats(group: list[WatchlistOutcome]) -> str:
     if not group:
         return "n=0"
+    flow = _pct(sum(_is_flow(o.open_to_close_pct, o.range_pct) for o in group), len(group))
     return (
         f"n={len(group)} vs mkt {mean(o.excess_open_to_close_pct for o in group):+.2f}% "
-        f"rw {_pct(sum(o.open_to_close_pct > 0 for o in group), len(group)):.0f}%"
+        f"rw {_pct(sum(o.open_to_close_pct > 0 for o in group), len(group)):.0f}% "
+        f"flow {flow:.0f}% rng {mean(o.range_pct for o in group):.1f}%"
     )
 
 
-def mine_features(outcomes: list[WatchlistOutcome]) -> str:
+def mine_features(outcomes: list[WatchlistOutcome], baseline: list[DayBaseline] | None = None) -> str:
     """For each direction and diagnostic feature: split the picks into
     quartile buckets (edges from the in-sample, i.e. earlier, 60% of days)
     and show each bucket's average next-day open->close vs the market
     ('vs mkt') and right-way rate, in-sample and out-of-sample side by side.
-    A feature is only interesting if the same buckets look good in both."""
+    A feature is only interesting if the same buckets look good in both.
+
+    'flow' is the share of picks whose next day was a trend day in the pick's
+    direction (see _FLOW_SHARE) and 'rng' the average day range; with
+    `baseline`, each direction's header also shows the same flow rate for
+    every Nifty 500 stock, which is what a pick has to beat."""
     if not outcomes:
         return "No picks to mine."
     dates = sorted({o.signal_date for o in outcomes})
@@ -266,6 +290,10 @@ def mine_features(outcomes: list[WatchlistOutcome]) -> str:
         group = [o for o in outcomes if o.direction == direction]
         ins = [o for o in group if o.signal_date <= cut]
         oos = [o for o in group if o.signal_date > cut]
+        if baseline:
+            base_flow = _pct(sum(b.flow(direction) for b in baseline), len(baseline))
+            lines += ["", f"All Nifty 500 stocks: {direction} trend day {base_flow:.0f}% of the time, avg range "
+                          f"{mean(b.range_pct for b in baseline):.1f}%"]
         lines += ["", f"<b>{direction.title()}</b> overall: IS {_bucket_stats(ins)} | OOS {_bucket_stats(oos)}"]
         for setup in sorted({o.setup for o in group}):
             lines.append(

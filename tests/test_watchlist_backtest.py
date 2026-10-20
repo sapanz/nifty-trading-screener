@@ -186,3 +186,19 @@ def test_csv_includes_feature_columns(tmp_path):
     header, row = path.read_text().splitlines()[:2]
     assert "excess_open_to_close_pct" in header and "vol_ratio" in header and "features" not in header.split(",")
     assert "1.5" in row
+
+
+def test_flow_day_needs_the_close_to_cover_half_the_range():
+    up_trend = wb.DayBaseline(open_to_close_pct=2.0, range_pct=3.0)
+    chop = wb.DayBaseline(open_to_close_pct=0.5, range_pct=3.0)
+    assert up_trend.flow("bull") and not up_trend.flow("bear")
+    assert not chop.flow("bull") and not chop.flow("bear")
+    assert wb.DayBaseline(open_to_close_pct=-2.0, range_pct=3.0).flow("bear")
+
+
+def test_mining_reports_flow_against_the_baseline():
+    outcomes = [_outcome_with("bull", "Breakout close", d, 0.0, 1.0, 1.0 + d % 3) for d in range(100)]
+    baseline = [wb.DayBaseline(open_to_close_pct=1.5, range_pct=2.0), wb.DayBaseline(open_to_close_pct=0.0, range_pct=2.0)]
+    text = wb.mine_features(outcomes, baseline)
+    assert "All Nifty 500 stocks: bull trend day 50%" in text
+    assert "flow 100% rng 2.0%" in text  # o2c 1.0 vs range 2.0 = exactly half

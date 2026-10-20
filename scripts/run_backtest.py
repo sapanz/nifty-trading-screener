@@ -181,7 +181,7 @@ def main() -> None:
     if watchlist_summary is not None:
         send_message(token, chat_id, f"{WATCHLIST_EMOJI} <b>{WATCHLIST_TITLE}</b>\n{watchlist_summary}")
         print(f"\n=== {WATCHLIST_TITLE} ===\n{watchlist_summary}")
-        mining = watchlist_backtest.mine_features(outcomes)
+        mining = watchlist_backtest.mine_features(outcomes, baseline)
         # Log only (too long for Telegram): the CSV artifact can't be fetched
         # from every environment, so the mined summary has to be readable here.
         print(f"\n=== {WATCHLIST_TITLE}: feature mining ===\n{mining}")
