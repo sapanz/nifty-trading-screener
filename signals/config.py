@@ -416,6 +416,12 @@ INTRADAY_MAX_ATR_PCT = 5.0
 # opening gap, or a day's range far beyond its usual.
 INTRADAY_MAX_GAP_PCT = 4.0
 INTRADAY_MAX_RANGE_ATR_MULTIPLE = 2.5
+# ...and stocks already stretched far from their 20 EMA in the trend's
+# direction. In the 5-year watchlist backtest the most extended quartile of
+# picks (bull > ~7.9%, bear > ~5.8% from the EMA) did worse than the market
+# the next day in both the in-sample and the out-of-sample half and had the
+# widest ranges (~4% vs ~3%); a cap just under the bear cutoff trims that tail.
+INTRADAY_MAX_EXTENSION_PCT = 6.0
 # Corporate events (results, board meetings, dividends, splits...) from
 # NSE's event calendar are excluded within this many calendar days around
 # today - before, because results usually land after hours and move the

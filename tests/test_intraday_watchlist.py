@@ -109,6 +109,20 @@ def test_chronically_volatile_stock_is_skipped_silently():
     assert result.skipped_shock == []
 
 
+def test_stock_stretched_far_from_its_ema_is_skipped_silently():
+    # +1.2%/day for 80 days leaves the close ~11% above its 20 EMA
+    df = _set_last(_trend_df(1, step=0.012), 1.001, 1.004, 0.999, 1.003)
+    result = _scan({"TESTCO": df})
+    assert result.picks == [] and result.skipped_shock == []
+    df = _set_last(_trend_df(-1, step=0.012), 0.999, 1.001, 0.996, 0.997)
+    assert _scan({"TESTCO": df}).picks == []
+
+
+def test_ordinary_distance_from_ema_still_picks():
+    df = _set_last(_trend_df(1, step=0.003), 1.001, 1.004, 0.999, 1.003)
+    assert [p.symbol for p in _scan({"TESTCO": df}).bulls] == ["TESTCO"]
+
+
 def _sector_peers(direction: int) -> dict:
     return {f"PEER{i}": _trend_df(direction) for i in range(3)}
 

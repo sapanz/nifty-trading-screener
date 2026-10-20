@@ -28,9 +28,15 @@ A pick needs all of:
         beyond INTRADAY_MAX_GAP_PCT, or a range beyond
         INTRADAY_MAX_RANGE_ATR_MULTIPLE x the stock's usual ATR) - the
         only way to catch unscheduled news, which no calendar lists;
-      * not chronically wild (ATR above INTRADAY_MAX_ATR_PCT of price).
+      * not chronically wild (ATR above INTRADAY_MAX_ATR_PCT of price);
+      * not stretched (close more than INTRADAY_MAX_EXTENSION_PCT beyond its
+        20 EMA in the trend's direction) - the backtest's one pattern that
+        held in both halves of the window, see config.py.
 
-Thresholds are untuned starting points (see config.py).
+Backtest verdict (60 months, next-day, vs the Nifty 500 baseline): the picks
+do not predict direction or trend days any better than the average stock;
+this is a list of stocks to watch, not a statistical edge. Thresholds are
+mostly untuned starting points (see config.py).
 """
 from __future__ import annotations
 
@@ -232,6 +238,9 @@ def scan(
 
         trend = _trend(df)
         if trend is None:
+            continue
+        extension = (today["close"] / today[FAST_COL] - 1) * 100
+        if (extension if trend == "bull" else -extension) > config.INTRADAY_MAX_EXTENSION_PCT:
             continue
         sector = industries.get(symbol)
         sector_change = sectors.get(sector)
