@@ -33,6 +33,14 @@ A pick needs all of:
         20 EMA in the trend's direction) - the backtest's one pattern that
         held in both halves of the window, see config.py.
 
+Shortlist: at most INTRADAY_MAX_PICKS_PER_SIDE bullish and as many bearish
+picks, ranked calmest first (lowest day range relative to the stock's usual
+ATR). That ordering is the one feature in the backtest's mining that favored
+the same end of the scale in both directions and both halves of the window -
+a small effect, so "highest probability" here means "most orderly of today's
+qualifiers", not a measured probability. Fewer than the cap (even none) is
+fine: nothing is added to fill the list.
+
 Backtest verdict (60 months, next-day, vs the Nifty 500 baseline): the picks
 do not predict direction or trend days any better than the average stock;
 this is a list of stocks to watch, not a statistical edge. Thresholds are
@@ -81,6 +89,10 @@ class WatchlistResult:
     picks: list[IntradayPick] = field(default_factory=list)
     skipped_events: list[str] = field(default_factory=list)  # had a calendar event near today
     skipped_shock: list[str] = field(default_factory=list)   # news-like gap/range today
+    # How many picks qualified per side before the shortlist cap, so a
+    # message can say "top 6 of 14".
+    qualified_bulls: int = 0
+    qualified_bears: int = 0
 
     @property
     def bulls(self) -> list[IntradayPick]:
@@ -252,14 +264,12 @@ def scan(
         close_location = (today["close"] - today["low"]) / day_range
         breakout = _breakout(df, trend, close_location)
         if breakout:
-            setup, reasons, vol_ratio = breakout
-            sort_key = (0, -vol_ratio)
+            setup, reasons, _ = breakout
         else:
             coiled = _coiled(df, trend, close_location)
             if coiled is None:
                 continue
             setup, reasons = COILED_SETUP, coiled
-            sort_key = (1, -abs(sector_change or 0.0))
 
         reasons.append(
             f"Above rising {config.INTRADAY_EMA_FAST} & {config.INTRADAY_EMA_SLOW} EMA" if trend == "bull"
@@ -270,11 +280,16 @@ def scan(
                 f"Sector {sector} {sector_change:+.1f}% ({config.INTRADAY_SECTOR_LOOKBACK}d, "
                 f"#{sector_rank[sector]} of {len(sectors)})"
             )
+        metrics = _metrics(df, trend, float(usual_range), float(close_location), sector_change)
         result.picks.append(IntradayPick(
             symbol=symbol, direction=trend, setup=setup, reasons=reasons,
-            sort_key=sort_key, candle_date=df.index[-1].date(),
-            metrics=_metrics(df, trend, float(usual_range), float(close_location), sector_change),
+            sort_key=(metrics["range_atr"], symbol), candle_date=df.index[-1].date(),
+            metrics=metrics,
         ))
 
     result.picks.sort(key=lambda p: p.sort_key)
+    result.qualified_bulls = len(result.bulls)
+    result.qualified_bears = len(result.bears)
+    cap = config.INTRADAY_MAX_PICKS_PER_SIDE
+    result.picks = result.bulls[:cap] + result.bears[:cap]
     return result

@@ -148,7 +148,24 @@ def test_sector_strength_needs_minimum_members():
     assert strength["X"] > 0  # median of two rising, one falling
 
 
-def test_breakouts_sort_before_coiled_setups():
+def test_calmest_day_ranks_first():
     coiled = _set_last(_trend_df(1), 1.001, 1.004, 0.999, 1.003)
     result = _scan({"COILED": coiled, "BREAKOUT": _bull_breakout()})
-    assert [p.symbol for p in result.bulls] == ["BREAKOUT", "COILED"]
+    assert [p.symbol for p in result.bulls] == ["COILED", "BREAKOUT"]
+
+
+def test_shortlist_is_capped_per_side_calmest_first_and_counts_qualifiers():
+    from signals import config
+
+    cap = config.INTRADAY_MAX_PICKS_PER_SIDE
+    data = {f"BULL{i}": _set_last(_trend_df(1), 1.001, 1.004 + i * 0.0003, 0.999, 1.003) for i in range(cap + 3)}
+    data["BEAR"] = _set_last(_trend_df(-1), 0.999, 1.001, 0.996, 0.997)
+    result = _scan(data)
+    assert len(result.bulls) == cap and result.qualified_bulls == cap + 3
+    assert [p.symbol for p in result.bulls] == [f"BULL{i}" for i in range(cap)]  # narrowest ranges first
+    assert len(result.bears) == 1 and result.qualified_bears == 1
+
+
+def test_no_padding_when_nothing_qualifies():
+    result = _scan({"FLAT": _trend_df(0)})
+    assert result.picks == [] and result.qualified_bulls == 0

@@ -100,3 +100,13 @@ def test_intraday_watchlist_empty_sections_and_stale_candle():
     msg = format_intraday_watchlist("Intraday Watchlist", "🔭", result, date(2026, 10, 16), True)
     assert "Bearish (0)</b>\nNone today." in msg
     assert "Candle date: 15 Oct 2026 (not today)" in msg
+
+
+def test_intraday_watchlist_shows_top_n_of_qualified_when_capped():
+    from signals.formatting import format_intraday_watchlist
+
+    result = _watchlist()
+    result.qualified_bulls = 14
+    msg = format_intraday_watchlist("Intraday Watchlist", "🔭", result, date(2026, 10, 16), True)
+    assert "Bullish (1 of 14)" in msg
+    assert "Bearish (1)" in msg

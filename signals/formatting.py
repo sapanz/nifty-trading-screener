@@ -48,14 +48,18 @@ def format_intraday_watchlist(
     lines by design - just each stock's bias and the reasons for it."""
     lines = [
         f"{emoji} <b>{html.escape(title)}</b> — {run_date.strftime('%d %b %Y')}",
-        "<i>Daily-chart bias for the next session - find your own entry.</i>",
+        "<i>Daily-chart bias for the next session - find your own entry. Shortlist: calmest qualifiers first.</i>",
     ]
     if not events_filtered:
         lines.append("⚠️ NSE event calendar unavailable - results/events NOT filtered today.")
 
-    for label, marker, picks in (("Bullish", "🟢", result.bulls), ("Bearish", "🔴", result.bears)):
+    for label, marker, picks, qualified in (
+        ("Bullish", "🟢", result.bulls, result.qualified_bulls),
+        ("Bearish", "🔴", result.bears, result.qualified_bears),
+    ):
         lines.append("")
-        lines.append(f"{marker} <b>{label} ({len(picks)})</b>")
+        count = f"{len(picks)} of {qualified}" if qualified > len(picks) else f"{len(picks)}"
+        lines.append(f"{marker} <b>{label} ({count})</b>")
         if not picks:
             lines.append("None today.")
         for i, pick in enumerate(picks, start=1):

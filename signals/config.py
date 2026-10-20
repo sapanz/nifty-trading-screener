@@ -422,6 +422,9 @@ INTRADAY_MAX_RANGE_ATR_MULTIPLE = 2.5
 # the next day in both the in-sample and the out-of-sample half and had the
 # widest ranges (~4% vs ~3%); a cap just under the bear cutoff trims that tail.
 INTRADAY_MAX_EXTENSION_PCT = 6.0
+# Shortlist size: at most this many bullish and this many bearish picks a
+# day, best-ranked first; fewer (or none) when fewer qualify - never padded.
+INTRADAY_MAX_PICKS_PER_SIDE = 6
 # Corporate events (results, board meetings, dividends, splits...) from
 # NSE's event calendar are excluded within this many calendar days around
 # today - before, because results usually land after hours and move the
