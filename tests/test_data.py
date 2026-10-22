@@ -247,3 +247,39 @@ def test_with_todays_candle_handles_empty_historical(monkeypatch):
 
     assert len(result) == 1
     assert result.iloc[0]["close"] == 150.0
+
+
+def _master(rows):
+    import pandas as pd
+    return pd.DataFrame(rows, columns=["tradingsymbol", "name", "instrument_type"])
+
+
+def _client_with_master(monkeypatch, rows):
+    from signals.upstox_client import UpstoxClient
+
+    client = UpstoxClient("token")
+    monkeypatch.setattr(client, "_fetch_instrument_master_df", lambda: _master(rows))
+    return client
+
+
+def test_fo_symbol_set_is_derived_from_the_contract_code_not_the_company_name(monkeypatch):
+    rows = [
+        ("RELIANCE", "RELIANCE INDUSTRIES LTD", "EQUITY"), ("M&M", "MAHINDRA & MAHINDRA LTD", "EQUITY"),
+        ("BAJAJ-AUTO", "BAJAJ AUTO LTD", "EQUITY"), ("ABB", "ABB INDIA LIMITED", "EQUITY"),
+        ("RELIANCE26OCTFUT", "RELIANCE INDUSTRIES LTD", "FUTSTK"),
+        ("RELIANCE26NOVFUT", "RELIANCE INDUSTRIES LTD", "FUTSTK"),
+        ("M&M26OCTFUT", "MAHINDRA & MAHINDRA LTD", "FUTSTK"),
+        ("BAJAJ-AUTO26OCTFUT", "BAJAJ AUTO LTD", "FUTSTK"),
+        ("ABB26OCTFUT", "ABB INDIA LIMITED", "FUTSTK"),
+        ("RELIANCE26OCT2500CE", "RELIANCE INDUSTRIES LTD", "OPTSTK"),
+    ]
+    assert _client_with_master(monkeypatch, rows).fetch_fo_symbol_set() == {"RELIANCE", "M&M", "BAJAJ-AUTO", "ABB"}
+
+
+def test_fo_symbol_set_fails_loudly_when_derived_symbols_are_not_listed_equities(monkeypatch):
+    import pytest
+    from signals.upstox_client import UpstoxError
+
+    rows = [("RELIANCE", "x", "EQUITY"), ("FOO-FUT-2026OCT", "RELIANCE INDUSTRIES LTD", "FUTSTK")]
+    with pytest.raises(UpstoxError, match="no longer yields plain symbols"):
+        _client_with_master(monkeypatch, rows).fetch_fo_symbol_set()

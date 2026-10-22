@@ -124,18 +124,23 @@ class UpstoxClient:
         available as a real hedge/exit).
 
         Same instrument master file as fetch_instrument_map, just filtered
-        to instrument_type == FUTSTK instead of EQUITY. `name` (not
-        `tradingsymbol`, which is the exchange-generated contract code like
-        "RELIANCE26SEPFUT") holds the plain underlying symbol for these
-        rows - confirmed live via an earlier diagnostic run (see git
-        history for tools/debug_futures.py, since removed). Only the
-        symbol set is needed here (not instrument_key/expiry/lot_size);
-        this doesn't fetch futures price data itself, just gates which
-        symbols Price Action Breakout's short leg is allowed to fire on -
-        the actual scan still runs on the equity's own OHLC.
+        to instrument_type == FUTSTK instead of EQUITY. The plain symbol is
+        derived from `tradingsymbol` (the exchange-generated contract code,
+        e.g. "MOTHERSON26OCTFUT") by stripping its trailing
+        <2-digit year><3-letter month>FUT suffix - NOT from `name`, which
+        holds the full company name ("ABB INDIA LIMITED"), not the NSE
+        trading symbol. (This used to read `name`, on the strength of an
+        earlier note that it held the plain symbol - wrong, and it meant
+        nothing ever matched: Price Action Breakout's short leg was gated on
+        a set of company names and could never fire. The overlap check
+        below now fails loudly instead of letting that happen silently.)
+        Only the symbol set is needed here (not instrument_key/expiry/lot
+        size); this doesn't fetch futures price data itself, just gates
+        which symbols are allowed to be shorted - the actual scans run on
+        the equity's own OHLC.
         """
         df = self._fetch_instrument_master_df()
-        required = {"name", "instrument_type"}
+        required = {"tradingsymbol", "instrument_type"}
         missing = required - set(df.columns)
         if missing:
             raise UpstoxError(
@@ -143,16 +148,31 @@ class UpstoxClient:
                 f"Actual columns: {list(df.columns)}. Upstox may have changed the file format."
             )
 
-        fo = df[df["instrument_type"].astype(str).str.upper() == config.UPSTOX_FUTSTK_TYPE]
+        types = df["instrument_type"].astype(str).str.upper()
+        fo = df[types == config.UPSTOX_FUTSTK_TYPE]
         if fo.empty:
             value_counts = df["instrument_type"].astype(str).value_counts().head(10).to_dict()
             raise UpstoxError(
                 f"Zero {config.UPSTOX_FUTSTK_TYPE} rows in the instrument master. Actual instrument_type "
                 f"values seen: {value_counts}. Upstox may have renamed the stock-futures type."
             )
-        symbols = set(fo["name"].astype(str).str.strip())
-        logger.info("F&O symbol set: %d underlyings with a live futures contract", len(symbols))
-        return symbols
+        symbols = set(
+            fo["tradingsymbol"].astype(str).str.strip().str.replace(r"\d{2}[A-Z]{3}FUT$", "", regex=True)
+        )
+        # Every F&O underlying is also a listed equity, so nearly all derived
+        # symbols must exist as EQUITY tradingsymbols; a low overlap means the
+        # derivation (or the master's format) is wrong.
+        equities = set(df.loc[types == config.UPSTOX_EQUITY_TYPE, "tradingsymbol"].astype(str).str.strip())
+        matched = symbols & equities
+        if len(matched) < 0.8 * len(symbols):
+            raise UpstoxError(
+                f"Only {len(matched)}/{len(symbols)} derived F&O underlyings are listed equities - the "
+                f"tradingsymbol suffix-strip no longer yields plain symbols. Sample derived: "
+                f"{sorted(symbols - equities)[:10]}; sample futures tradingsymbols: "
+                f"{fo['tradingsymbol'].head(5).tolist()}."
+            )
+        logger.info("F&O symbol set: %d underlyings with a live futures contract", len(matched))
+        return matched
 
     def get_daily_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch daily OHLCV candles for one instrument.
