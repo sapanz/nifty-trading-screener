@@ -41,44 +41,5 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
     return "\n".join(lines)
 
 
-def format_intraday_watchlist(
-    title: str, emoji: str, result, run_date: date, events_filtered: bool, fo_only: bool = True
-) -> str:
-    """`result` is an intraday_watchlist.WatchlistResult. No entry/SL/target
-    lines by design - just each stock's bias and the reasons for it."""
-    lines = [
-        f"{emoji} <b>{html.escape(title)}</b> — {run_date.strftime('%d %b %Y')}",
-        "<i>Daily-chart bias for the next session - find your own entry. Shortlist: calmest qualifiers first.</i>",
-    ]
-    lines.append("<i>Universe: F&O (stock futures) stocks only.</i>" if fo_only else
-                 "⚠️ F&O stock list unavailable - showing all Nifty 500 stocks today.")
-    if not events_filtered:
-        lines.append("⚠️ NSE event calendar unavailable - results/events NOT filtered today.")
-
-    for label, marker, picks, qualified in (
-        ("Bullish", "🟢", result.bulls, result.qualified_bulls),
-        ("Bearish", "🔴", result.bears, result.qualified_bears),
-    ):
-        lines.append("")
-        count = f"{len(picks)} of {qualified}" if qualified > len(picks) else f"{len(picks)}"
-        lines.append(f"{marker} <b>{label} ({count})</b>")
-        if not picks:
-            lines.append("None today.")
-        for i, pick in enumerate(picks, start=1):
-            lines.append(f"{i}. <b>{html.escape(pick.symbol)}</b> — {html.escape(pick.setup)}")
-            for reason in pick.reasons:
-                lines.append(f"   • {html.escape(reason)}")
-            if pick.candle_date is not None and pick.candle_date != run_date:
-                lines.append(f"   ⚠️ Candle date: {pick.candle_date.strftime('%d %b %Y')} (not today)")
-
-    skipped = []
-    if events_filtered:
-        skipped.append(f"{len(result.skipped_events)} with results/events")
-    skipped.append(f"{len(result.skipped_shock)} with a news-like gap/range today")
-    lines.append("")
-    lines.append(f"<i>Skipped: {', '.join(skipped)}</i>")
-    return "\n".join(lines)
-
-
 def format_run_error(title: str, emoji: str, error: str) -> str:
     return f"{emoji} <b>{html.escape(title)}</b>\n⚠️ Run failed: {html.escape(error)}"

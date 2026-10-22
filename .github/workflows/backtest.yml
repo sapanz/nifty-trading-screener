@@ -8,7 +8,7 @@ on:
         type: number
         default: 3
       strategies:
-        description: "Comma-separated strategy keys to backtest (blank = all trade strategies). 'price_action_breakout' covers both of its timeframe legs. 'intraday_watchlist' (next-day follow-through of the Intraday Watchlist) is opt-in only - name it explicitly, it is not part of blank = all."
+        description: "Comma-separated strategy keys to backtest (blank = all). 'price_action_breakout' covers both of its timeframe legs."
         type: string
         default: ""
 
@@ -76,7 +76,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: backtest-trades
-          path: |
-            backtest_trades.csv
-            watchlist_backtest.csv
+          path: backtest_trades.csv
           if-no-files-found: ignore

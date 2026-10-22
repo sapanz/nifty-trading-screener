@@ -41,13 +41,6 @@ filtering the Nifty 500 by price action alone is to reach the full NSE,
 so it gets its own instrument map and weekly Upstox fetch scoped to
 exactly the symbols screener.in's query returned that day.
 
-Also sends the Intraday Watchlist every day, off the same daily fetch: a
-next-day bull/bear watchlist with reasons and no entry/stop/target (see
-signals/strategies/intraday_watchlist.py). It excludes stocks with a
-corporate event near today from NSE's event calendar (signals/events.py);
-if that calendar can't be fetched, the watchlist still goes out, flagged
-as unfiltered.
-
 Requires UPSTOX_ACCESS_TOKEN, refreshed daily - see
 tools/refresh_upstox_token.py.
 """
@@ -61,17 +54,10 @@ import sys
 # lives.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import config, data, events, runtime, universe, value_universe  # noqa: E402
+from signals import config, data, runtime, universe, value_universe  # noqa: E402
 from signals.calendar_utils import ist_today, is_last_trading_day_of_month
-from signals.formatting import format_intraday_watchlist, format_strategy_message
-from signals.strategies import (
-    daily_swing,
-    intraday_watchlist,
-    monthly_breakout,
-    price_action_breakout,
-    value_breakout,
-    weekly_breakout,
-)
+from signals.formatting import format_strategy_message
+from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, value_breakout, weekly_breakout
 from signals.upstox_client import UpstoxClient
 
 logger = logging.getLogger(__name__)
@@ -87,8 +73,6 @@ PRICE_ACTION_WEEKLY_TITLE = "Price Action Breakout (Weekly)"
 PRICE_ACTION_EMOJI = "🎯"
 VALUE_BREAKOUT_TITLE = "Weekly Value Stocks Breakout"
 VALUE_BREAKOUT_EMOJI = "💎"
-INTRADAY_TITLE = "Intraday Watchlist"
-INTRADAY_EMOJI = "🔭"
 FETCH_TITLE = "Signals (data fetch)"
 FETCH_EMOJI = "⚠️"
 
@@ -101,8 +85,8 @@ def main() -> None:
 
     try:
         client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
-        industries = universe.fetch_nifty500_constituents()
-        instrument_map = data.build_instrument_map(client, sorted(industries))
+        symbols = universe.fetch_nifty500_symbols()
+        instrument_map = data.build_instrument_map(client, symbols)
         daily = data.fetch_daily(client, instrument_map)
     except Exception as exc:
         runtime.notify_error(FETCH_TITLE, FETCH_EMOJI, str(exc))
@@ -156,26 +140,6 @@ def main() -> None:
                 short_eligible=fo_symbols,
             ),
             today,
-        ),
-    )
-
-    try:
-        # Own try/except: if NSE's event calendar can't be reached, the
-        # watchlist still goes out, flagged as unfiltered, rather than
-        # either vanishing or silently treating "unknown" as "no events".
-        event_symbols = events.fetch_event_symbols(today)
-        events_filtered = True
-    except Exception as exc:  # noqa: BLE001 - additive; see comment above
-        logger.warning("Failed to fetch NSE event calendar, watchlist sent unfiltered: %s", exc)
-        event_symbols = set()
-        events_filtered = False
-    run(
-        INTRADAY_TITLE,
-        INTRADAY_EMOJI,
-        lambda: format_intraday_watchlist(
-            INTRADAY_TITLE, INTRADAY_EMOJI,
-            intraday_watchlist.scan(daily, industries, event_symbols, only_symbols=fo_symbols),
-            today, events_filtered, fo_only=fo_symbols is not None,
         ),
     )
 
