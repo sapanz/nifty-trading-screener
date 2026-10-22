@@ -510,7 +510,15 @@ all-time-high check isn't silently capped at 6 years.
   stop/2R target with the stop winning same-bar ties, squares off at 15:15 and
   charges `TRENDLINE_ROUND_TRIP_COST_PCT`; its summary also tests whether the
   width ranking actually helps and splits results in-sample/out-of-sample.
-  It is not wired into any live run yet, and the 5-minute Upstox history
+  A **daily-chart version** (`trendline_break_short.scan_daily`, backtest key
+  `trendline_break_daily`, F&O stocks only) applies the same geometry to daily
+  candles with daily-scale tolerances (`TRENDLINE_DAILY_*` in config.py),
+  requires the break day's volume to be at least 1.5x its 20-day average, and
+  is walked forward by the standard daily simulator (entry at the break day's
+  close, stop above the highest high since the last touch, 2R target). Run it
+  with `BACKTEST_STRATEGIES=trendline_break_daily`; its log section adds the
+  width-ranking test and in-sample/out-of-sample feature buckets.
+  Neither version is wired into a live run yet, and the 5-minute Upstox history
   endpoint's behaviour (chunk limit, bar timestamps) is assumed, not yet
   confirmed live. Today's F&O list is applied across the whole window.
 - **Retired experiment: Intraday Watchlist.** A daily next-day bull/bear

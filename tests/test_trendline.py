@@ -190,3 +190,72 @@ def test_summary_and_csv(tmp_path):
     tb.write_trendline_csv(trades, str(path))
     assert path.read_text().splitlines()[0].startswith("symbol,date,bar_time")
     assert tb.summarize_trendline([], 1).startswith("No trendline-break trades")
+
+
+# --- daily chart ---------------------------------------------------------------------
+
+def _daily(n_before=40, slope=0.25, break_volume=2000.0, after=(), end=None):
+    """Rising daily channel (swing lows on the line every 6 days), then a break
+    day closing ~1.6% under it on `break_volume`, then optional later days given
+    as (open, high, low, close) tuples. Dates end today unless `end` is given."""
+    n = n_before + 1
+    base = 100 + slope * np.arange(n)
+    low = base + 1.2          # must sit > 3 x slope above the line so the touches are real swing lows
+    low[3::6] = base[3::6]
+    high, close, open_ = base + 2.0, base + 1.6, base + 1.2
+    t = n - 1
+    open_[t], high[t], low[t], close[t] = base[t] + 1.0, base[t] + 1.1, base[t] - 2.0, base[t] - 1.8
+    frame = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": 1000.0})
+    frame.loc[t, "volume"] = break_volume
+    if after:
+        more = pd.DataFrame(list(after), columns=["open", "high", "low", "close"])
+        more["volume"] = 1000.0
+        frame = pd.concat([frame, more], ignore_index=True)
+    frame.index = pd.bdate_range(end=end or pd.Timestamp.today().normalize(), periods=len(frame))
+    return frame
+
+
+def test_daily_scan_needs_a_broken_trendline_and_volume_confirmation():
+    eligible = {"A"}
+    (sig,) = strat.scan_daily({"A": _daily()}, eligible)
+    assert sig.direction == "short" and sig.stop_loss > sig.entry > sig.targets[0]
+    assert sig.extra["vol_ratio"] == pytest.approx(2.0) and "Broke" in sig.note and "-day" in sig.note
+    assert strat.scan_daily({"A": _daily(break_volume=1200.0)}, eligible) == []      # 1.2x < 1.5x
+    assert strat.scan_daily({"A": _daily(slope=0.0)}, eligible) == []               # no rising line
+
+
+def test_daily_scan_is_f_and_o_only():
+    assert strat.scan_daily({"A": _daily()}, {"B"}) == []
+    assert strat.scan_daily({"A": _daily()}, None) == []
+    assert strat.scan_daily({"A": _daily()}, set()) == []
+
+
+def test_daily_scan_ranks_the_widest_trendline_first():
+    signals = strat.scan_daily({"NARROW": _daily(n_before=28), "WIDE": _daily(n_before=52)}, {"NARROW", "WIDE"})
+    assert [s.symbol for s in signals] == ["WIDE", "NARROW"]
+
+
+def test_daily_line_must_start_within_the_lookback():
+    from signals import config as cfg
+    long = _daily(n_before=cfg.TRENDLINE_DAILY_MAX_LOOKBACK_BARS + 40)
+    (sig,) = strat.scan_daily({"A": long}, {"A"})
+    assert sig.extra["width_bars"] <= cfg.TRENDLINE_DAILY_MAX_LOOKBACK_BARS
+
+
+def test_daily_backtest_walks_the_trade_forward_and_logs_diagnostics():
+    from signals import backtest
+
+    target_hit = _daily(after=[(100.0, 101.0, 95.0, 96.0)])          # a big drop the day after
+    stop_hit = _daily(after=[(110.0, 125.0, 109.0, 120.0)])
+    results = backtest.run_backtest(
+        {"WIN": target_hit, "LOSE": stop_hit}, months=3, strategies={"trendline_break_daily"},
+        short_eligible={"WIN", "LOSE"},
+    )["trendline_break_daily"]
+    by_symbol = {t.symbol: t for t in results}
+    assert by_symbol["WIN"].direction == "short" and by_symbol["WIN"].outcome.startswith("target")
+    assert by_symbol["WIN"].return_pct > 0
+    assert by_symbol["LOSE"].outcome == "stop_loss" and by_symbol["LOSE"].return_pct < 0
+    assert by_symbol["WIN"].diagnostics["width_bars"] > 20 and "vol_ratio" in by_symbol["WIN"].diagnostics
+    text = backtest.summarize_trendline_daily(results)
+    assert "Does width matter?" in text and "In-sample" in text
+    assert backtest.summarize_trendline_daily([]) == "No trendline-break trades."

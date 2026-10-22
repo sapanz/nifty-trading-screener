@@ -74,7 +74,9 @@ import pandas as pd
 
 from signals import config, data
 from signals.models import Signal
-from signals.strategies import daily_swing, monthly_breakout, price_action_breakout, value_breakout, weekly_breakout
+from signals.strategies import (
+    daily_swing, monthly_breakout, price_action_breakout, trendline_break_short, value_breakout, weekly_breakout,
+)
 
 
 def _net_return_pct(gross_return_pct: float) -> float:
@@ -101,6 +103,7 @@ DIAGNOSTIC_KEYS = [
     "vol_ratio", "confluence_gap_pct", "rsi14", "dist_from_sma200_pct",
     "extension_pct", "tightness_pct",
     "breakout_type", "base_candles", "base_start", "base_end",
+    "width_bars", "touches", "rise_pct", "break_depth_pct", "risk_pct",
 ]
 
 CSV_FIELDS = [
@@ -309,6 +312,7 @@ def _scan_as_of(datasets: dict[str, pd.DataFrame], asof: pd.Timestamp) -> dict[s
 ALL_STRATEGIES = frozenset({
     "daily_swing", "weekly_breakout", "monthly_breakout",
     "price_action_breakout_daily", "price_action_breakout_weekly", "value_breakout",
+    "trendline_break_daily",
 })
 
 
@@ -387,7 +391,7 @@ def run_backtest(
 
     results: dict[str, list[TradeResult]] = {key: [] for key in wanted}
 
-    if "daily_swing" in wanted or "price_action_breakout_daily" in wanted:
+    if "daily_swing" in wanted or "price_action_breakout_daily" in wanted or "trendline_break_daily" in wanted:
         for asof in _dates_in_window(daily_data, start, end):
             sliced_daily = _scan_as_of(daily_data, asof)
 
@@ -408,6 +412,12 @@ def run_backtest(
                 for signal in pa_daily_signals:
                     results["price_action_breakout_daily"].append(
                         simulate_forward("price_action_breakout_daily", signal, asof, daily_data[signal.symbol])
+                    )
+
+            if "trendline_break_daily" in wanted:
+                for signal in trendline_break_short.scan_daily(sliced_daily, short_eligible):
+                    results["trendline_break_daily"].append(
+                        simulate_forward("trendline_break_daily", signal, asof, daily_data[signal.symbol])
                     )
 
     if "weekly_breakout" in wanted or "price_action_breakout_weekly" in wanted or "value_breakout" in wanted:
@@ -588,6 +598,65 @@ def summarize(trades: list[TradeResult]) -> str:
             base_len_parts.append(f"{band} {len(band_trades)} ({band_wr:.0f}%)")
         lines.append("By base length: " + " | ".join(base_len_parts))
 
+    return "\n".join(lines)
+
+
+def _trade_stats(trades: list[TradeResult]) -> str:
+    n = len(trades)
+    if not n:
+        return "n=0"
+    wins = [t.return_pct for t in trades if t.return_pct > 0]
+    losses = [-t.return_pct for t in trades if t.return_pct <= 0]
+    pf = sum(wins) / sum(losses) if sum(losses) > 0 else float("inf")
+    return f"n={n} win {len(wins) / n * 100:.0f}% avg {sum(t.return_pct for t in trades) / n:+.2f}% PF {pf:.2f}"
+
+
+def summarize_trendline_daily(trades: list[TradeResult]) -> str:
+    """Diagnostics for Trendline Break Short (daily): does the width ranking
+    help, and which logged features separate winners from losers - in-sample
+    (earlier 60% of signal dates) vs out-of-sample. Net returns, as in the
+    rest of this module."""
+    if not trades:
+        return "No trendline-break trades."
+    dates = sorted({t.signal_date for t in trades})
+    cut = dates[max(int(len(dates) * 0.6) - 1, 0)]
+    ins = [t for t in trades if t.signal_date <= cut]
+    oos = [t for t in trades if t.signal_date > cut]
+
+    by_date: dict = {}
+    for t in trades:
+        by_date.setdefault(t.signal_date, []).append(t)
+    rank1, rest, last = [], [], []
+    for group in by_date.values():
+        group.sort(key=lambda t: (t.diagnostics.get("width_bars", 0), t.diagnostics.get("touches", 0)), reverse=True)
+        rank1.append(group[0])
+        rest.extend(group[1:])
+        if len(group) > 1:
+            last.append(group[-1])
+
+    lines = [
+        f"In-sample (signals to {cut.date()}): {_trade_stats(ins)}",
+        f"Out-of-sample: {_trade_stats(oos)}",
+        "",
+        "<b>Does width matter?</b> (rank by trendline width among the same day's signals)",
+        f"  Widest of the day: {_trade_stats(rank1)}",
+        f"  The rest: {_trade_stats(rest)}",
+        f"  Narrowest of days with 2+ signals: {_trade_stats(last)}",
+        "",
+        "<b>By feature</b> (quartile buckets, in-sample | out-of-sample)",
+    ]
+    for key in ("width_bars", "touches", "rise_pct", "break_depth_pct", "risk_pct", "vol_ratio"):
+        values = [t.diagnostics[key] for t in trades if key in t.diagnostics]
+        if len(values) < 8:
+            continue
+        qs = sorted({round(float(q), 4) for q in pd.Series(values).quantile([0.25, 0.5, 0.75])})
+        edges = [float("-inf"), *qs, float("inf")]
+        lines.append(f"  {key}:")
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            def pick(group):
+                return [t for t in group if key in t.diagnostics and lo < t.diagnostics[key] <= hi]
+            label = f"({lo:.2f}, {hi:.2f}]".replace("-inf", "-∞").replace("inf", "∞")
+            lines.append(f"    {label}: IS {_trade_stats(pick(ins))} | OOS {_trade_stats(pick(oos))}")
     return "\n".join(lines)
 
 

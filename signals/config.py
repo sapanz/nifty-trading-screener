@@ -420,6 +420,24 @@ TRENDLINE_INTERVAL_MINUTES = 5
 TRENDLINE_ROUND_TRIP_COST_PCT = 0.10
 TRENDLINE_HISTORY_MONTHS = 12        # 5-minute history fetched for the backtest
 
+# --- Trendline Break Short (daily chart) ------------------------------------
+# The same rising-support-line break on daily candles, F&O stocks only, with
+# volume confirmation: the break day's volume must be at least this multiple
+# of the prior VOLUME_LOOKBACK days' average. Same geometry as the 5-minute
+# version (signals/trendlines.py), with daily-scale tolerances. Untuned.
+TRENDLINE_DAILY_SWING_BARS = 3
+TRENDLINE_DAILY_MIN_TOUCHES = 3
+TRENDLINE_DAILY_MIN_WIDTH_BARS = 20        # at least ~a month of trading days
+TRENDLINE_DAILY_MAX_LOOKBACK_BARS = 120    # the line's first anchor is at most ~6 months back
+TRENDLINE_DAILY_MIN_RISE_PCT = 3.0
+TRENDLINE_DAILY_TOUCH_TOLERANCE_PCT = 0.8
+TRENDLINE_DAILY_BREAK_BUFFER_PCT = 0.3
+TRENDLINE_DAILY_STOP_BUFFER_PCT = 0.3
+TRENDLINE_DAILY_MIN_RISK_PCT = 1.0
+TRENDLINE_DAILY_MAX_RISK_PCT = 6.0
+TRENDLINE_DAILY_TARGET_R = 2.0
+TRENDLINE_DAILY_MIN_VOL_RATIO = 1.5
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small

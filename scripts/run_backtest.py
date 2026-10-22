@@ -57,6 +57,7 @@ STRATEGY_LABELS = {
     "price_action_breakout_daily": ("Price Action Breakout (Daily)", "🎯"),
     "price_action_breakout_weekly": ("Price Action Breakout (Weekly)", "🎯"),
     "value_breakout": ("Weekly Value Stocks Breakout", "💎"),
+    "trendline_break_daily": ("Trendline Break Short (Daily, F&O)", "📉"),
 }
 
 # "price_action_breakout" alone means both of its timeframe legs -
@@ -147,6 +148,8 @@ def main() -> None:
         summary = backtest.summarize(trades)
         send_message(token, chat_id, f"{emoji} <b>{title}</b>\n{summary}")
         print(f"\n=== {title} ===\n{summary}")  # also visible in the Actions run log, not just Telegram
+        if strategy == "trendline_break_daily":
+            print(f"\n=== {title}: diagnostics ===\n{backtest.summarize_trendline_daily(trades)}")
         all_trades.extend(trades)
 
     backtest.write_csv(all_trades, CSV_PATH)
