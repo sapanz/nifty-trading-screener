@@ -122,9 +122,13 @@ def _outcome(symbol: str, asof: pd.Timestamp, prior_close: float, next_date: pd.
 
 def run_watchlist_backtest(
     daily_data: dict[str, pd.DataFrame], months: int, industries: dict[str, str],
+    only_symbols: set[str] | None = None,
 ) -> tuple[list[WatchlistOutcome], list[DayBaseline], int]:
     """Returns (outcomes, baseline, number of scanned days). The last day of
-    the data has no "next day" yet, so picks on it are left out."""
+    the data has no "next day" yet, so picks on it are left out. With
+    `only_symbols` (the F&O list), picks and the comparison baseline are both
+    limited to those stocks - today's F&O list across the whole window, the
+    same survivorship caveat as the universe itself."""
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(months=months)
     outcomes: list[WatchlistOutcome] = []
@@ -139,14 +143,14 @@ def run_watchlist_backtest(
         # indicators every single date.
         sliced = {sym: df.tail(_LOOKBACK_ROWS) for sym, df in _scan_as_of(daily_data, asof).items()}
         # No historical event calendar exists - see module docstring.
-        picks = intraday_watchlist.scan(sliced, industries, set()).picks
+        picks = intraday_watchlist.scan(sliced, industries, set(), only_symbols).picks
         days += 1
 
         day_baseline: list[DayBaseline] = []
         ret1: list[float] = []
         ret5: list[float] = []
         for symbol, df in sliced.items():
-            if df.index[-1] != asof:
+            if df.index[-1] != asof or (only_symbols is not None and symbol not in only_symbols):
                 continue
             if len(df) > 5:
                 closes = df["close"]
@@ -215,7 +219,7 @@ def summarize_watchlist(
         f"{len(outcomes)} picks over {days} trading days (~{len(outcomes) / days:.1f}/day): "
         f"{len(bulls)} bull, {len(bears)} bear. Next-day results, last {months} month(s):",
         "",
-        "<b>Vs. every Nifty 500 stock, same days</b>",
+        "<b>Vs. every stock in the same universe, same days</b>",
         f"Avg day range: picks {mean(o.range_pct for o in outcomes):.2f}% vs all {mean(b.range_pct for b in baseline):.2f}%",
         f"Range ≥{bar:g}%: picks {_pct(sum(o.range_pct >= bar for o in outcomes), len(outcomes)):.0f}% "
         f"vs all {_pct(sum(b.range_pct >= bar for b in baseline), len(baseline)):.0f}%",
@@ -292,7 +296,7 @@ def mine_features(outcomes: list[WatchlistOutcome], baseline: list[DayBaseline] 
         oos = [o for o in group if o.signal_date > cut]
         if baseline:
             base_flow = _pct(sum(b.flow(direction) for b in baseline), len(baseline))
-            lines += ["", f"All Nifty 500 stocks: {direction} trend day {base_flow:.0f}% of the time, avg range "
+            lines += ["", f"All stocks in the universe: {direction} trend day {base_flow:.0f}% of the time, avg range "
                           f"{mean(b.range_pct for b in baseline):.1f}%"]
         lines += ["", f"<b>{direction.title()}</b> overall: IS {_bucket_stats(ins)} | OOS {_bucket_stats(oos)}"]
         for setup in sorted({o.setup for o in group}):

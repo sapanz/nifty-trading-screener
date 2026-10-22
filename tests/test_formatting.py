@@ -110,3 +110,12 @@ def test_intraday_watchlist_shows_top_n_of_qualified_when_capped():
     msg = format_intraday_watchlist("Intraday Watchlist", "🔭", result, date(2026, 10, 16), True)
     assert "Bullish (1 of 14)" in msg
     assert "Bearish (1)" in msg
+
+
+def test_intraday_watchlist_states_its_universe():
+    from signals.formatting import format_intraday_watchlist
+
+    fo = format_intraday_watchlist("Intraday Watchlist", "🔭", _watchlist(), date(2026, 10, 16), True)
+    assert "F&O (stock futures) stocks only" in fo
+    fallback = format_intraday_watchlist("Intraday Watchlist", "🔭", _watchlist(), date(2026, 10, 16), True, fo_only=False)
+    assert "F&O stock list unavailable - showing all Nifty 500" in fallback

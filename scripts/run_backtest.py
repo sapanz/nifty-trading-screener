@@ -65,7 +65,7 @@ STRATEGY_LABELS = {
 # Opt-in only: it replays the watchlist scan on every historical date, which
 # is slow, so a blank BACKTEST_STRATEGIES ("everything") does not include it.
 WATCHLIST_KEY = "intraday_watchlist"
-WATCHLIST_TITLE = "Intraday Watchlist - next-day follow-through"
+WATCHLIST_TITLE = "Intraday Watchlist (F&O stocks) - next-day follow-through"
 WATCHLIST_EMOJI = "🔭"
 
 # "price_action_breakout" alone means both of its timeframe legs -
@@ -120,7 +120,11 @@ def main() -> None:
         daily = data.fetch_daily(client, instrument_map)
 
         if run_watchlist:
-            outcomes, baseline, days = watchlist_backtest.run_watchlist_backtest(daily, months, industries)
+            # Same F&O-only universe the live watchlist uses (today's list
+            # applied across the whole window - see run_watchlist_backtest).
+            outcomes, baseline, days = watchlist_backtest.run_watchlist_backtest(
+                daily, months, industries, only_symbols=data.fetch_fo_eligible_symbols(client)
+            )
             watchlist_summary = watchlist_backtest.summarize_watchlist(outcomes, baseline, days, months)
 
         if run_trades:

@@ -33,6 +33,12 @@ A pick needs all of:
         20 EMA in the trend's direction) - the backtest's one pattern that
         held in both halves of the window, see config.py.
 
+Universe: the caller may restrict candidates to `only_symbols` (the live
+runs pass the F&O-eligible stocks - liquid, shortable names). The restriction
+applies to who can be picked only; sector strength is still measured across
+every Nifty 500 member handed in, so a sector isn't judged on its handful of
+F&O names alone.
+
 Shortlist: at most INTRADAY_MAX_PICKS_PER_SIDE bullish and as many bearish
 picks, ranked calmest first (lowest day range relative to the stock's usual
 ATR). That ordering is the one feature in the backtest's mining that favored
@@ -207,9 +213,11 @@ def scan(
     daily_data: dict[str, pd.DataFrame],
     industries: dict[str, str],
     event_symbols: set[str],
+    only_symbols: set[str] | None = None,
 ) -> WatchlistResult:
     """`industries` maps symbol -> sector (see universe.fetch_nifty500_constituents);
-    `event_symbols` are excluded outright (see events.fetch_event_symbols)."""
+    `event_symbols` are excluded outright (see events.fetch_event_symbols);
+    `only_symbols`, when given, limits who can be picked (see module docstring)."""
     result = WatchlistResult()
     sectors = sector_strength(daily_data, industries)
     sector_rank = {s: i + 1 for i, s in enumerate(sorted(sectors, key=sectors.get, reverse=True))}
@@ -220,7 +228,7 @@ def scan(
     )
 
     for symbol, raw_df in daily_data.items():
-        if len(raw_df) < min_rows:
+        if len(raw_df) < min_rows or (only_symbols is not None and symbol not in only_symbols):
             continue
         if symbol in event_symbols:
             result.skipped_events.append(symbol)

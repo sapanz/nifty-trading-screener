@@ -174,8 +174,8 @@ def main() -> None:
         INTRADAY_EMOJI,
         lambda: format_intraday_watchlist(
             INTRADAY_TITLE, INTRADAY_EMOJI,
-            intraday_watchlist.scan(daily, industries, event_symbols),
-            today, events_filtered,
+            intraday_watchlist.scan(daily, industries, event_symbols, only_symbols=fo_symbols),
+            today, events_filtered, fo_only=fo_symbols is not None,
         ),
     )
 

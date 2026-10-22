@@ -42,7 +42,7 @@ def format_strategy_message(title: str, emoji: str, signals: list[Signal], run_d
 
 
 def format_intraday_watchlist(
-    title: str, emoji: str, result, run_date: date, events_filtered: bool
+    title: str, emoji: str, result, run_date: date, events_filtered: bool, fo_only: bool = True
 ) -> str:
     """`result` is an intraday_watchlist.WatchlistResult. No entry/SL/target
     lines by design - just each stock's bias and the reasons for it."""
@@ -50,6 +50,8 @@ def format_intraday_watchlist(
         f"{emoji} <b>{html.escape(title)}</b> — {run_date.strftime('%d %b %Y')}",
         "<i>Daily-chart bias for the next session - find your own entry. Shortlist: calmest qualifiers first.</i>",
     ]
+    lines.append("<i>Universe: F&O (stock futures) stocks only.</i>" if fo_only else
+                 "⚠️ F&O stock list unavailable - showing all Nifty 500 stocks today.")
     if not events_filtered:
         lines.append("⚠️ NSE event calendar unavailable - results/events NOT filtered today.")
 

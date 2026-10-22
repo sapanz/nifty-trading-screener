@@ -169,3 +169,18 @@ def test_shortlist_is_capped_per_side_calmest_first_and_counts_qualifiers():
 def test_no_padding_when_nothing_qualifies():
     result = _scan({"FLAT": _trend_df(0)})
     assert result.picks == [] and result.qualified_bulls == 0
+
+
+def test_only_symbols_limits_who_can_be_picked():
+    data = {"INFO": _bull_breakout(), "OTHER": _bull_breakout()}
+    result = iw.scan(data, {}, set(), only_symbols={"INFO"})
+    assert [p.symbol for p in result.bulls] == ["INFO"]
+    assert [p.symbol for p in iw.scan(data, {}, set(), only_symbols=set()).picks] == []
+    assert len(iw.scan(data, {}, set()).bulls) == 2  # None = no restriction
+
+
+def test_sector_strength_still_uses_every_member_when_restricted():
+    # INFO is the only F&O name; its sector (3 falling peers) must still count as falling
+    data = {"INFO": _bull_breakout(), **_sector_peers(-1)}
+    industries = {"INFO": "Tech", "PEER0": "Tech", "PEER1": "Tech", "PEER2": "Tech"}
+    assert iw.scan(data, industries, set(), only_symbols={"INFO"}).picks == []

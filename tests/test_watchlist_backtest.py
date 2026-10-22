@@ -112,7 +112,7 @@ def test_summary_reports_both_sides_and_the_baseline_comparison():
     outcomes = [o for o in outcomes if o.signal_date == bull.index[-3]]
     text = wb.summarize_watchlist(outcomes, baseline, days, months=1)
     assert "picks over" in text and "1 bull, 1 bear" in text
-    assert "Vs. every Nifty 500 stock, same days" in text
+    assert "Vs. every stock in the same universe, same days" in text
     assert "Avg day range: picks" in text and "vs all" in text
     assert "Bull (1): open→close" in text and "Bear (1): open→close" in text
     assert "right way 100%" in text
@@ -200,5 +200,15 @@ def test_mining_reports_flow_against_the_baseline():
     outcomes = [_outcome_with("bull", "Breakout close", d, 0.0, 1.0, 1.0 + d % 3) for d in range(100)]
     baseline = [wb.DayBaseline(open_to_close_pct=1.5, range_pct=2.0), wb.DayBaseline(open_to_close_pct=0.0, range_pct=2.0)]
     text = wb.mine_features(outcomes, baseline)
-    assert "All Nifty 500 stocks: bull trend day 50%" in text
+    assert "All stocks in the universe: bull trend day 50%" in text
     assert "flow 100% rng 2.0%" in text  # o2c 1.0 vs range 2.0 = exactly half
+
+
+def test_backtest_restricts_picks_and_baseline_to_the_given_symbols():
+    df = _with_signal_and_next_day(1, 1.005, 1.0251, 1.0301, 1.0030)
+    data = {"IN": df, "OUT": df.copy()}
+    all_outcomes, all_base, _ = wb.run_watchlist_backtest(data, months=1, industries={})
+    outcomes, base, _ = wb.run_watchlist_backtest(data, months=1, industries={}, only_symbols={"IN"})
+    assert {o.symbol for o in all_outcomes} == {"IN", "OUT"}
+    assert {o.symbol for o in outcomes} == {"IN"}
+    assert len(base) * 2 == len(all_base)
