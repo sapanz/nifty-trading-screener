@@ -499,6 +499,20 @@ all-time-high check isn't silently capped at 6 years.
 
 ## Known limitations
 
+- **Trendline Break Short (5-minute) is backtest-only so far.** Shorts an
+  F&O stock whose 5-minute candle closes below a rising support trendline
+  through the session's swing lows (`signals/trendlines.py`,
+  `signals/strategies/trendline_break_short.py`); where several stocks break
+  at once, the widest trendline ranks first. Run
+  `.github/workflows/trendline_backtest.yml` (months, plus a `symbol_limit`
+  for a quick smoke test of the 5-minute fetch) - `signals/trendline_backtest.py`
+  replays every 5-minute bar, enters at the next bar's open, applies the
+  stop/2R target with the stop winning same-bar ties, squares off at 15:15 and
+  charges `TRENDLINE_ROUND_TRIP_COST_PCT`; its summary also tests whether the
+  width ranking actually helps and splits results in-sample/out-of-sample.
+  It is not wired into any live run yet, and the 5-minute Upstox history
+  endpoint's behaviour (chunk limit, bar timestamps) is assumed, not yet
+  confirmed live. Today's F&O list is applied across the whole window.
 - **Retired experiment: Intraday Watchlist.** A daily next-day bull/bear
   watchlist (daily-chart trend + breakout/coiled setups, F&O stocks, events
   excluded) was built, backtested over 60 months against every comparable

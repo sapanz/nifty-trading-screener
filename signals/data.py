@@ -31,6 +31,7 @@ this becomes a live issue for them too.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Callable
 
 import pandas as pd
@@ -197,3 +198,34 @@ def to_weekly(daily_data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
 
 def to_monthly(daily_data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     return {symbol: _resample(df, "ME") for symbol, df in daily_data.items()}
+
+
+# Upstox limits one intraday-candle request to about a month for 1-15 minute
+# candles, so a longer window is fetched in chunks this many days wide.
+INTRADAY_CHUNK_DAYS = 28
+
+
+def fetch_intraday(
+    client: UpstoxClient, instrument_map: dict[str, str], months: int, minutes: int = config.TRENDLINE_INTERVAL_MINUTES
+) -> dict[str, pd.DataFrame]:
+    """`minutes`-minute candles for the trailing `months` months (as completed
+    sessions - historical-candle never includes today), in chunks. Same
+    skip-and-log / circuit-breaker behaviour as the daily fetch."""
+    end = ist_today()
+    start = end - timedelta(days=round(months * 30.5))
+
+    def fetch_one(key: str) -> pd.DataFrame:
+        frames = []
+        chunk_end = end
+        while chunk_end > start:
+            chunk_start = max(start, chunk_end - timedelta(days=INTRADAY_CHUNK_DAYS - 1))
+            df = client.get_candles_between(key, "minutes", minutes, chunk_start, chunk_end)
+            if not df.empty:
+                frames.append(df)
+            client.throttle()
+            chunk_end = chunk_start - timedelta(days=1)
+        if not frames:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        return pd.concat(frames).sort_index().loc[lambda d: ~d.index.duplicated(keep="last")]
+
+    return _fetch_history(instrument_map, fetch_one=fetch_one, throttle=lambda: None, label=f"{minutes}-minute")

@@ -44,7 +44,7 @@ import gzip
 import io
 import logging
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 import requests
@@ -223,6 +223,21 @@ class UpstoxClient:
         today yet (e.g. before the open, or a market holiday).
         """
         url = f"{config.UPSTOX_BASE_URL_V3}/historical-candle/intraday/{instrument_key}/days/1"
+        return self._request_candles(url, instrument_key)
+
+    def get_candles_between(
+        self, instrument_key: str, unit: str, interval: int, from_date: date, to_date: date
+    ) -> pd.DataFrame:
+        """Candles for an explicit date range from the v3 historical-candle
+        endpoint (e.g. unit="minutes", interval=5). Upstox caps how much
+        intraday history one request may span (about a month for 1-15 minute
+        candles), so callers needing longer windows chunk - see
+        data.fetch_intraday. Timestamps come back as IST wall-clock bar
+        *start* times."""
+        url = (
+            f"{config.UPSTOX_BASE_URL_V3}/historical-candle/"
+            f"{instrument_key}/{unit}/{interval}/{to_date.isoformat()}/{from_date.isoformat()}"
+        )
         return self._request_candles(url, instrument_key)
 
     def _get_history(self, instrument_key: str, interval: str, years: int) -> pd.DataFrame:

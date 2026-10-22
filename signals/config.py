@@ -394,6 +394,32 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 VALUE_SCREEN_QUERY = "Profit growth > 25 AND Debt to equity < 0.5 AND Market Capitalization > 5000"
 VALUE_BREAKOUT_MIN_GAP_WEEKS = 52  # "at least a year" - restored, see docstrings above/in value_breakout.py
 
+# --- Trendline Break Short (5-minute chart) ---------------------------------
+# Short when price closes below a rising support trendline. A trendline is
+# drawn through swing lows of the current session; of all valid lines the
+# *widest* (longest span) wins, and signals across stocks are ranked by that
+# width - see signals/strategies/trendline_break_short.py. Untuned starting
+# points; the backtest (signals/trendline_backtest.py) logs diagnostics so
+# they can be mined rather than guessed.
+TRENDLINE_SWING_BARS = 3             # a swing low is the lowest low among N bars either side
+TRENDLINE_MIN_TOUCHES = 3            # swing lows sitting on the line (2 anchors + at least 1 more)
+TRENDLINE_MIN_WIDTH_BARS = 12        # line must span at least this many bars (12 x 5min = 1 hour)
+TRENDLINE_MIN_RISE_PCT = 0.3         # the line must climb at least this much end to end (a real uptrend)
+TRENDLINE_TOUCH_TOLERANCE_PCT = 0.2  # a swing low within this % of the line counts as a touch
+TRENDLINE_BREAK_BUFFER_PCT = 0.05    # close this far below the line = broken (also how far earlier closes may dip under it)
+TRENDLINE_STOP_BUFFER_PCT = 0.05     # stop sits this far above the highest high since the last touch
+TRENDLINE_MIN_RISK_PCT = 0.25        # skip setups whose stop is closer than this (noise-sized)...
+TRENDLINE_MAX_RISK_PCT = 1.5         # ...or further than this (too wide for a 5-minute trade)
+TRENDLINE_TARGET_R = 2.0             # target = entry - R x risk
+TRENDLINE_FIRST_ENTRY = "09:45"      # no signals before / after these bar-start times (IST)
+TRENDLINE_LAST_ENTRY = "14:30"
+TRENDLINE_SQUARE_OFF = "15:15"       # backtest exits any open trade at the close of the bar starting here
+TRENDLINE_INTERVAL_MINUTES = 5
+# Round-trip cost for an intraday (MIS) equity trade, incl. an allowance for
+# slippage: far lower than ROUND_TRIP_COST_PCT, which prices delivery trades.
+TRENDLINE_ROUND_TRIP_COST_PCT = 0.10
+TRENDLINE_HISTORY_MONTHS = 12        # 5-minute history fetched for the backtest
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small
