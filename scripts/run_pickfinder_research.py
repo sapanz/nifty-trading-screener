@@ -15,6 +15,7 @@ window and FEATURES_VERSION - bump it when session_features changes) so a
 re-run that only changes the analysis doesn't re-fetch a couple of hours of
 candles.
 """
+import json
 import os
 import sys
 import time
@@ -30,6 +31,7 @@ from signals.upstox_client import UpstoxClient  # noqa: E402
 
 FEATURES_VERSION = 1
 PICKS_CSV = "research/journal_picks.csv"
+RUN_CONFIG = "research/run_config.json"
 CACHE_DIR = ".cache/pickfinder"
 FEATURES_OUT = "pickfinder_features.csv.gz"
 
@@ -56,11 +58,25 @@ def describe(symbol: str, bars: pd.DataFrame) -> str:
             f"{per_day.median():.0f} bars/session median (full = 75), first bar of day {bars.index[0].time()}")
 
 
+def setting(env_name: str, key: str, default):
+    """A manual-dispatch input (env var) wins; otherwise research/run_config.json,
+    which is how a push to the research branch configures its own run."""
+    if os.environ.get(env_name):
+        return os.environ[env_name]
+    if os.path.exists(RUN_CONFIG):
+        with open(RUN_CONFIG) as f:
+            value = json.load(f).get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def main() -> None:
     runtime.setup_logging()
-    months = int(os.environ.get("PICKFINDER_MONTHS", "24"))
-    limit = int(os.environ.get("PICKFINDER_SYMBOL_LIMIT", "0"))
-    end = date.fromisoformat(os.environ["PICKFINDER_END"]) if os.environ.get("PICKFINDER_END") else ist_today()
+    months = int(setting("PICKFINDER_MONTHS", "months", 24))
+    limit = int(setting("PICKFINDER_SYMBOL_LIMIT", "symbol_limit", 0))
+    end_raw = setting("PICKFINDER_END", "end_date", "")
+    end = date.fromisoformat(end_raw) if end_raw else ist_today()
     start = end - timedelta(days=round(months * 30.5))
     os.makedirs(CACHE_DIR, exist_ok=True)
 

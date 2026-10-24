@@ -1,8 +1,16 @@
 name: Pickfinder Research
 
-# Manual-only research run (see signals/pickfinder.py). Not scheduled, not wired
-# into the live screener, and sends nothing to Telegram.
+# Research run (see signals/pickfinder.py). Not scheduled, not wired into the
+# live screener, and sends nothing to Telegram.
+#
+# GitHub only allows manual dispatch of a workflow that exists on the default
+# branch, so while this lives on the research branch it is started by pushing a
+# change to research/run_config.json (months / symbol_limit / end_date). Once
+# merged, "Run workflow" works too and its inputs take precedence.
 on:
+  push:
+    branches: ["claude/pickfinder-research"]
+    paths: ["research/run_config.json"]
   workflow_dispatch:
     inputs:
       months:
