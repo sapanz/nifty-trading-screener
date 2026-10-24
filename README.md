@@ -519,6 +519,23 @@ data a few minutes old, not tick-by-tick. Running the workflow manually with
 "once" ticked publishes a single snapshot for a smoke test (a manual run
 cancels a session in progress - they share a concurrency group).
 
+### Replay
+
+The dashboard's **Replay** tab shows the same two views - sector day change and
+highest-volume stocks - as they stood at any 5-minute mark of a recent
+session: pick a date and a time (every 5 minutes, 09:20-15:30; the time is the
+END of that candle), or step with the 5 min buttons, and filter by sector /
+F&O exactly as in Live. `.github/workflows/dashboard_history.yml` builds the
+data each weekday at 17:00 IST (`scripts/build_dashboard_history.py`): the last
+~20 sessions of 5-minute candles for the Nifty 500, one compact file per day
+(~0.5 MB each), force-pushed to the `dashboard-history` branch. The page
+rebuilds each view in the browser (price = that slot's close, volume = the sum
+of slots so far, change vs. the previous close - the live page's definitions),
+so changing the time is instant. Replay covers only days on that branch (about
+a month back, trading days only); the first build is done by running that
+workflow once manually. Stocks with fewer than 20 traded 5-minute candles that
+day are left out; the F&O flag and sector map are today's.
+
 ## Known limitations
 
 - **Trendline Break Short (5-minute) is backtest-only so far.** Shorts an

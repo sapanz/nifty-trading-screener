@@ -27,6 +27,15 @@
   .pill { padding: 2px 10px; border-radius: 99px; font-weight: 600; font-size: 12px; background: var(--chip); color: var(--muted); }
   .pill.live { background: var(--up-bg); color: var(--up); }
   .pill.stale { background: var(--down-bg); color: var(--down); }
+  .mode { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .mode button { background: var(--panel); color: var(--muted); border: 0; padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .mode button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .replay { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 16px 12px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .replay label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  .replay button.step { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  .replay button.step:disabled { opacity: .4; cursor: default; }
+  .replay .note { color: var(--muted); font-size: 12px; flex-basis: 100%; }
+  input[type="date"] { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
   main { display: grid; gap: 16px; padding: 0 16px 24px; grid-template-columns: minmax(280px, 380px) 1fr; align-items: start; }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; }
@@ -73,8 +82,21 @@
 <body>
 <header>
   <h1>Market Dashboard <span style="color:var(--muted);font-weight:400">· Nifty 500</span></h1>
-  <div class="status"><span id="pill" class="pill">Loading…</span><span id="updated"></span></div>
+  <div class="status">
+    <div class="mode" role="group" aria-label="Mode">
+      <button type="button" id="modeLive" aria-pressed="true">Live</button>
+      <button type="button" id="modeReplay" aria-pressed="false">Replay</button>
+    </div>
+    <span id="pill" class="pill">Loading…</span><span id="updated"></span>
+  </div>
 </header>
+<div id="replay" class="replay" hidden>
+  <label>Date <input type="date" id="rDate"></label>
+  <label>Time <select id="rTime" aria-label="Time (end of 5-minute candle, IST)"></select></label>
+  <button type="button" class="step" id="rPrev" aria-label="Back 5 minutes">◀ 5 min</button>
+  <button type="button" class="step" id="rNext" aria-label="Forward 5 minutes">5 min ▶</button>
+  <span class="note" id="rNote"></span>
+</div>
 <main>
   <section aria-labelledby="sh">
     <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
@@ -119,7 +141,7 @@
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" }
   ];
-  var state = { data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
+  var state = { mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
 
   function $(id) { return document.getElementById(id); }
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
@@ -144,6 +166,90 @@
     if (props) Object.keys(props).forEach(function (k) { if (k === "class") e.className = props[k]; else e.setAttribute(k, props[k]); });
     if (text !== undefined) e.textContent = text;
     return e;
+  }
+
+  /* ---------- Replay: rebuild the same views as of any 5-minute mark ---------- */
+  function histBase() {
+    var o = new URLSearchParams(location.search).get("hist");
+    if (o) return o.replace(/\/?$/, "/");
+    var owner = location.hostname.split(".")[0], repo = location.pathname.split("/").filter(Boolean)[0] || "";
+    return "https://raw.githubusercontent.com/" + owner + "/" + repo + "/dashboard-history/";
+  }
+  function slotLabel(slot) { var m = 9 * 60 + 15 + (slot + 1) * 5; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function r2(x) { return Math.round(x * 100) / 100; }
+  function median(a) { var b = a.slice().sort(function (x, y) { return x - y; }), n = b.length; return n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2; }
+
+  function snapshotAt(day, slot) {
+    var stocks = [], by = {};
+    Object.keys(day.stocks).forEach(function (sym) {
+      var s = day.stocks[sym], price = s.c[slot];
+      if (price === null || price === undefined) return;          // hadn't traded yet at this point
+      var vol = 0; for (var i = 0; i <= slot; i++) vol += s.v[i];
+      var row = { symbol: sym, sector: s.s, price: price, change_pct: r2((price / s.pc - 1) * 100), volume: vol,
+        turnover_cr: r2(price * vol / 1e7), vol_vs_avg: s.av ? r2(vol / s.av) : null, fo: !!s.fo };
+      stocks.push(row); (by[row.sector] = by[row.sector] || []).push(row);
+    });
+    var sectors = Object.keys(by).map(function (name) {
+      var m = by[name], ch = m.map(function (x) { return x.change_pct; });
+      return { name: name, change_pct: r2(ch.reduce(function (a, b) { return a + b; }, 0) / m.length), median_pct: r2(median(ch)),
+        advancers: ch.filter(function (c) { return c > 0; }).length, decliners: ch.filter(function (c) { return c < 0; }).length,
+        stocks: m.length, turnover_cr: r2(m.reduce(function (a, x) { return a + x.turnover_cr; }, 0)) };
+    }).sort(function (a, b) { return b.change_pct - a.change_pct; });
+    stocks.sort(function (a, b) { return b.volume - a.volume; });
+    return { market_status: "replay", has_fo: true, stock_count: stocks.length, sectors: sectors, stocks: stocks,
+      replay_label: day.date + " · " + slotLabel(slot) };
+  }
+
+  function fetchJson(url, bust) {
+    return fetch(url + (bust ? "?t=" + Date.now() : ""), bust ? { cache: "no-store" } : undefined)
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+  }
+  function note(text) { $("rNote").textContent = text || ""; }
+
+  function loadDay(date) {
+    if (state.dayCache[date]) { state.day = state.dayCache[date]; state.dayDate = date; return Promise.resolve(); }
+    note("Loading " + date + "…");
+    return fetchJson(histBase() + "days/" + date + ".json", false).then(function (d) {
+      state.dayCache[date] = d; state.day = d; state.dayDate = date; note("");
+    });
+  }
+
+  function renderReplay() {
+    if (state.mode !== "replay" || !state.day) return;
+    state.data = snapshotAt(state.day, state.slot);
+    $("rDate").value = state.dayDate; $("rTime").value = String(state.slot);
+    $("rPrev").disabled = state.slot <= 0; $("rNext").disabled = state.slot >= state.day.slots - 1;
+    render();
+  }
+
+  function enterReplay() {
+    state.mode = "replay"; state.data = null;
+    $("modeLive").setAttribute("aria-pressed", "false"); $("modeReplay").setAttribute("aria-pressed", "true");
+    $("replay").hidden = false;
+    $("rNote").textContent = "Loading available days…";
+    var sel = $("rTime");
+    if (!sel.options.length) for (var i = 0; i < 75; i++) sel.appendChild(el("option", { value: String(i) }, slotLabel(i)));
+    fetchJson(histBase() + "index.json", true).then(function (idx) {
+      state.index = idx.dates;
+      var dt = $("rDate"); dt.min = idx.dates[0]; dt.max = idx.dates[idx.dates.length - 1];
+      var last = idx.dates[idx.dates.length - 1];
+      note("Prices as of the END of the chosen 5-minute candle (IST). Available: " + idx.dates[0] + " to " + last + " (trading days only).");
+      return loadDay(state.dayDate && idx.dates.indexOf(state.dayDate) >= 0 ? state.dayDate : last).then(renderReplay);
+    }).catch(function (e) {
+      note("Replay data isn't available yet (" + e.message + "). It is built each evening after the close.");
+      $("pill").className = "pill stale"; $("pill").textContent = "No replay data";
+    });
+  }
+  function enterLive() {
+    state.mode = "live"; state.data = null;
+    $("modeLive").setAttribute("aria-pressed", "true"); $("modeReplay").setAttribute("aria-pressed", "false");
+    $("replay").hidden = true; refresh();
+  }
+  function pickDate(value) {
+    if (!state.index) return;
+    if (state.index.indexOf(value) < 0) { note(value ? value + " isn't a day with data. Available: " + state.index[0] + " to " + state.index[state.index.length - 1] + " (weekends and holidays are skipped)." : ""); return; }
+    loadDay(value).then(renderReplay).catch(function (e) { note("Couldn't load " + value + " (" + e.message + ")."); });
   }
 
   function renderSectors() {
@@ -227,7 +333,13 @@
   }
 
   function renderStatus() {
-    var d = state.data, pill = $("pill"), when = new Date(d.updated_at);
+    var d = state.data, pill = $("pill");
+    if (d.market_status === "replay") {
+      pill.className = "pill"; pill.textContent = "Replay · " + d.replay_label;
+      $("updated").textContent = "Showing the market as it stood then, not now";
+      $("foOnly").parentNode.hidden = !d.has_fo; return;
+    }
+    var when = new Date(d.updated_at);
     var age = (Date.now() - when.getTime()) / 60000;
     var dataDay = d.data_date ? new Date(d.data_date + "T00:00:00") : null;
     var dayLabel = dataDay ? dataDay.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "";
@@ -251,10 +363,11 @@
   }
 
   function refresh() {
+    if (state.mode !== "live") return;
     var url = dataUrl(), sep = url.indexOf("?") === -1 ? "?" : "&";
     fetch(url + sep + "t=" + Date.now(), { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then(function (d) { state.data = d; render(); })
+      .then(function (d) { if (state.mode === "live") { state.data = d; render(); } })
       .catch(function (e) {
         if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
         else showMessage("Refresh failed - showing last data");
@@ -269,7 +382,13 @@
   $("q").addEventListener("input", function (e) { state.q = e.target.value; renderRows(); });
   refresh();
   setInterval(refresh, REFRESH_MS);
-  setInterval(function () { if (state.data) renderStatus(); }, 30000);
+  setInterval(function () { if (state.data && state.mode === "live") renderStatus(); }, 30000);
+  $("modeLive").addEventListener("click", enterLive);
+  $("modeReplay").addEventListener("click", enterReplay);
+  $("rDate").addEventListener("change", function (e) { pickDate(e.target.value); });
+  $("rTime").addEventListener("change", function (e) { state.slot = parseInt(e.target.value, 10); renderReplay(); });
+  $("rPrev").addEventListener("click", function () { if (state.slot > 0) { state.slot--; renderReplay(); } });
+  $("rNext").addEventListener("click", function () { if (state.day && state.slot < state.day.slots - 1) { state.slot++; renderReplay(); } });
 })();
 </script>
 </body>

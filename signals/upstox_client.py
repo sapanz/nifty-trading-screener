@@ -275,6 +275,13 @@ class UpstoxClient:
             self.throttle()
         return quotes
 
+    def get_intraday_candles(self, instrument_key: str, minutes: int = 5) -> pd.DataFrame:
+        """*Today's* `minutes`-minute candles so far (or the whole session once
+        it's over) via the v3 intraday endpoint - historical-candle never
+        includes the current day. Empty before the open or on a holiday."""
+        url = f"{config.UPSTOX_BASE_URL_V3}/historical-candle/intraday/{instrument_key}/minutes/{minutes}"
+        return self._request_candles(url, instrument_key)
+
     def get_candles_between(
         self, instrument_key: str, unit: str, interval: int, from_date: date, to_date: date
     ) -> pd.DataFrame:
