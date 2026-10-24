@@ -71,12 +71,20 @@ jobs:
             upstox_login_failure.html
           if-no-files-found: ignore
 
+      # research/run_config.json "mode": "probe" checks which OI / sector data
+      # sources are reachable and in what shape; anything else runs the research.
       - name: Run pickfinder research
         env:
           PICKFINDER_MONTHS: ${{ inputs.months }}
           PICKFINDER_SYMBOL_LIMIT: ${{ inputs.symbol_limit }}
           PICKFINDER_END: ${{ inputs.end_date }}
-        run: python scripts/run_pickfinder_research.py
+        run: |
+          MODE=$(python -c "import json; print(json.load(open('research/run_config.json')).get('mode', 'full'))")
+          if [ "$MODE" = "probe" ]; then
+            python scripts/probe_data_sources.py
+          else
+            python scripts/run_pickfinder_research.py
+          fi
 
       - name: Save feature cache
         if: always()

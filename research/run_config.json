@@ -1,4 +1,5 @@
 {
+  "mode": "probe",
   "months": 24,
   "symbol_limit": 0,
   "end_date": "2026-10-23"
