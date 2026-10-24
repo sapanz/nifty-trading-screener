@@ -537,6 +537,19 @@ signal, and the weights (equal) are a judgement call, untested against outcomes.
 Live it needs `oi.json` (refreshed every 5 minutes); in Replay it uses the day
 files' OI arrays.
 
+**Does R-factor work? Not so far.** `scripts/backtest_rfactor.py` (no Upstox
+needed - it reads the Replay day files) scores R at seven moments a day (10:00
+to 13:00) over the ~20 replay sessions and measures what price did next in the
+buildup's direction, net of 0.10% costs. Result (first run, 24 Sep - 23 Oct
+2026): the top-5 by R lost about 0.08% per trade over the next 30 min and
+about 0.07% over 60 min, no better than every stock with OI building, and
+higher R was not better than lower R (R>=70, 40-69 and <40 all within 0.01% of
+each other) - i.e. no gradient. The one number that looked interesting (top-5
+by volume alone, direction = price since open, held to the close: +0.13%, 58%
+winners) is not significant once each session is counted once (t = 1.2). The
+window is short (the current futures contract's life), so this says "no
+evidence", not "proven useless"; re-run it as the replay history grows.
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest
