@@ -522,6 +522,21 @@ not tick-by-tick. Running the workflow manually with
 "once" ticked publishes a single snapshot for a smoke test (a manual run
 cancels a session in progress - they share a concurrency group).
 
+### R-factor and OI change columns
+
+For F&O stocks the table also shows **OI chg %** (open interest added since
+09:15) and an **R-factor** (0-100), and you can sort by either (the "Sort by"
+box or the column headers). R ranks each F&O stock, among all F&O stocks at that
+moment, on (1) volume vs. its 20-day average, (2) OI added since 09:15 and (3)
+the size of the price move since 09:15, then takes the geometric mean of the
+three ranks - so it is high only when volume, OI and price move are all high
+together, and 0 where OI has fallen. The ▲/▼ tag says whether the buildup is
+bullish (OI up, price up) or bearish (OI up, price down). Ranks are relative, so
+R is not comparable between moments; it is a way to surface candidates, not a
+signal, and the weights (equal) are a judgement call, untested against outcomes.
+Live it needs `oi.json` (refreshed every 5 minutes); in Replay it uses the day
+files' OI arrays.
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest

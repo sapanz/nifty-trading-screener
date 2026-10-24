@@ -79,6 +79,7 @@
   td.sym { font-weight: 700; } td.sec { color: var(--muted); max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
   .fo { margin-left: 6px; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--muted); font-weight: 600; }
   .hot { font-weight: 700; }
+  td.rcell { white-space: nowrap; } td.rcell .bias { margin-left: 5px; font-size: 11px; }
   .empty { padding: 28px 14px; color: var(--muted); text-align: center; }
 
   tbody tr { cursor: pointer; } tbody tr:hover, tbody tr:focus-visible { background: var(--chip); outline: none; }
@@ -135,6 +136,10 @@
   <section aria-labelledby="th">
     <h2 id="th">Highest volume <small id="count"></small></h2>
     <div class="controls">
+      <label>Sort by <select id="sortSel" aria-label="Sort by">
+        <option value="volume">Volume</option><option value="r">R-factor</option><option value="oi_chg">OI change %</option>
+        <option value="turnover_cr">Turnover</option><option value="vol_vs_avg">Vol vs 20d</option><option value="change_pct">Change %</option>
+      </select></label>
       <label>Sector <select id="sectorSel"></select></label>
       <label><input type="checkbox" id="foOnly"> F&amp;O only</label>
       <label>Show <select id="topN"><option>25</option><option>50</option><option>100</option><option value="0">All</option></select></label>
@@ -154,6 +159,7 @@
   Sector change is the equal-weighted average move of its Nifty 500 members (Industry column of the NSE list).
   Turnover = price × volume so far. “Vol vs 20d” is today's volume so far divided by the average <em>full-day</em> volume of
   the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
+  <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -177,7 +183,9 @@
     { key: "change_pct", label: "Chg %", sort: "change_pct" },
     { key: "volume", label: "Volume", sort: "volume" },
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
-    { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" }
+    { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" },
+    { key: "oi_chg", label: "OI chg %", sort: "oi_chg", help: "Open interest added (or removed) since 09:15, % - F&O stocks only" },
+    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." }
   ];
   var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
 
@@ -484,8 +492,41 @@
   }
   function closeOi() { state.sel = null; $("oiOverlay").hidden = true; }
   function loadLiveOi() {
-    liveJson("oi.json").then(function (d) { state.oiLive = d; renderOi(); }).catch(function () { renderOi(); });
+    liveJson("oi.json").then(function (d) { state.oiLive = d; if (state.mode === "live") render(); renderOi(); }).catch(function () { renderOi(); });
   }
+
+  /* ---------- R-factor: volume, OI buildup and price move, ranked together ---------- */
+  /* Each F&O stock gets three ranks (0-100) among all F&O stocks at this moment - volume vs its 20-day average,
+     open interest added since 09:15 (%), and the size of the price move since 09:15 - and R is their geometric
+     mean, so it is only high when all three are. R is 0 where OI has not built up. The direction tag says which way. */
+  function pctRanks(values) {
+    var sorted = values.slice().sort(function (a, b) { return a - b; }), n = values.length;
+    return values.map(function (v) {
+      var below = 0, equal = 0;
+      for (var i = 0; i < n; i++) { if (sorted[i] < v) below++; else if (sorted[i] === v) equal++; }
+      return n > 1 ? (below + (equal - 1) / 2) / (n - 1) * 100 : 50;
+    });
+  }
+  function attachR(d) {
+    var rows = [];
+    d.stocks.forEach(function (s) {
+      s.r = null; s.oi_chg = null; s.bias = null;
+      if (!s.fo || s.vol_vs_avg === null || s.vol_vs_avg === undefined) return;
+      var ser = oiSeries(s.symbol); if (!ser) return;
+      var o = ser.o.slice(0, ser.upTo + 1).filter(function (v) { return v !== null; }), p = ser.p.slice(0, ser.upTo + 1).filter(function (v) { return v !== null; });
+      if (o.length < 2 || p.length < 2 || !o[0] || !p[0]) return;
+      s.oi_chg = r2((o[o.length - 1] - o[0]) / o[0] * 100);
+      s.px_chg = (p[p.length - 1] - p[0]) / p[0] * 100;
+      s.bias = s.oi_chg > 0 ? (s.px_chg >= 0 ? "long" : "short") : (s.px_chg >= 0 ? "cover" : "unwind");
+      rows.push(s);
+    });
+    if (rows.length < 10) return;                                   // too few to rank meaningfully
+    var pv = pctRanks(rows.map(function (s) { return s.vol_vs_avg; })), po = pctRanks(rows.map(function (s) { return s.oi_chg; })),
+        pp = pctRanks(rows.map(function (s) { return Math.abs(s.px_chg); }));
+    rows.forEach(function (s, i) { s.r = s.oi_chg > 0 ? Math.round(Math.cbrt(pv[i] * po[i] * pp[i])) : 0; });
+  }
+  var BIAS_TAG = { long: ["▲", "up", "Long buildup: OI up, price up"], short: ["▼", "down", "Short buildup: OI up, price down"],
+                   cover: ["", "", "Short covering: OI down, price up"], unwind: ["", "", "Long unwinding: OI down, price down"] };
 
   function renderSectors() {
     var box = $("sectors"); box.textContent = "";
@@ -517,6 +558,7 @@
     var head = $("head"); head.textContent = "";
     COLS.forEach(function (c) {
       var th = el("th", { scope: "col" }, c.label);
+      if (c.help) th.title = c.help;
       if (c.sort) {
         if (state.sortKey === c.sort) th.setAttribute("aria-sort", state.sortDir < 0 ? "descending" : "ascending");
         th.addEventListener("click", function () {
@@ -547,7 +589,8 @@
     var all = visibleStocks(), list = state.topN ? all.slice(0, state.topN) : all, body = $("rows");
     body.textContent = "";
     $("count").textContent = list.length === all.length ? all.length + " stocks" : "top " + list.length + " of " + all.length;
-    $("th").firstChild.textContent = "Highest volume" + (state.sector ? " — " + state.sector : "");
+    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers" };
+    $("th").firstChild.textContent = (titles[state.sortKey] || "Stocks") + (state.sector ? " — " + state.sector : "");
     var empty = $("empty");
     empty.hidden = list.length > 0;
     if (!list.length) empty.textContent = "No stocks match these filters.";
@@ -565,6 +608,15 @@
       tr.appendChild(el("td", null, fmtVol(s.volume)));
       tr.appendChild(el("td", null, s.turnover_cr.toLocaleString("en-IN", { maximumFractionDigits: 1 })));
       tr.appendChild(el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×"));
+      tr.appendChild(el("td", { "class": s.oi_chg === null || s.oi_chg === undefined ? "" : cls(s.oi_chg) }, s.oi_chg === null || s.oi_chg === undefined ? "–" : fmtPct(s.oi_chg)));
+      var rc = el("td", { "class": "rcell" });
+      if (s.r === null || s.r === undefined) rc.textContent = "–";
+      else {
+        rc.appendChild(el("b", { "class": s.r >= 70 ? "hot" : "" }, String(s.r)));
+        var tag = BIAS_TAG[s.bias];
+        if (s.r > 0 && tag && tag[0]) rc.appendChild(el("span", { "class": "bias " + tag[1], title: tag[2] + " (price " + fmtPct(r2(s.px_chg)) + " since 09:15)" }, tag[0]));
+      }
+      tr.appendChild(rc);
       body.appendChild(tr);
     });
   }
@@ -591,7 +643,9 @@
 
   function render() {
     if (!state.data) return;
+    attachR(state.data);
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
+    $("sortSel").value = ["volume", "r", "oi_chg", "turnover_cr", "vol_vs_avg", "change_pct"].indexOf(state.sortKey) >= 0 ? state.sortKey : "volume";
     $("foOnly").checked = state.fo; $("topN").value = String(state.topN); $("dir").value = state.dir;
   }
 
@@ -602,7 +656,7 @@
   function refresh() {
     if (state.mode !== "live") return;
     liveJson("data.json")
-      .then(function (d) { if (state.mode === "live") { state.data = d; render(); if (state.sel) loadLiveOi(); } })
+      .then(function (d) { if (state.mode === "live") { state.data = d; render(); loadLiveOi(); } })
       .catch(function (e) {
         if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
         else showMessage("Refresh failed - showing last data");
@@ -611,6 +665,7 @@
 
   load();
   $("sectorSel").addEventListener("change", function (e) { state.sector = e.target.value; save(); render(); });
+  $("sortSel").addEventListener("change", function (e) { state.sortKey = e.target.value; state.sortDir = -1; save(); render(); });
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
