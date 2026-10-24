@@ -550,6 +550,32 @@ winners) is not significant once each session is counted once (t = 1.2). The
 window is short (the current futures contract's life), so this says "no
 evidence", not "proven useless"; re-run it as the replay history grows.
 
+### Swing view (R-factor on daily charts)
+
+The **Swing** tab applies the R-factor idea to daily charts, for holding
+periods of days, and is built once each evening after the close
+(`.github/workflows/dashboard_swing.yml`, 17:45 IST, `scripts/build_dashboard_swing.py`
+-> `swing.json` on the `dashboard-swing` branch). F&O stocks only. Over the last
+5 sessions each stock is ranked on (1) the latest session's volume vs. the
+average of the 20 sessions before it, (2) open interest added, % and (3) price
+move, % - R is the geometric mean of the three ranks, 0 where OI did not grow,
+tagged ▲ (OI up, price up) or ▼ (OI up, price down) - the same since-the-open
+definition as the intraday R-factor, over sessions instead of candles. The table
+also shows 1D/5D price change and 1D/5D OI change; the sector panel shows the
+5-day sector move; clicking a stock opens the same buy/sell OI chart in daily
+form (1 day / 2 days / 1 week groups).
+
+Open interest across contract rolls is the awkward part: near-month OI alone
+collapses in expiry week because traders roll to the next month, so the OI used
+is the **sum of the near and next-month contracts**, and since the pair of
+contracts changes at each expiry (and an expired contract's history can't be
+fetched) each night's total is **saved** (`swing_oi.json`, on the same branch)
+and the series is built from the saved totals. The first run seeds about a month
+from the two live contracts. A 5-session window that includes an expiry date is
+flagged **⚠ roll**: the OI change then includes settled and rolled positions.
+There is no backtest of the swing R-factor yet - only about a month of
+contract history exists, so it needs the saved series to grow first.
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest
