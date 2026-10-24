@@ -99,6 +99,12 @@
   #oiChart text { fill: var(--muted); font-size: 11px; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin: 8px 0; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .oiCtl { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; margin: 4px 0 2px; }
+  details.oiTable { margin: 6px 0; } details.oiTable summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 4px 0; }
+  details.oiTable table { font-size: 12px; } details.oiTable th, details.oiTable td { padding: 5px 8px; }
+  details.oiTable th:nth-child(-n+3), details.oiTable td:nth-child(-n+3) { text-align: right; } details.oiTable th:first-child, details.oiTable td:first-child { text-align: left; }
+  details.oiTable td:last-child, details.oiTable th:last-child { text-align: left; }
+  details.oiTable th { position: static; cursor: default; }
   .oiNote { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   footer { padding: 0 16px 24px; color: var(--muted); font-size: 12px; max-width: 900px; }
 </style>
@@ -173,7 +179,7 @@
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" }
   ];
-  var state = { sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
 
   function $(id) { return document.getElementById(id); }
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
@@ -348,28 +354,71 @@
 
   function niceMax(v) { if (v <= 0) return 1; var p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
 
-  function drawChart(bars, upTo) {
-    var W = 680, H = 260, L = 58, R = 8, T = 12, B = 26, pw = W - L - R, ph = H - T - B, mid = T + ph / 2;
-    var max = niceMax(Math.max.apply(null, bars.map(function (b) { return Math.abs(b.d); }).concat([1])));
-    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Open interest change per 5-minute candle" });
-    [max, 0, -max].forEach(function (v) {
-      var y = mid - v / max * (ph / 2);
-      svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: y, y2: y, stroke: "var(--line)", "stroke-width": v === 0 ? 1.5 : 1 }));
-      svg.appendChild(svgEl("text", { x: L - 6, y: y + 4, "text-anchor": "end" }, v === 0 ? "0" : fmtOi(v)));
-    });
-    for (var s = 9; s < 75; s += 12) {     // 10:00, 11:00, ...
-      var x = L + (s + 0.5) / 75 * pw;
-      svg.appendChild(svgEl("line", { x1: x, x2: x, y1: T, y2: H - B, stroke: "var(--line)", "stroke-dasharray": "2 3" }));
-      svg.appendChild(svgEl("text", { x: x, y: H - 8, "text-anchor": "middle" }, slotStart(s)));
-    }
-    var bw = pw / 75 * 0.72;
+  var GROUPS = [[1, "5 min"], [3, "15 min"], [6, "30 min"], [12, "1 hour"]];
+
+  /* Group per-candle bars into blocks of `g` candles. Each block keeps all four kinds separately, so nothing is
+     lost by grouping: buy = long buildup (new) + short covering (closing); sell = short buildup (new) + long unwinding (closing). */
+  function bucketize(bars, g) {
+    var by = {};
     bars.forEach(function (b) {
-      var h = Math.max(Math.abs(b.d) / max * (ph / 2), 1), x = L + (b.slot + 0.5) / 75 * pw - bw / 2;
-      var rect = svgEl("rect", { x: x, width: bw, y: b.d >= 0 ? mid - h : mid, height: h, rx: 1.5, fill: BUILDUP[b.kind].color });
-      rect.appendChild(svgEl("title", {}, slotStart(b.slot) + "–" + slotLabel(b.slot) + "  " + BUILDUP[b.kind].label + "\nOI change " + fmtOi(b.d) + " → total " + fmtOiAbs(b.oi) + "\nFutures price " + (b.pr > 0 ? "+" : "") + b.pr.toFixed(2) + " → " + b.price.toFixed(2)));
-      svg.appendChild(rect);
+      var k = Math.floor((b.slot - 1) / g);
+      var u = by[k] = by[k] || { k: k, start: b.slot, end: b.slot, long: 0, cover: 0, short: 0, unwind: 0, d: 0, pr: 0, oiEnd: b.oi, first: b };
+      u.end = Math.max(u.end, b.slot); u.d += b.d; u.pr += b.pr; u.oiEnd = b.oi;
+      if (u[b.kind] !== undefined) u[b.kind] += Math.abs(b.d);
+    });
+    return Object.keys(by).map(function (k) { return by[k]; }).sort(function (x, y) { return x.k - y.k; });
+  }
+  function blockLabel(u) { return slotStart(u.start) + "–" + slotLabel(u.end); }
+
+  function drawChart(blocks, g) {
+    var W = 680, H = 250, L = 58, R = 8, T = 12, B = 26, pw = W - L - R, ph = H - T - B, base = T + ph, NB = Math.ceil(74 / g);
+    var peak = Math.max.apply(null, blocks.map(function (u) { return Math.max(u.long + u.cover, u.short + u.unwind); }).concat([1]));
+    var max = niceMax(peak);
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Buy and sell open interest activity per time block" });
+    [0, max / 2, max].forEach(function (v) {
+      var y = base - v / max * ph;
+      svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: y, y2: y, stroke: "var(--line)", "stroke-width": v === 0 ? 1.5 : 1 }));
+      svg.appendChild(svgEl("text", { x: L - 6, y: y + 4, "text-anchor": "end" }, v === 0 ? "0" : fmtOiAbs(v)));
+    });
+    var labelEvery = Math.max(1, Math.ceil(NB / 8));
+    for (var k = 0; k < NB; k += labelEvery) {
+      var lx = L + (k + 0.5) / NB * pw;
+      svg.appendChild(svgEl("line", { x1: lx, x2: lx, y1: T, y2: base, stroke: "var(--line)", "stroke-dasharray": "2 3" }));
+      svg.appendChild(svgEl("text", { x: lx, y: H - 8, "text-anchor": "middle" }, slotStart(k * g + 1)));
+    }
+    var cell = pw / NB, bw = cell * (g === 1 ? 0.4 : 0.36), gap = cell * 0.04;
+    function stack(x, opened, closed, solid, soft, title) {
+      var hOpen = opened / max * ph, hClose = closed / max * ph;
+      [[base - hOpen, hOpen, solid], [base - hOpen - hClose, hClose, soft]].forEach(function (seg) {
+        if (seg[1] <= 0) return;
+        var r = svgEl("rect", { x: x, width: bw, y: seg[0], height: Math.max(seg[1], 1), fill: seg[2] });
+        r.appendChild(svgEl("title", {}, title)); svg.appendChild(r);
+      });
+    }
+    blocks.forEach(function (u) {
+      var cx = L + (u.k + 0.5) / NB * pw, head = blockLabel(u) + "\n";
+      var note = "OI " + (u.d >= 0 ? "added " : "removed ") + fmtOiAbs(u.d) + " net  ·  price " + (u.pr > 0 ? "+" : "") + u.pr.toFixed(2);
+      stack(cx - bw - gap / 2, u.long, u.cover, "var(--up)", "var(--up-soft)",
+        head + "BUY side " + fmtOiAbs(u.long + u.cover) + "\n  new buying (long buildup) " + fmtOiAbs(u.long) + "\n  short covering " + fmtOiAbs(u.cover) + "\n" + note);
+      stack(cx + gap / 2, u.short, u.unwind, "var(--down)", "var(--down-soft)",
+        head + "SELL side " + fmtOiAbs(u.short + u.unwind) + "\n  new selling (short buildup) " + fmtOiAbs(u.short) + "\n  long unwinding " + fmtOiAbs(u.unwind) + "\n" + note);
     });
     return svg;
+  }
+
+  function numbersTable(blocks) {
+    var d = el("details", { "class": "oiTable" }); d.appendChild(el("summary", null, "Show the numbers"));
+    var wrap = el("div", { "class": "tablewrap" }), t = el("table"), head = el("tr");
+    ["Time", "Price move", "OI change", "Buy: new", "Buy: covering", "Sell: new", "Sell: unwinding", "Net reading"].forEach(function (h) { head.appendChild(el("th", { scope: "col" }, h)); });
+    t.appendChild(el("thead")).appendChild(head);
+    var tb = el("tbody");
+    blocks.slice().reverse().forEach(function (u) {
+      var prev = u.first.price - u.first.pr, tr = el("tr");
+      [blockLabel(u), (u.pr > 0 ? "+" : "") + (prev ? (u.pr / prev * 100).toFixed(2) : "0.00") + "%", fmtOi(u.d), fmtOiAbs(u.long), fmtOiAbs(u.cover), fmtOiAbs(u.short), fmtOiAbs(u.unwind), BUILDUP[kind(u.d, u.pr)].label]
+        .forEach(function (v, i) { tr.appendChild(el("td", { "class": i === 1 ? cls(u.pr) : "" }, v)); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap); return d;
   }
 
   function renderOi() {
@@ -382,7 +431,7 @@
     if (!series) {
       var fo = row ? row.fo : false;
       body.appendChild(el("p", { "class": "oiNote" }, !fo && state.data && state.data.has_fo ? "This stock isn't in F&O, so it has no futures open interest." :
-        state.mode === "replay" ? "No futures OI is stored for this stock on this day (contracts before the previous expiry aren't available)." :
+        state.mode === "replay" ? "No futures OI is stored for this stock on this day." :
         "No OI data for today yet. It is published every ~5 minutes while the market is open."));
       return;
     }
@@ -391,34 +440,42 @@
 
     var first = series.o.filter(function (v) { return v !== null; })[0], last = series.o[series.upTo];
     var p0 = series.p.filter(function (v) { return v !== null; })[0], p1 = series.p[series.upTo];
-    var net = last - first, pr = p1 - p0, dayKind = BUILDUP[kind(net, pr)];
+    var net = last - first, pr = p1 - p0;
     var sums = { long: 0, cover: 0, short: 0, unwind: 0 };
     bars.forEach(function (b) { if (sums[b.kind] !== undefined) sums[b.kind] += Math.abs(b.d); });
     var buy = sums.long + sums.cover, sell = sums.short + sums.unwind, tot = buy + sell || 1;
 
     var grid = el("div", { "class": "oiSummary" });
     [["Open interest", fmtOiAbs(last)], ["Change since 09:15", fmtOi(net) + " (" + (first ? ((net / first) * 100).toFixed(2) : "0") + "%)"],
-     ["Futures price since 09:15", (pr > 0 ? "+" : "") + (p0 ? (pr / p0 * 100).toFixed(2) : "0") + "%"], ["Net reading", dayKind.label]].forEach(function (kv) {
+     ["Futures price since 09:15", (pr > 0 ? "+" : "") + (p0 ? (pr / p0 * 100).toFixed(2) : "0") + "%"],
+     ["Stronger side so far", (buy >= sell ? "Buy " + Math.round(buy / tot * 100) : "Sell " + Math.round(sell / tot * 100)) + "%"]].forEach(function (kv) {
       var d = el("div"); d.appendChild(el("b", null, kv[1])); d.appendChild(el("span", null, kv[0])); grid.appendChild(d);
     });
     body.appendChild(grid);
 
-    body.appendChild(el("div", { "class": "splitLabels" }, ""));
-    var labels = body.lastChild;
+    var labels = el("div", { "class": "splitLabels" });
     labels.appendChild(el("span", { "class": "up" }, "Buy side " + fmtOiAbs(buy) + " (" + Math.round(buy / tot * 100) + "%)"));
     labels.appendChild(el("span", { "class": "down" }, "Sell side " + fmtOiAbs(sell) + " (" + Math.round(sell / tot * 100) + "%)"));
     var split = el("div", { "class": "split", "aria-hidden": "true" });
     split.appendChild(el("i", { "class": "buy", style: "width:" + (buy / tot * 100) + "%" })); split.appendChild(el("i", { "class": "sell", style: "width:" + (sell / tot * 100) + "%" }));
-    body.insertBefore(split, labels);
+    body.appendChild(split); body.appendChild(labels);
 
-    var chart = el("div", { id: "oiChart" }); chart.appendChild(drawChart(bars, series.upTo)); body.appendChild(chart);
+    var ctl = el("div", { "class": "oiCtl" }); ctl.appendChild(el("span", null, "Group candles"));
+    var sel = el("select", { "aria-label": "Group candles" });
+    GROUPS.forEach(function (gp) { var o = el("option", { value: String(gp[0]) }, gp[1]); if (gp[0] === state.oiGroup) o.selected = true; sel.appendChild(o); });
+    sel.addEventListener("change", function (e) { state.oiGroup = parseInt(e.target.value, 10); renderOi(); });
+    ctl.appendChild(sel); body.appendChild(ctl);
+
+    var blocks = bucketize(bars, state.oiGroup);
+    var chart = el("div", { id: "oiChart" }); chart.appendChild(drawChart(blocks, state.oiGroup)); body.appendChild(chart);
     var legend = el("div", { "class": "legend" });
-    ["long", "cover", "short", "unwind"].forEach(function (k) {
-      var item = el("span"); var sw = el("i"); sw.style.background = BUILDUP[k].color; item.appendChild(sw);
-      item.appendChild(document.createTextNode(BUILDUP[k].label + " (" + BUILDUP[k].hint + ")")); legend.appendChild(item);
+    [["var(--up)", "Buy: new buying (OI up, price up)"], ["var(--up-soft)", "Buy: short covering (OI down, price up)"],
+     ["var(--down)", "Sell: new selling (OI up, price down)"], ["var(--down-soft)", "Sell: long unwinding (OI down, price down)"]].forEach(function (k) {
+      var item = el("span"); var sw = el("i"); sw.style.background = k[0]; item.appendChild(sw); item.appendChild(document.createTextNode(k[1])); legend.appendChild(item);
     });
     body.appendChild(legend);
-    body.appendChild(el("p", { "class": "oiNote" }, "Bars above the line = OI added in that 5-minute candle, below = OI removed. Buy side = long buildup + short covering; sell side = short buildup + long unwinding. Current-month futures contract" + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
+    body.appendChild(numbersTable(blocks));
+    body.appendChild(el("p", { "class": "oiNote" }, "Green bars = buyers were in control (price rising), red = sellers (price falling); a taller bar means more open interest changed hands. Dark = new positions opened, light = existing positions closed. Hover a bar for exact figures. Current-month futures contract" + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
   }
 
   function openOi(sym) {

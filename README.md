@@ -525,18 +525,22 @@ cancels a session in progress - they share a concurrency group).
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest
-buildup**: a bar per 5-minute candle (above the line = OI added, below = OI
-removed), coloured by what price did meanwhile - long buildup (OI up, price
-up) and short covering (OI down, price up) count as **buy side**; short
-buildup (OI up, price down) and long unwinding (OI down, price down) as **sell
-side** - with the day's buy/sell split and net reading. F&O stocks only, on the
-current-month futures contract. Live, `scripts/run_dashboard.py` refreshes
-`oi.json` (today's 5-minute futures candles, one request per F&O stock) every
-5 minutes beside the quote loop; in Replay the nightly history files carry the
-OI arrays, so the chart follows the chosen date and time. OI comes from the
-current-month futures contract, so replay days before the previous monthly expiry
-(~29-30 Sep) show what was then the next-month contract (smaller OI, rising as
-traders rolled over); the chart says so.
+activity as a buy-vs-sell chart**: per time block (5 min / 15 min / 30 min / 1
+hour, your choice) a green bar for the buy side next to a red bar for the sell
+side, both pointing up, taller = more open interest changed. Each bar is split
+into dark = new positions opened (buy side: long buildup, sell side: short
+buildup) and light = positions closed (short covering / long unwinding), where a
+candle counts as buy-side if price rose in it and sell-side if it fell. Above
+the chart: current OI, change since 09:15, futures price move, which side has
+been stronger and the day's buy/sell split; "Show the numbers" lists every
+block (price move, OI change, the four components, net reading). F&O stocks
+only, on the current-month futures contract. Live, `scripts/run_dashboard.py`
+refreshes `oi.json` (today's 5-minute futures candles, one request per F&O
+stock) every 5 minutes beside the quote loop; in Replay the nightly history
+files carry the OI arrays, so the chart follows the chosen date and time. OI
+comes from the current-month contract, so replay days before the previous
+monthly expiry (~29-30 Sep) show what was then the next-month contract
+(smaller OI, rising as traders rolled over); the chart says so.
 
 ### Replay
 
