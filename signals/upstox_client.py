@@ -174,13 +174,13 @@ class UpstoxClient:
         logger.info("F&O symbol set: %d underlyings with a live futures contract", len(matched))
         return matched
 
-    def fetch_futures_instrument_map(self) -> dict[str, str]:
-        """{underlying symbol: instrument_key} of each stock's current
-        (nearest unexpired) futures contract - the liquid one, whose open
-        interest is what people mean by "OI". The symbol comes from the
-        contract code with its trailing <YY><MON>FUT stripped (see
-        fetch_fo_symbol_set for why not `name`). Candles for these keys carry
-        a 7th open_interest field, which _request_candles keeps."""
+    def fetch_futures_contracts(self, per_symbol: int = 2) -> dict[str, list[tuple[date, str]]]:
+        """{underlying symbol: [(expiry, instrument_key), ...]} - each stock's
+        nearest `per_symbol` unexpired futures contracts, soonest first (near
+        and next month). The symbol comes from the contract code with its
+        trailing <YY><MON>FUT stripped (see fetch_fo_symbol_set for why not
+        `name`). Candles for these keys carry a 7th open_interest field, which
+        _request_candles keeps."""
         df = self._fetch_instrument_master_df()
         required = {"tradingsymbol", "instrument_key", "expiry", "instrument_type"}
         if required - set(df.columns):
@@ -192,12 +192,21 @@ class UpstoxClient:
         fo["expiry"] = expiry
         fo["symbol"] = fo["tradingsymbol"].astype(str).str.strip().str.replace(r"\d{2}[A-Z]{3}FUT$", "", regex=True)
         fo = fo[fo["expiry"] >= pd.Timestamp(ist_today())].sort_values("expiry")
-        nearest = fo.groupby("symbol", as_index=False).first()
-        mapping = dict(zip(nearest["symbol"], nearest["instrument_key"].astype(str).str.strip()))
-        if len(mapping) < 50:
-            raise UpstoxError(f"Only {len(mapping)} current stock-futures contracts found - the master's format likely changed")
-        logger.info("Futures map: %d underlyings with a current contract", len(mapping))
-        return mapping
+        contracts: dict[str, list[tuple[date, str]]] = {}
+        for symbol, group in fo.groupby("symbol"):
+            contracts[symbol] = [
+                (row.expiry.date(), str(row.instrument_key).strip()) for row in group.head(per_symbol).itertuples()
+            ]
+        if len(contracts) < 50:
+            raise UpstoxError(f"Only {len(contracts)} current stock-futures underlyings found - the master's format likely changed")
+        logger.info("Futures contracts: %d underlyings", len(contracts))
+        return contracts
+
+    def fetch_futures_instrument_map(self) -> dict[str, str]:
+        """{underlying symbol: instrument_key} of each stock's current
+        (nearest unexpired) futures contract - the liquid one, whose open
+        interest is what people mean by "OI"."""
+        return {symbol: items[0][1] for symbol, items in self.fetch_futures_contracts(per_symbol=1).items()}
 
     def get_daily_history(self, instrument_key: str, years: int) -> pd.DataFrame:
         """Fetch daily OHLCV candles for one instrument.
