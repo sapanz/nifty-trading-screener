@@ -519,6 +519,21 @@ data a few minutes old, not tick-by-tick. Running the workflow manually with
 "once" ticked publishes a single snapshot for a smoke test (a manual run
 cancels a session in progress - they share a concurrency group).
 
+### OI buildup (click a stock)
+
+Clicking any row opens a panel with that stock's **futures open-interest
+buildup**: a bar per 5-minute candle (above the line = OI added, below = OI
+removed), coloured by what price did meanwhile - long buildup (OI up, price
+up) and short covering (OI down, price up) count as **buy side**; short
+buildup (OI up, price down) and long unwinding (OI down, price down) as **sell
+side** - with the day's buy/sell split and net reading. F&O stocks only, on the
+current-month futures contract. Live, `scripts/run_dashboard.py` refreshes
+`oi.json` (today's 5-minute futures candles, one request per F&O stock) every
+5 minutes beside the quote loop; in Replay the nightly history files carry the
+OI arrays, so the chart follows the chosen date and time. Contracts that
+expired before the current one's listing aren't available, so older replay days
+can show "no OI".
+
 ### Replay
 
 The dashboard's **Replay** tab shows the same two views - sector day change and

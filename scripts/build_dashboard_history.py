@@ -71,6 +71,15 @@ def main() -> None:
         )
         intraday = data.fetch_intraday(client, instrument_map, months=1)
         _add_today(client, instrument_map, intraday)
+        futures = {}
+        try:
+            # Futures candles carry open interest (the OI-buildup chart). Optional:
+            # without them the day files simply have no OI arrays.
+            futures_map = client.fetch_futures_instrument_map()
+            futures = data.fetch_intraday(client, futures_map, months=1)
+            _add_today(client, futures_map, futures)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Futures OI history unavailable, replay will have no OI chart: %s", exc)
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
@@ -78,7 +87,7 @@ def main() -> None:
     (OUT_DIR / "days").mkdir(parents=True, exist_ok=True)
     dates = []
     for day in dashboard_history.trading_days(intraday, KEEP_DAYS):
-        payload = dashboard_history.build_day(day, intraday, daily, industries, fo_symbols)
+        payload = dashboard_history.build_day(day, intraday, daily, industries, fo_symbols, futures)
         if payload is None:
             logger.warning("Skipping %s: too few stocks traded", day.date())
             continue

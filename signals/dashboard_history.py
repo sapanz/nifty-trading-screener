@@ -13,7 +13,9 @@ Day file shape (keys kept short - 500 stocks x 75 slots adds up):
    "stocks": {"SYM": {"s": sector, "fo": 0|1, "pc": previous close,
                       "av": 20-day average volume or null,
                       "c": [close per slot, null before the first trade],
-                      "v": [volume per slot]}}}
+                      "v": [volume per slot],
+                      "o": [futures open interest per slot, F&O stocks only, when known],
+                      "p": [futures close per slot, alongside "o"]}}}
 Slot i covers 09:15 + 5i minutes .. +5; a closed price is carried forward
 through slots with no trades.
 """
@@ -34,8 +36,13 @@ def build_day(
     daily: dict[str, pd.DataFrame],
     industries: dict[str, str],
     fo_symbols: set[str] | None,
+    futures: dict[str, pd.DataFrame] | None = None,
 ) -> dict | None:
-    """The day file for `day`, or None if too few stocks traded to be a real session."""
+    """The day file for `day`, or None if too few stocks traded to be a real
+    session. `futures` ({symbol: 5-minute candles of its futures contract with
+    open_interest}) adds each F&O stock's OI arrays ("o", "p") when available."""
+    from signals.oi import oi_arrays
+
     day = day.normalize()
     stocks: dict[str, dict] = {}
     for symbol, df in intraday.items():
@@ -68,6 +75,9 @@ def build_day(
             "c": closes,
             "v": volumes,
         }
+        arrays = oi_arrays(futures.get(symbol), day) if futures else None
+        if arrays:
+            stocks[symbol].update(arrays)
     if len(stocks) < 50:
         return None
     return {"date": day.date().isoformat(), "start": "09:15", "step": STEP_MINUTES, "slots": SLOTS, "stocks": stocks}
