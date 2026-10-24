@@ -525,30 +525,35 @@ cancels a session in progress - they share a concurrency group).
 ### R-factor and OI change columns
 
 For F&O stocks the table also shows **OI chg %** (open interest added since
-09:15) and an **R-factor** (0-100), and you can sort by either (the "Sort by"
-box or the column headers). R ranks each F&O stock, among all F&O stocks at that
-moment, on (1) volume vs. its 20-day average, (2) OI added since 09:15 and (3)
-the size of the price move since 09:15, then takes the geometric mean of the
-three ranks - so it is high only when volume, OI and price move are all high
-together, and 0 where OI has fallen. The ▲/▼ tag says whether the buildup is
-bullish (OI up, price up) or bearish (OI up, price down). Ranks are relative, so
-R is not comparable between moments; it is a way to surface candidates, not a
-signal, and the weights (equal) are a judgement call, untested against outcomes.
-Live it needs `oi.json` (refreshed every 5 minutes); in Replay it uses the day
-files' OI arrays.
+09:15), **OI 30m %** (added in the last 30 minutes) and an **R-factor** (0-100),
+and you can sort by any of them (the "Sort by" box or the column headers).
+R asks whether fresh positioning is building *right now*: each F&O stock is
+ranked, among all F&O stocks at that moment, on (1) volume vs. its 20-day
+average, (2) OI added over the last 30 minutes, (3) the size of the price move
+over those 30 minutes and (4) persistence - how many of the last six candles had
+OI rising - and R is the geometric mean of the four ranks, so it is high only
+when all four are. It is **0 and flagged "⚠ exiting"** when OI has fallen over
+the last 15 minutes (positions are being closed, so the move can reverse); the
+first version measured OI since the open and could score a stock 90+ while its
+OI was already falling. The tag says which side is building: ▲ OI up with price
+up (fresh buying), ▼ OI up with price down (fresh selling) - fresh selling
+scores as highly as fresh buying. R is relative to the other F&O stocks at that
+moment, so it is not comparable between times; equal weights are a judgement
+call.
 
-**Does R-factor work? Not so far.** `scripts/backtest_rfactor.py` (no Upstox
-needed - it reads the Replay day files) scores R at seven moments a day (10:00
-to 13:00) over the ~20 replay sessions and measures what price did next in the
-buildup's direction, net of 0.10% costs. Result (first run, 24 Sep - 23 Oct
-2026): the top-5 by R lost about 0.08% per trade over the next 30 min and
-about 0.07% over 60 min, no better than every stock with OI building, and
-higher R was not better than lower R (R>=70, 40-69 and <40 all within 0.01% of
-each other) - i.e. no gradient. The one number that looked interesting (top-5
-by volume alone, direction = price since open, held to the close: +0.13%, 58%
-winners) is not significant once each session is counted once (t = 1.2). The
-window is short (the current futures contract's life), so this says "no
-evidence", not "proven useless"; re-run it as the replay history grows.
+**Does R-factor work?** `scripts/backtest_rfactor.py` (no Upstox needed - it
+reads the Replay day files) scores R at seven moments a day (10:00-13:00) over
+the ~20 replay sessions (24 Sep - 23 Oct 2026) and measures what price did next
+in the buildup's direction, net of 0.10% costs. Findings: *higher R is
+better than lower R, but not enough to pay for costs* - held to the close,
+R<40 lost 0.12%, R 40-69 lost 0.05%, R>=70 lost 0.04% and the top-5 by R made
++0.02% (50% winners, t = 0.3); over the next 30/60 minutes the top-5 lost 0.06% /
+0.02%. The exit flag did **not** show up as a reversal predictor in this data:
+stocks flagged exiting did about as well (or as badly) as those still building
+(-0.08% vs -0.08% over 30 min). The window is one month, so this is "no evidence
+yet", not proof; the flag is kept because it mirrors what the OI chart shows and
+protects an entry from chasing a fading build. Re-run the script as the replay
+history grows.
 
 ### OI buildup (click a stock)
 

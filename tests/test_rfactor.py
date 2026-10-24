@@ -31,19 +31,49 @@ def test_percentile_ranks_average_ties():
     assert rf.percentile_ranks([7]) == [50.0]
 
 
-def test_r_is_highest_where_volume_oi_and_price_move_are_all_highest():
+def test_r_is_highest_where_volume_recent_oi_build_and_price_move_are_all_highest():
     rows = {r["symbol"]: r for r in rf.snapshot_rows(_day(), rf.slot_for("11:00"))}
     assert "NOT_FO" not in rows                               # no OI -> not ranked
-    # S19 leads on all three, but FALLING_OI has even more volume, so its volume rank (and R) is a touch under 100
-    assert rows["S19"]["r"] >= 95 and rows["S19"]["bias"] == "long"
-    assert rows["S19"]["r"] == max(r["r"] for r in rows.values())
+    assert rows["S19"]["bias"] == "long" and rows["S19"]["r"] == max(r["r"] for r in rows.values())
     assert rows["S19"]["r"] > rows["S10"]["r"] > rows["S1"]["r"]
     assert rows["FALLING_OI"]["r"] == 0 and rows["FALLING_OI"]["bias"] == "cover"
 
 
-def test_too_few_stocks_gives_no_ranking():
-    day = _day(5)
-    assert rf.snapshot_rows(day, 20) == []
+def test_too_few_stocks_or_too_early_gives_no_ranking():
+    assert rf.snapshot_rows(_day(5), 20) == []
+    assert rf.snapshot_rows(_day(), 3) == []                  # not enough candles for a 30-minute window
+
+
+def _with_oi(day, symbol, oi_values):
+    day["stocks"][symbol] = dict(day["stocks"]["S19"], o=oi_values)
+    return day
+
+
+def test_stock_whose_oi_is_now_falling_is_flagged_exiting_and_scores_zero():
+    day = _day()
+    slot = rf.slot_for("11:50")                               # slot 30
+    assert slot == 30
+    # OI builds hard to slot 27, then positions are closed over the last 3 candles
+    built = [1_000_000 + 20_000 * min(i, 27) for i in range(75)]
+    for i in range(28, 75):
+        built[i] = built[27] - 5_000 * (i - 27)
+    day = _with_oi(day, "EXITER", built)
+    rows = {r["symbol"]: r for r in rf.snapshot_rows(day, slot)}
+    assert rows["EXITER"]["oi_w"] > 0                        # still up over the 30-minute window...
+    assert rows["EXITER"]["exiting"] is True and rows["EXITER"]["r"] == 0    # ...but people are leaving now
+    assert rows["S19"]["exiting"] is False and rows["S19"]["r"] > 0
+
+
+def test_persistence_separates_a_steady_build_from_a_single_spike():
+    day = _day()
+    slot = rf.slot_for("11:00")
+    steady = [1_000_000 + 10_000 * i for i in range(75)]
+    spike = [1_000_000] * 75
+    for i in range(slot, 75):
+        spike[i] = 1_000_000 + 60_000                         # all of the build lands in the last candle
+    day = _with_oi(_with_oi(day, "STEADY", steady), "SPIKE", spike)
+    rows = {r["symbol"]: r for r in rf.snapshot_rows(day, slot)}
+    assert rows["STEADY"]["persist"] == 1.0 and rows["SPIKE"]["persist"] == pytest.approx(1 / 6)
 
 
 def test_forward_return_is_direction_adjusted_and_bounded_by_the_session():
