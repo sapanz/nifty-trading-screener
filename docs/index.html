@@ -418,7 +418,7 @@
       item.appendChild(document.createTextNode(BUILDUP[k].label + " (" + BUILDUP[k].hint + ")")); legend.appendChild(item);
     });
     body.appendChild(legend);
-    body.appendChild(el("p", { "class": "oiNote" }, "Bars above the line = OI added in that 5-minute candle, below = OI removed. Buy side = long buildup + short covering; sell side = short buildup + long unwinding. Current-month futures contract. " + series.info + "."));
+    body.appendChild(el("p", { "class": "oiNote" }, "Bars above the line = OI added in that 5-minute candle, below = OI removed. Buy side = long buildup + short covering; sell side = short buildup + long unwinding. Current-month futures contract" + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
   }
 
   function openOi(sym) {

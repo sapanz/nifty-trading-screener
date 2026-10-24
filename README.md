@@ -533,9 +533,10 @@ side** - with the day's buy/sell split and net reading. F&O stocks only, on the
 current-month futures contract. Live, `scripts/run_dashboard.py` refreshes
 `oi.json` (today's 5-minute futures candles, one request per F&O stock) every
 5 minutes beside the quote loop; in Replay the nightly history files carry the
-OI arrays, so the chart follows the chosen date and time. Contracts that
-expired before the current one's listing aren't available, so older replay days
-can show "no OI".
+OI arrays, so the chart follows the chosen date and time. OI comes from the
+current-month futures contract, so replay days before the previous monthly expiry
+(~29-30 Sep) show what was then the next-month contract (smaller OI, rising as
+traders rolled over); the chart says so.
 
 ### Replay
 
