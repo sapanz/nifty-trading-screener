@@ -110,3 +110,25 @@ def test_snapshot_is_json_serialisable_with_plain_python_numbers():
     text = json.dumps(out)                                   # numpy scalars would raise here (and in the nightly job)
     assert json.loads(text)["stock_count"] == out["stock_count"]
     assert all(type(r["chg_5d"]) is float and type(r["r"]) is int for r in out["stocks"])
+
+
+def test_previous_monthly_expiry_is_the_last_tuesday_of_the_month_before():
+    assert swing.previous_monthly_expiry(date(2026, 10, 27)) == date(2026, 9, 29)
+    assert swing.previous_monthly_expiry(date(2026, 11, 24)) == date(2026, 10, 27)
+    assert swing.previous_monthly_expiry(date(2027, 1, 26)) == date(2026, 12, 29)
+
+
+def test_seed_floor_drops_history_before_the_last_expiry_once_and_never_again():
+    days = pd.bdate_range("2026-09-20", "2026-10-09")
+    series = pd.Series(np.arange(len(days)) + 100.0, index=days)
+    stale = {"oi": {"AAA": {"2026-09-21": 5, "2026-09-29": 6, "2026-09-30": 7}}, "expiries": []}   # an old store, seeded without a floor
+    store = swing.update_store(stale, {"AAA": series}, set(), None, seed_floor=date(2026, 9, 29))
+    saved = store["oi"]["AAA"]
+    assert min(saved) == "2026-09-30" and saved["2026-09-30"] == 7                   # kept what was there after the floor
+    assert "2026-09-29" not in saved and store["seed_floor"] == "2026-09-29"
+    # a later night with a different floor (a new month) must not wipe the saved history
+    again = swing.update_store(store, {}, set(), None, seed_floor=date(2026, 10, 27))
+    assert min(again["oi"]["AAA"]) == "2026-09-30" and again["seed_floor"] == "2026-09-29"
+    # a brand-new store only takes dates after the floor
+    fresh = swing.update_store(None, {"AAA": series}, set(), None, seed_floor=date(2026, 10, 1))
+    assert min(fresh["oi"]["AAA"]) == "2026-10-02"

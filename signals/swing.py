@@ -24,7 +24,7 @@ exited): treat it with care.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from statistics import mean, median
 
 import pandas as pd
@@ -54,12 +54,22 @@ def combined_oi(frames: list[pd.DataFrame]) -> pd.Series:
     return total.sort_index()
 
 
+def previous_monthly_expiry(near: date) -> date:
+    """The monthly stock-F&O expiry before `near`'s: NSE's expiry is the last
+    Tuesday of the month, so the last Tuesday of the month before near's. (A
+    holiday can shift an expiry by a day; the effect here is one session.)"""
+    day = near.replace(day=1) - timedelta(days=1)
+    while day.weekday() != 1:
+        day -= timedelta(days=1)
+    return day
+
+
 PX_LOOKBACK_DAYS = 45      # equity closes/volumes are kept from this long before the first saved OI date
 
 
 def update_store(
     store: dict | None, combined: dict[str, pd.Series], near_expiries: set[date],
-    equity: dict[str, pd.DataFrame] | None = None,
+    equity: dict[str, pd.DataFrame] | None = None, seed_floor: date | None = None,
 ) -> dict:
     """Add each night's totals to the saved store. A date already saved is
     never overwritten: its total was taken over the contracts live at the time,
@@ -69,13 +79,25 @@ def update_store(
     PX_LOOKBACK_DAYS before its first saved OI date), so the saved file is
     self-contained: the swing backtest (signals/swing_backtest.py) can score
     and measure every saved date from it alone."""
-    store = store or {"version": 2, "oi": {}, "px": {}, "expiries": []}
+    store = store or {"version": 3, "oi": {}, "px": {}, "expiries": []}
     store.setdefault("px", {})
+    # The totals the API gives for past dates are over TODAY's near + next contract, which for dates
+    # before the last expiry were the next-month and far contracts - their OI ramps up as they approach
+    # expiry, which reads as a false buildup. So history is only trusted from the session after the last
+    # expiry (`seed_floor`); it is applied once, remembered in the store, and also cleans up a store
+    # that was seeded without it. Later nights are saved as they happen, so they are unaffected.
+    if seed_floor and not store.get("seed_floor"):
+        store["seed_floor"] = seed_floor.isoformat()
+        for saved in store["oi"].values():
+            for key in [k for k in saved if k <= store["seed_floor"]]:
+                del saved[key]
+        store["px"] = {}
+    floor = store.get("seed_floor", "")
     for symbol, series in combined.items():
         saved = store["oi"].setdefault(symbol, {})
         for d, value in series.items():
             key = d.date().isoformat()
-            if key not in saved and value > 0:
+            if key > floor and key not in saved and value > 0:
                 saved[key] = int(value)
     store["expiries"] = sorted(set(store.get("expiries", [])) | {d.isoformat() for d in near_expiries})
     for symbol, df in (equity or {}).items():
