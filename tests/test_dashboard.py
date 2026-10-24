@@ -145,3 +145,15 @@ def test_publish_errors_do_not_leak_the_token(tmp_path):
     with pytest.raises(RuntimeError) as err:
         publish_directory(str(site), "o/r", "secret-token", "b", "m", remote="https://x-access-token:secret-token@127.0.0.1:1/none.git")
     assert "secret-token" not in str(err.value) and "secret-token" not in repr(err.value.__cause__)
+
+
+def test_publish_accepts_a_relative_directory(tmp_path, monkeypatch):
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "data.json").write_text("{}")
+    monkeypatch.chdir(tmp_path)                       # how the workflow runs it: "dashboard_site"
+    publish_directory("site", "o/r", "t", "dashboard-data", "m", remote=str(remote))
+    shown = subprocess.run(["git", "--git-dir", str(remote), "show", "dashboard-data:data.json"],
+                           capture_output=True, text=True, check=True).stdout
+    assert shown == "{}"

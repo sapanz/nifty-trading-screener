@@ -31,7 +31,10 @@ def publish_directory(
     of `repository` ("owner/name") using `token`. `remote` overrides the
     GitHub URL (for tests)."""
     remote = remote or f"https://x-access-token:{token}@github.com/{repository}.git"
-    path = Path(directory)
+    # Absolute, because git resolves GIT_WORK_TREE relative to the cwd we run in (the
+    # directory itself) - a relative path like "dashboard_site" would point at
+    # dashboard_site/dashboard_site.
+    path = Path(directory).resolve()
     with tempfile.TemporaryDirectory() as scratch:
         # A throwaway git dir, so the working tree being published (and the
         # checkout the job runs in) is never touched.
