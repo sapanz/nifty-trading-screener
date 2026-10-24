@@ -514,8 +514,11 @@ GitHub Pages from `/docs`, reads that file every minute. To switch it on once:
 repo **Settings -> Pages -> Source: Deploy from a branch -> `main` / `/docs`**;
 the page is then at `https://<user>.github.io/<repo>/`. Anyone with the link can
 open it (it holds market data only; the Upstox token never leaves the job).
-Because GitHub's raw-file cache and the 2-minute cadence both apply, expect
-data a few minutes old, not tick-by-tick. Running the workflow manually with
+The page reads the live files through GitHub's API, which revalidates on every
+poll (so a new snapshot appears within about a minute; raw-file URLs are cached
+for ~5 minutes whatever the query string, so they're only the fallback if the
+API's 60 requests/hour per-IP limit is hit). Expect data a couple of minutes old,
+not tick-by-tick. Running the workflow manually with
 "once" ticked publishes a single snapshot for a smoke test (a manual run
 cancels a session in progress - they share a concurrency group).
 

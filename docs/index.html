@@ -179,11 +179,26 @@
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
   function save() { try { localStorage.setItem("dash", JSON.stringify({ sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
-  function dataUrl() {
-    var override = new URLSearchParams(location.search).get("src");
-    if (override) return override;
-    var owner = location.hostname.split(".")[0], repo = location.pathname.split("/").filter(Boolean)[0] || "";
-    return "https://raw.githubusercontent.com/" + owner + "/" + repo + "/dashboard-data/data.json";
+  function ownerRepo() {
+    return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
+  }
+  function rawUrl(name) {
+    var r = ownerRepo();
+    return "https://raw.githubusercontent.com/" + r[0] + "/" + r[1] + "/dashboard-data/" + name;
+  }
+  /* ?src=<url> points the live data at another file (testing); oi.json is looked up beside it */
+  function srcOverride() { return new URLSearchParams(location.search).get("src"); }
+
+  /* Live files come through the GitHub API, which revalidates on every poll (a 304 costs nothing against the
+     rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
+     the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
+  function liveJson(name) {
+    var o = srcOverride();
+    if (o) return fetchJson(name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name), true);
+    var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=dashboard-data";
+    return fetch(api, { headers: { Accept: "application/vnd.github.raw" }, cache: "no-cache" })
+      .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+      .catch(function () { return fetchJson(rawUrl(name), true); });
   }
 
   function fmtVol(v) {
@@ -293,7 +308,6 @@
     unwind: { label: "Long unwinding", color: "var(--down-soft)", side: "sell", hint: "OI down, price down" },
     flat:   { label: "No price move",  color: "var(--flat)",      side: null,   hint: "" }
   };
-  function oiUrl() { return dataUrl().replace(/data\.json(\?.*)?$/, "oi.json"); }
   function fmtOi(v) { var a = Math.abs(v), sign = v < 0 ? "−" : (v > 0 ? "+" : ""); return sign + (a >= 1e7 ? (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? (a / 1e5).toFixed(2) + " L" : a >= 1e3 ? (a / 1e3).toFixed(1) + " K" : String(a)); }
   function fmtOiAbs(v) { return fmtOi(v).replace(/^[+−]/, ""); }
   function slotStart(slot) { var m = 9 * 60 + 15 + slot * 5; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); }
@@ -413,7 +427,7 @@
   }
   function closeOi() { state.sel = null; $("oiOverlay").hidden = true; }
   function loadLiveOi() {
-    fetchJson(oiUrl(), true).then(function (d) { state.oiLive = d; renderOi(); }).catch(function () { renderOi(); });
+    liveJson("oi.json").then(function (d) { state.oiLive = d; renderOi(); }).catch(function () { renderOi(); });
   }
 
   function renderSectors() {
@@ -530,9 +544,7 @@
 
   function refresh() {
     if (state.mode !== "live") return;
-    var url = dataUrl(), sep = url.indexOf("?") === -1 ? "?" : "&";
-    fetch(url + sep + "t=" + Date.now(), { cache: "no-store" })
-      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    liveJson("data.json")
       .then(function (d) { if (state.mode === "live") { state.data = d; render(); if (state.sel) loadLiveOi(); } })
       .catch(function (e) {
         if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
