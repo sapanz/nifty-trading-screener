@@ -91,16 +91,16 @@ def build_swing(
         oi = {d: saved.get(d) for d in dates[max(0, t - CHART_DAYS - 1): t + 1]}
         if oi.get(dates[t]) is None or oi.get(dates[t - WINDOW]) is None or oi.get(dates[t - 1]) is None:
             continue
-        close, volume = df["close"].to_numpy(), df["volume"].to_numpy()
+        close, volume = df["close"].to_numpy(dtype=float), df["volume"].to_numpy(dtype=float)   # plain floats: the snapshot is saved as JSON
         prior = volume[max(0, t - AVG_DAYS): t]
         if len(prior) < 10 or prior.mean() <= 0 or close[t - 1] <= 0 or close[t - WINDOW] <= 0:
             continue
         oi_t, oi_w, oi_1 = oi[dates[t]], oi[dates[t - WINDOW]], oi[dates[t - 1]]
-        oi_chg, px_chg = (oi_t / oi_w - 1) * 100, (close[t] / close[t - WINDOW] - 1) * 100
+        oi_chg, px_chg = float((oi_t / oi_w - 1) * 100), float((close[t] / close[t - WINDOW] - 1) * 100)
         d0, d1 = date.fromisoformat(dates[t - WINDOW]), date.fromisoformat(dates[t])
         rows.append({
             "symbol": symbol, "sector": industries.get(symbol) or "Other", "price": round(float(close[t]), 2),
-            "change_pct": round((close[t] / close[t - 1] - 1) * 100, 2), "chg_5d": round(px_chg, 2),
+            "change_pct": round(float(close[t] / close[t - 1] - 1) * 100, 2), "chg_5d": round(px_chg, 2),
             "volume": int(volume[t]), "turnover_cr": round(float(close[t] * volume[t]) / CRORE, 2),
             "vol_vs_avg": round(float(volume[t] / prior.mean()), 2),
             "oi": int(oi_t), "oi_1d": round((oi_t / oi_1 - 1) * 100, 2), "oi_chg": round(oi_chg, 2),

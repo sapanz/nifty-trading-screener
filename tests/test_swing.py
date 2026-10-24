@@ -101,3 +101,12 @@ def test_sectors_average_the_five_day_move():
     names = {s["name"]: s for s in out["sectors"]}
     assert set(names) == {"Banks", "IT"} and names["Banks"]["stocks"] == 7
     assert out["sectors"][0]["change_pct"] >= out["sectors"][1]["change_pct"]
+
+
+def test_snapshot_is_json_serialisable_with_plain_python_numbers():
+    import json
+    store, equity, industries, _ = _world()
+    out = swing.build_swing(store, equity, industries, NOW)
+    text = json.dumps(out)                                   # numpy scalars would raise here (and in the nightly job)
+    assert json.loads(text)["stock_count"] == out["stock_count"]
+    assert all(type(r["chg_5d"]) is float and type(r["r"]) is int for r in out["stocks"])

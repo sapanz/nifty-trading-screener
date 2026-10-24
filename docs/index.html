@@ -117,6 +117,7 @@
     <div class="mode" role="group" aria-label="Mode">
       <button type="button" id="modeLive" aria-pressed="true">Live</button>
       <button type="button" id="modeReplay" aria-pressed="false">Replay</button>
+      <button type="button" id="modeSwing" aria-pressed="false">Swing</button>
     </div>
     <span id="pill" class="pill">Loading…</span><span id="updated"></span>
   </div>
@@ -160,6 +161,7 @@
   Turnover = price × volume so far. “Vol vs 20d” is today's volume so far divided by the average <em>full-day</em> volume of
   the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
   <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
+  <strong>Swing</strong> (built each evening after the close) applies the same idea to daily charts: volume vs its 20-day average, OI added over the last 5 sessions (near + next month futures) and the 5-session price move; ⚠ roll marks a window that includes a futures expiry, when the OI change includes settled and rolled positions.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -187,6 +189,24 @@
     { key: "oi_chg", label: "OI chg %", sort: "oi_chg", help: "Open interest added (or removed) since 09:15, % - F&O stocks only" },
     { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." }
   ];
+  var COLS_SWING = [
+    { key: "rank", label: "#", sort: null },
+    { key: "symbol", label: "Symbol", sort: "symbol" },
+    { key: "sector", label: "Sector", sort: "sector" },
+    { key: "price", label: "Close", sort: "price" },
+    { key: "change_pct", label: "1D %", sort: "change_pct" },
+    { key: "chg_5d", label: "5D %", sort: "chg_5d", help: "Price change over the last 5 sessions" },
+    { key: "volume", label: "Volume", sort: "volume" },
+    { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg", help: "Latest session's volume / the average of the 20 sessions before it" },
+    { key: "oi_1d", label: "OI 1D %", sort: "oi_1d", help: "Open interest change in the latest session, % (near + next month futures)" },
+    { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest added (or removed) over the last 5 sessions, % - what R-factor looks at" },
+    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." }
+  ];
+  function columns() { return state.mode === "swing" ? COLS_SWING : COLS; }
+  var SORT_OPTS = {
+    live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"]],
+    swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
+  };
   var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
 
   function $(id) { return document.getElementById(id); }
@@ -196,9 +216,9 @@
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
   }
-  function rawUrl(name) {
+  function rawUrl(name, branch) {
     var r = ownerRepo();
-    return "https://raw.githubusercontent.com/" + r[0] + "/" + r[1] + "/dashboard-data/" + name;
+    return "https://raw.githubusercontent.com/" + r[0] + "/" + r[1] + "/" + (branch || "dashboard-data") + "/" + name;
   }
   /* ?src=<url> points the live data at another file (testing); oi.json is looked up beside it */
   function srcOverride() { return new URLSearchParams(location.search).get("src"); }
@@ -206,13 +226,13 @@
   /* Live files come through the GitHub API, which revalidates on every poll (a 304 costs nothing against the
      rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
      the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
-  function liveJson(name) {
-    var o = srcOverride();
-    if (o) return fetchJson(name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name), true);
-    var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=dashboard-data";
+  function liveJson(name, branch) {
+    var o = branch ? new URLSearchParams(location.search).get("swing") : srcOverride();
+    if (o) return fetchJson(branch ? o : (name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name)), true);
+    var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=" + (branch || "dashboard-data");
     return fetch(api, { headers: { Accept: "application/vnd.github.raw" }, cache: "no-cache" })
       .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
-      .catch(function () { return fetchJson(rawUrl(name), true); });
+      .catch(function () { return fetchJson(rawUrl(name, branch), true); });
   }
 
   function fmtVol(v) {
@@ -285,10 +305,28 @@
     render();
   }
 
+  function setMode(m) {
+    var from = state.mode; state.mode = m; state.data = null;
+    $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing"));
+    $("replay").hidden = m !== "replay";
+    if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
+    state.sortDir = -1;
+  }
+  function enterSwing() {
+    closeOi(); setMode("swing");
+    $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
+    liveJson("swing.json", "dashboard-swing").then(function (d) {
+      if (state.mode !== "swing") return;
+      d.market_status = "swing"; d.has_fo = false; state.data = d; render();
+    }).catch(function (e) {
+      if (state.mode !== "swing") return;
+      $("pill").className = "pill stale"; $("pill").textContent = "No swing data yet";
+      $("empty").hidden = false; $("empty").textContent = "The swing view is built each evening after the close (" + e.message + ").";
+    });
+  }
+
   function enterReplay() {
-    closeOi(); state.mode = "replay"; state.data = null;
-    $("modeLive").setAttribute("aria-pressed", "false"); $("modeReplay").setAttribute("aria-pressed", "true");
-    $("replay").hidden = false;
+    closeOi(); setMode("replay");
     $("rNote").textContent = "Loading available days…";
     var sel = $("rTime");
     if (!sel.options.length) for (var i = 0; i < 75; i++) sel.appendChild(el("option", { value: String(i) }, slotLabel(i)));
@@ -304,9 +342,7 @@
     });
   }
   function enterLive() {
-    closeOi(); state.mode = "live"; state.data = null;
-    $("modeLive").setAttribute("aria-pressed", "true"); $("modeReplay").setAttribute("aria-pressed", "false");
-    $("replay").hidden = true; refresh();
+    closeOi(); setMode("live"); refresh();
   }
   function pickDate(value) {
     if (!state.index) return;
@@ -331,7 +367,18 @@
   }
 
   /* the OI/price arrays for a stock as of the current view, or null */
+  var INTRADAY_TL = { n: 75, label: function (i) { return slotStart(i); }, endLabel: function (i) { return slotLabel(i); }, since: "09:15", groups: null, groupLabel: "Group candles" };
+  var curTl = INTRADAY_TL;
+  function shortDate(d) { return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
   function oiSeries(sym) {
+    if (state.mode === "swing") {
+      var sr = state.data && state.data.stocks.filter(function (x) { return x.symbol === sym; })[0];
+      if (!sr || !sr.series || sr.series.length < 3) return null;
+      var dts = sr.series.map(function (x) { return x[0]; });
+      return { o: sr.series.map(function (x) { return x[1]; }), p: sr.series.map(function (x) { return x[2]; }), upTo: sr.series.length - 1, info: "Daily, as of the " + shortDate(state.data.asof) + " close",
+        tl: { n: sr.series.length, label: function (i) { return shortDate(dts[i]); }, endLabel: function (i) { return shortDate(dts[i]); }, since: shortDate(dts[0]),
+              groups: [[1, "1 day"], [2, "2 days"], [5, "1 week"]], groupLabel: "Group days", swing: true } };
+    }
     if (state.mode === "replay") {
       var st = state.day && state.day.stocks[sym];
       return st && st.o ? { o: st.o, p: st.p, upTo: state.slot, info: "Replay " + state.day.date } : null;
@@ -376,10 +423,10 @@
     });
     return Object.keys(by).map(function (k) { return by[k]; }).sort(function (x, y) { return x.k - y.k; });
   }
-  function blockLabel(u) { return slotStart(u.start) + "–" + slotLabel(u.end); }
+  function blockLabel(u) { return u.start === u.end ? curTl.label(u.start) : curTl.label(u.start) + "–" + curTl.endLabel(u.end); }
 
   function drawChart(blocks, g) {
-    var W = 680, H = 250, L = 58, R = 8, T = 12, B = 26, pw = W - L - R, ph = H - T - B, base = T + ph, NB = Math.ceil(74 / g);
+    var W = 680, H = 250, L = 58, R = 8, T = 12, B = 26, pw = W - L - R, ph = H - T - B, base = T + ph, NB = Math.ceil((curTl.n - 1) / g);
     var peak = Math.max.apply(null, blocks.map(function (u) { return Math.max(u.long + u.cover, u.short + u.unwind); }).concat([1]));
     var max = niceMax(peak);
     var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Buy and sell open interest activity per time block" });
@@ -392,7 +439,7 @@
     for (var k = 0; k < NB; k += labelEvery) {
       var lx = L + (k + 0.5) / NB * pw;
       svg.appendChild(svgEl("line", { x1: lx, x2: lx, y1: T, y2: base, stroke: "var(--line)", "stroke-dasharray": "2 3" }));
-      svg.appendChild(svgEl("text", { x: lx, y: H - 8, "text-anchor": "middle" }, slotStart(k * g + 1)));
+      svg.appendChild(svgEl("text", { x: lx, y: H - 8, "text-anchor": "middle" }, curTl.label(k * g + 1)));
     }
     var cell = pw / NB, bw = cell * (g === 1 ? 0.4 : 0.36), gap = cell * 0.04;
     function stack(x, opened, closed, solid, soft, title) {
@@ -417,7 +464,7 @@
   function numbersTable(blocks) {
     var d = el("details", { "class": "oiTable" }); d.appendChild(el("summary", null, "Show the numbers"));
     var wrap = el("div", { "class": "tablewrap" }), t = el("table"), head = el("tr");
-    ["Time", "Price move", "OI change", "Buy: new", "Buy: covering", "Sell: new", "Sell: unwinding", "Net reading"].forEach(function (h) { head.appendChild(el("th", { scope: "col" }, h)); });
+    [curTl.swing ? "Period" : "Time", "Price move", "OI change", "Buy: new", "Buy: covering", "Sell: new", "Sell: unwinding", "Net reading"].forEach(function (h) { head.appendChild(el("th", { scope: "col" }, h)); });
     t.appendChild(el("thead")).appendChild(head);
     var tb = el("tbody");
     blocks.slice().reverse().forEach(function (u) {
@@ -439,10 +486,13 @@
     if (!series) {
       var fo = row ? row.fo : false;
       body.appendChild(el("p", { "class": "oiNote" }, !fo && state.data && state.data.has_fo ? "This stock isn't in F&O, so it has no futures open interest." :
+        state.mode === "swing" ? "Not enough daily OI history for this stock yet." :
         state.mode === "replay" ? "No futures OI is stored for this stock on this day." :
         "No OI data for today yet. It is published every ~5 minutes while the market is open."));
       return;
     }
+    curTl = series.tl || INTRADAY_TL;
+    var groups = curTl.groups || GROUPS, g = groups.some(function (x) { return x[0] === state.oiGroup; }) ? state.oiGroup : 1;
     var bars = buildBars(series);
     if (!bars.length) { body.appendChild(el("p", { "class": "oiNote" }, "Not enough candles yet to show OI changes.")); return; }
 
@@ -454,8 +504,8 @@
     var buy = sums.long + sums.cover, sell = sums.short + sums.unwind, tot = buy + sell || 1;
 
     var grid = el("div", { "class": "oiSummary" });
-    [["Open interest", fmtOiAbs(last)], ["Change since 09:15", fmtOi(net) + " (" + (first ? ((net / first) * 100).toFixed(2) : "0") + "%)"],
-     ["Futures price since 09:15", (pr > 0 ? "+" : "") + (p0 ? (pr / p0 * 100).toFixed(2) : "0") + "%"],
+    [["Open interest", fmtOiAbs(last)], ["Change since " + curTl.since, fmtOi(net) + " (" + (first ? ((net / first) * 100).toFixed(2) : "0") + "%)"],
+     [(curTl.swing ? "Price since " : "Futures price since ") + curTl.since, (pr > 0 ? "+" : "") + (p0 ? (pr / p0 * 100).toFixed(2) : "0") + "%"],
      ["Stronger side so far", (buy >= sell ? "Buy " + Math.round(buy / tot * 100) : "Sell " + Math.round(sell / tot * 100)) + "%"]].forEach(function (kv) {
       var d = el("div"); d.appendChild(el("b", null, kv[1])); d.appendChild(el("span", null, kv[0])); grid.appendChild(d);
     });
@@ -468,14 +518,14 @@
     split.appendChild(el("i", { "class": "buy", style: "width:" + (buy / tot * 100) + "%" })); split.appendChild(el("i", { "class": "sell", style: "width:" + (sell / tot * 100) + "%" }));
     body.appendChild(split); body.appendChild(labels);
 
-    var ctl = el("div", { "class": "oiCtl" }); ctl.appendChild(el("span", null, "Group candles"));
-    var sel = el("select", { "aria-label": "Group candles" });
-    GROUPS.forEach(function (gp) { var o = el("option", { value: String(gp[0]) }, gp[1]); if (gp[0] === state.oiGroup) o.selected = true; sel.appendChild(o); });
+    var ctl = el("div", { "class": "oiCtl" }); ctl.appendChild(el("span", null, curTl.groupLabel));
+    var sel = el("select", { "aria-label": curTl.groupLabel });
+    groups.forEach(function (gp) { var o = el("option", { value: String(gp[0]) }, gp[1]); if (gp[0] === g) o.selected = true; sel.appendChild(o); });
     sel.addEventListener("change", function (e) { state.oiGroup = parseInt(e.target.value, 10); renderOi(); });
     ctl.appendChild(sel); body.appendChild(ctl);
 
-    var blocks = bucketize(bars, state.oiGroup);
-    var chart = el("div", { id: "oiChart" }); chart.appendChild(drawChart(blocks, state.oiGroup)); body.appendChild(chart);
+    var blocks = bucketize(bars, g);
+    var chart = el("div", { id: "oiChart" }); chart.appendChild(drawChart(blocks, g)); body.appendChild(chart);
     var legend = el("div", { "class": "legend" });
     [["var(--up)", "Buy: new buying (OI up, price up)"], ["var(--up-soft)", "Buy: short covering (OI down, price up)"],
      ["var(--down)", "Sell: new selling (OI up, price down)"], ["var(--down-soft)", "Sell: long unwinding (OI down, price down)"]].forEach(function (k) {
@@ -483,7 +533,7 @@
     });
     body.appendChild(legend);
     body.appendChild(numbersTable(blocks));
-    body.appendChild(el("p", { "class": "oiNote" }, "Green bars = buyers were in control (price rising), red = sellers (price falling); a taller bar means more open interest changed hands. Dark = new positions opened, light = existing positions closed. Hover a bar for exact figures. Current-month futures contract" + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
+    body.appendChild(el("p", { "class": "oiNote" }, "Green bars = buyers were in control (price rising), red = sellers (price falling); a taller bar means more open interest changed hands. Dark = new positions opened, light = existing positions closed. Hover a bar for exact figures. " + (curTl.swing ? "Open interest here is the total of the near and next-month futures, saved each evening so contract rolls don't distort it; price is the stock's daily close" : "Current-month futures contract") + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
   }
 
   function openOi(sym) {
@@ -529,6 +579,7 @@
                    cover: ["", "", "Short covering: OI down, price up"], unwind: ["", "", "Long unwinding: OI down, price down"] };
 
   function renderSectors() {
+    $("sh").firstChild.textContent = state.mode === "swing" ? "Sectors — 5-day change " : "Sectors — day change ";
     var box = $("sectors"); box.textContent = "";
     var sectors = state.data.sectors, max = Math.max.apply(null, sectors.map(function (s) { return Math.abs(s.change_pct); }).concat([0.01]));
     sectors.forEach(function (s) {
@@ -556,7 +607,7 @@
 
   function renderHead() {
     var head = $("head"); head.textContent = "";
-    COLS.forEach(function (c) {
+    columns().forEach(function (c) {
       var th = el("th", { scope: "col" }, c.label);
       if (c.help) th.title = c.help;
       if (c.sort) {
@@ -589,40 +640,65 @@
     var all = visibleStocks(), list = state.topN ? all.slice(0, state.topN) : all, body = $("rows");
     body.textContent = "";
     $("count").textContent = list.length === all.length ? all.length + " stocks" : "top " + list.length + " of " + all.length;
-    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers" };
+    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers", chg_5d: "Biggest 5-day movers", oi_1d: "Biggest 1-day OI change" };
+    if (state.mode === "swing") { titles.r = "Swing: highest R-factor"; titles.oi_chg = "Swing: biggest 5-day OI change"; }
     $("th").firstChild.textContent = (titles[state.sortKey] || "Stocks") + (state.sector ? " — " + state.sector : "");
     var empty = $("empty");
     empty.hidden = list.length > 0;
     if (!list.length) empty.textContent = "No stocks match these filters.";
+    var cols = columns();
     list.forEach(function (s, i) {
       var tr = el("tr", { tabindex: "0", title: "Click for futures OI buildup" });
       tr.addEventListener("click", function () { openOi(s.symbol); });
       tr.addEventListener("keydown", function (e) { if (e.key === "Enter") openOi(s.symbol); });
-      tr.appendChild(el("td", null, String(i + 1)));
-      var sym = el("td", { "class": "sym" }, s.symbol);
-      if (s.fo) sym.appendChild(el("span", { "class": "fo", title: "Has stock futures" }, "F&O"));
-      tr.appendChild(sym);
-      tr.appendChild(el("td", { "class": "sec", title: s.sector }, s.sector));
-      tr.appendChild(el("td", null, s.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })));
-      tr.appendChild(el("td", { "class": cls(s.change_pct) }, (s.change_pct > 0 ? "▲ " : s.change_pct < 0 ? "▼ " : "") + fmtPct(s.change_pct)));
-      tr.appendChild(el("td", null, fmtVol(s.volume)));
-      tr.appendChild(el("td", null, s.turnover_cr.toLocaleString("en-IN", { maximumFractionDigits: 1 })));
-      tr.appendChild(el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×"));
-      tr.appendChild(el("td", { "class": s.oi_chg === null || s.oi_chg === undefined ? "" : cls(s.oi_chg) }, s.oi_chg === null || s.oi_chg === undefined ? "–" : fmtPct(s.oi_chg)));
-      var rc = el("td", { "class": "rcell" });
-      if (s.r === null || s.r === undefined) rc.textContent = "–";
-      else {
-        rc.appendChild(el("b", { "class": s.r >= 70 ? "hot" : "" }, String(s.r)));
-        var tag = BIAS_TAG[s.bias];
-        if (s.r > 0 && tag && tag[0]) rc.appendChild(el("span", { "class": "bias " + tag[1], title: tag[2] + " (price " + fmtPct(r2(s.px_chg)) + " since 09:15)" }, tag[0]));
-      }
-      tr.appendChild(rc);
+      cols.forEach(function (c) { tr.appendChild(cellFor(c.key, s, i)); });
       body.appendChild(tr);
     });
   }
 
+  function pctCell(v, arrow) {
+    if (v === null || v === undefined) return el("td", null, "–");
+    return el("td", { "class": cls(v) }, (arrow ? (v > 0 ? "▲ " : v < 0 ? "▼ " : "") : "") + fmtPct(v));
+  }
+  function cellFor(key, s, i) {
+    var swingMode = state.mode === "swing";
+    switch (key) {
+      case "rank": return el("td", null, String(i + 1));
+      case "symbol": {
+        var sym = el("td", { "class": "sym" }, s.symbol);
+        if (s.fo && !swingMode) sym.appendChild(el("span", { "class": "fo", title: "Has stock futures" }, "F&O"));
+        return sym;
+      }
+      case "sector": return el("td", { "class": "sec", title: s.sector }, s.sector);
+      case "price": return el("td", null, s.price.toLocaleString("en-IN", { minimumFractionDigits: 2 }));
+      case "change_pct": return pctCell(s.change_pct, true);
+      case "chg_5d": return pctCell(s.chg_5d, true);
+      case "volume": return el("td", null, fmtVol(s.volume));
+      case "turnover_cr": return el("td", null, s.turnover_cr.toLocaleString("en-IN", { maximumFractionDigits: 1 }));
+      case "vol_vs_avg": return el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×");
+      case "oi_1d": return pctCell(s.oi_1d, false);
+      case "oi_chg": return pctCell(s.oi_chg, false);
+      case "r": {
+        var rc = el("td", { "class": "rcell" });
+        if (s.r === null || s.r === undefined) { rc.textContent = "–"; return rc; }
+        rc.appendChild(el("b", { "class": s.r >= 70 ? "hot" : "" }, String(s.r)));
+        var tag = BIAS_TAG[s.bias];
+        var move = swingMode ? s.chg_5d : s.px_chg, since = swingMode ? "over the last 5 sessions" : "since 09:15";
+        if (s.r > 0 && tag && tag[0]) rc.appendChild(el("span", { "class": "bias " + tag[1], title: tag[2] + " (price " + fmtPct(r2(move)) + " " + since + ")" }, tag[0]));
+        if (swingMode && s.roll) rc.appendChild(el("span", { "class": "bias exit", title: "These 5 sessions include a futures expiry: the OI change includes positions settled or rolled, so read it with care" }, "⚠ roll"));
+        return rc;
+      }
+    }
+    return el("td", null, "");
+  }
+
   function renderStatus() {
     var d = state.data, pill = $("pill");
+    if (d.market_status === "swing") {
+      pill.className = "pill"; pill.textContent = "Swing · close of " + new Date(d.asof + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+      $("updated").textContent = "Built after the close · F&O stocks · 5-session window";
+      $("foOnly").parentNode.hidden = true; return;
+    }
     if (d.market_status === "replay") {
       pill.className = "pill"; pill.textContent = "Replay · " + d.replay_label;
       $("updated").textContent = "Showing the market as it stood then, not now";
@@ -641,11 +717,21 @@
     if (!d.has_fo) state.fo = false;
   }
 
+  var sortOptsFor = "";
+  function renderSortOptions() {
+    var which = state.mode === "swing" ? "swing" : "live";
+    if (sortOptsFor === which) return;
+    sortOptsFor = which;
+    var sel = $("sortSel"); sel.textContent = "";
+    SORT_OPTS[which].forEach(function (o) { sel.appendChild(el("option", { value: o[0] }, o[1])); });
+  }
+
   function render() {
     if (!state.data) return;
-    attachR(state.data);
+    if (state.mode !== "swing") attachR(state.data);
+    renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
-    $("sortSel").value = ["volume", "r", "oi_chg", "turnover_cr", "vol_vs_avg", "change_pct"].indexOf(state.sortKey) >= 0 ? state.sortKey : "volume";
+    $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");
     $("foOnly").checked = state.fo; $("topN").value = String(state.topN); $("dir").value = state.dir;
   }
 
@@ -678,6 +764,7 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && state.sel) closeOi(); });
   $("modeLive").addEventListener("click", enterLive);
   $("modeReplay").addEventListener("click", enterReplay);
+  $("modeSwing").addEventListener("click", enterSwing);
   $("rDate").addEventListener("change", function (e) { pickDate(e.target.value); });
   $("rTime").addEventListener("change", function (e) { state.slot = parseInt(e.target.value, 10); renderReplay(); });
   $("rPrev").addEventListener("click", function () { if (state.slot > 0) { state.slot--; renderReplay(); } });
