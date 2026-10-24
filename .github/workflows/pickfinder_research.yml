@@ -1,0 +1,86 @@
+name: Pickfinder Research
+
+# Manual-only research run (see signals/pickfinder.py). Not scheduled, not wired
+# into the live screener, and sends nothing to Telegram.
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "Months of 5-minute history (24 covers the whole journal)"
+        type: number
+        default: 24
+      symbol_limit:
+        description: "Only the first N F&O symbols (0 = all) - use e.g. 5 for a smoke test of the 5-minute fetch"
+        type: number
+        default: 0
+      end_date:
+        description: "Last session to include (YYYY-MM-DD, blank = today). Pin it across re-runs so the feature cache is reused"
+        type: string
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore feature cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/pickfinder
+          key: pickfinder-${{ github.run_id }}
+          restore-keys: pickfinder-
+
+      - name: Install Playwright's Chromium (for automated Upstox login)
+        run: playwright install --with-deps chromium
+
+      # No Telegram secrets here on purpose: a failed login shows in the log
+      # (and the screenshot artifact) instead of pinging the live alert chat.
+      - name: Log in to Upstox (TOTP)
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+        run: python scripts/login_upstox.py
+
+      - name: Upload login failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstox-login-failure
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
+          if-no-files-found: ignore
+
+      - name: Run pickfinder research
+        env:
+          PICKFINDER_MONTHS: ${{ inputs.months }}
+          PICKFINDER_SYMBOL_LIMIT: ${{ inputs.symbol_limit }}
+          PICKFINDER_END: ${{ inputs.end_date }}
+        run: python scripts/run_pickfinder_research.py
+
+      - name: Save feature cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/pickfinder
+          key: pickfinder-${{ github.run_id }}
+
+      - name: Upload feature table
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pickfinder-features
+          path: pickfinder_features.csv.gz
+          if-no-files-found: ignore
