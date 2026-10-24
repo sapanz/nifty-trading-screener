@@ -12,8 +12,10 @@ table is uploaded as an artifact. Nothing is sent to Telegram.
 
 Per-symbol feature tables are cached in .cache/pickfinder (keyed by symbol,
 window and FEATURES_VERSION - bump it when session_features changes) so a
-re-run that only changes the analysis doesn't re-fetch a couple of hours of
-candles.
+re-run that only changes the analysis doesn't re-fetch over an hour of
+candles. Sector and prior-day OI features (NSE data, signals/nse_fo.py) are
+joined on top, so changing them never needs a re-fetch; if either source is
+unreachable the run carries on without it and says so.
 """
 import json
 import os
@@ -25,14 +27,16 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, pickfinder, runtime  # noqa: E402
+from signals import data, nse_fo, pickfinder, runtime, universe  # noqa: E402
 from signals.calendar_utils import ist_today  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
-FEATURES_VERSION = 1
+FEATURES_VERSION = 2
 PICKS_CSV = "research/journal_picks.csv"
 RUN_CONFIG = "research/run_config.json"
 CACHE_DIR = ".cache/pickfinder"
+OI_CACHE_DIR = ".cache/nse_fo"
+OI_LOOKBACK_DAYS = 10                    # prior-day OI, plus a 3-trading-day change, needs a little history before the window
 FEATURES_OUT = "pickfinder_features.csv.gz"
 
 
@@ -71,6 +75,36 @@ def setting(env_name: str, key: str, default):
     return default
 
 
+def load_sector_map() -> dict:
+    """NSE industry per symbol; {} (and a loud line in the log) if unreachable."""
+    try:
+        sectors = universe.fetch_sector_map()
+        print(f"Sector map: {len(sectors)} symbols in {len(set(sectors.values()))} industries")
+        return sectors
+    except Exception as exc:  # noqa: BLE001 - the run is still useful without sector features
+        print(f"SECTOR FEATURES UNAVAILABLE: {exc}")
+        return {}
+
+
+def load_oi_table(start: date, end: date) -> pd.DataFrame:
+    """NSE F&O bhavcopy OI features for the window; empty (and a loud line) if unreachable."""
+    try:
+        table = nse_fo.build_oi_table(start - timedelta(days=OI_LOOKBACK_DAYS), end, OI_CACHE_DIR)
+        print(f"F&O bhavcopy OI table: {len(table)} rows over {table['date'].nunique() if len(table) else 0} trading days")
+        return table
+    except Exception as exc:  # noqa: BLE001
+        print(f"PRIOR-DAY OI FEATURES UNAVAILABLE: {exc}")
+        return pd.DataFrame()
+
+
+def feature_coverage(df: pd.DataFrame) -> str:
+    """How many feature rows actually carry the sector / OI signals (the rest rank neutral)."""
+    lines = []
+    for label, col in (("sector peers", "sec_ret_atr"), ("prior-day futures OI", "oi_dir"), ("prior-day put/call OI", "pcr")):
+        lines.append(f"{label}: " + (f"{df[col].notna().mean():.0%} of stock-days" if col in df.columns else "NOT AVAILABLE this run"))
+    return "feature coverage -> " + "; ".join(lines)
+
+
 def main() -> None:
     runtime.setup_logging()
     months = int(setting("PICKFINDER_MONTHS", "months", 24))
@@ -79,6 +113,9 @@ def main() -> None:
     end = date.fromisoformat(end_raw) if end_raw else ist_today()
     start = end - timedelta(days=round(months * 30.5))
     os.makedirs(CACHE_DIR, exist_ok=True)
+    for stale in os.listdir(CACHE_DIR):                       # feature tables from an older FEATURES_VERSION are dead weight
+        if not stale.startswith(f"v{FEATURES_VERSION}_"):
+            os.remove(os.path.join(CACHE_DIR, stale))
 
     picks = pd.read_csv(PICKS_CSV)
     client = UpstoxClient(runtime.get_env("UPSTOX_ACCESS_TOKEN"))
@@ -89,6 +126,9 @@ def main() -> None:
     print(f"Window {start} -> {end}. Universe: {len(instrument_map)} symbols "
           f"({len(fo)} currently in F&O; journal picks add {len(set(picks['symbol']) - set(fo))} not in today's list). "
           f"No instrument key for: {sorted(set(wanted) - set(instrument_map))[:30]}")
+
+    sector_map = load_sector_map()
+    oi_table = load_oi_table(start, end)
 
     frames, failures, described, earliest = [], [], 0, None
     started = time.time()
@@ -124,11 +164,18 @@ def main() -> None:
     print(f"Feature rows: {len(df)} across {df['symbol'].nunique()} symbols, "
           f"{df['date'].nunique()} sessions ({df['date'].min().date()} -> {df['date'].max().date()}); failed: {failures}")
 
+    if sector_map:
+        df = pickfinder.add_sector(df, sector_map)
+    if not oi_table.empty:
+        df = nse_fo.attach_prior_day_oi(df, oi_table)
     df = pickfinder.add_scores(df)
     df = pickfinder.attach_picks(df, picks)
     print("\n=== Coverage ===\n" + pickfinder.coverage(picks, df))
-    print("\n=== Where the journal's picks sit in the morning (percentile vs the day's F&O stocks) ===\n" + pickfinder.pick_signature(df))
-    print("\n=== Untuned top-K screen: recall of the journal's picks, and what the screen itself would have earned ===\n" + pickfinder.screen_test(df))
+    print(feature_coverage(df))
+    print("\n=== Price and volume: where the journal's picks sit in the morning (percentile vs the day's F&O stocks) ===\n" + pickfinder.pick_signature(df))
+    print("\n=== Volume flow, sector and prior-day OI: the picks vs any stock on the same days ===\n" + pickfinder.pick_context(df))
+    print("\n=== Untuned top-K screens, one per score variant: recall of the journal's picks, and what each screen itself would have earned ===\n"
+          f"(equal-weight percentile-rank sums fixed in advance; variants: {', '.join(pickfinder.VARIANTS)}; all of them are shown)\n" + pickfinder.screen_test(df))
     df.drop(columns=["r_day"], errors="ignore").to_csv(FEATURES_OUT, index=False, compression="gzip", float_format="%.5g")
     print(f"\nWrote {FEATURES_OUT}")
 

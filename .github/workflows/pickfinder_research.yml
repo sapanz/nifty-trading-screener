@@ -42,7 +42,9 @@ jobs:
       - name: Restore feature cache
         uses: actions/cache/restore@v4
         with:
-          path: .cache/pickfinder
+          path: |
+            .cache/pickfinder
+            .cache/nse_fo
           key: pickfinder-${{ github.run_id }}
           restore-keys: pickfinder-
 
@@ -90,7 +92,9 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .cache/pickfinder
+          path: |
+            .cache/pickfinder
+            .cache/nse_fo
           key: pickfinder-${{ github.run_id }}
 
       - name: Upload feature table
