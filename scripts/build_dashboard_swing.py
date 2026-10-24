@@ -88,7 +88,7 @@ def main() -> None:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
 
-    store = swing.update_store(_previous_store(repository), combined, near_expiries)
+    store = swing.update_store(_previous_store(repository), combined, near_expiries, equity)
     snapshot = swing.build_swing(store, equity, industries, datetime.now(IST))
     if not snapshot["stocks"]:
         raise RuntimeError("Swing snapshot has no stocks - OI or equity data missing")

@@ -54,11 +54,23 @@ def combined_oi(frames: list[pd.DataFrame]) -> pd.Series:
     return total.sort_index()
 
 
-def update_store(store: dict | None, combined: dict[str, pd.Series], near_expiries: set[date]) -> dict:
+PX_LOOKBACK_DAYS = 45      # equity closes/volumes are kept from this long before the first saved OI date
+
+
+def update_store(
+    store: dict | None, combined: dict[str, pd.Series], near_expiries: set[date],
+    equity: dict[str, pd.DataFrame] | None = None,
+) -> dict:
     """Add each night's totals to the saved store. A date already saved is
     never overwritten: its total was taken over the contracts live at the time,
-    and recomputing it over today's contract pair would mix compositions."""
-    store = store or {"version": 1, "oi": {}, "expiries": []}
+    and recomputing it over today's contract pair would mix compositions.
+
+    With `equity`, the store also keeps each stock's daily [close, volume] (from
+    PX_LOOKBACK_DAYS before its first saved OI date), so the saved file is
+    self-contained: the swing backtest (signals/swing_backtest.py) can score
+    and measure every saved date from it alone."""
+    store = store or {"version": 2, "oi": {}, "px": {}, "expiries": []}
+    store.setdefault("px", {})
     for symbol, series in combined.items():
         saved = store["oi"].setdefault(symbol, {})
         for d, value in series.items():
@@ -66,6 +78,16 @@ def update_store(store: dict | None, combined: dict[str, pd.Series], near_expiri
             if key not in saved and value > 0:
                 saved[key] = int(value)
     store["expiries"] = sorted(set(store.get("expiries", [])) | {d.isoformat() for d in near_expiries})
+    for symbol, df in (equity or {}).items():
+        saved_oi = store["oi"].get(symbol)
+        if not saved_oi or df.empty:
+            continue
+        cutoff = (date.fromisoformat(min(saved_oi)) - pd.Timedelta(days=PX_LOOKBACK_DAYS)).isoformat()
+        saved_px = store["px"].setdefault(symbol, {})
+        for d, close, volume in zip(df.index.normalize(), df["close"], df["volume"]):
+            key = d.date().isoformat()
+            if key >= cutoff and key not in saved_px and pd.notna(close):
+                saved_px[key] = [round(float(close), 2), int(volume) if pd.notna(volume) else 0]
     return store
 
 
