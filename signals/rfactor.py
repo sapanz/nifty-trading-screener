@@ -1,28 +1,21 @@
 """R-factor, and a backtest of it on the dashboard's Replay day files.
 
-`snapshot_rows` is the Python twin of the page's attachR (docs/index.html).
-R asks whether fresh positioning is building *right now*: for one day file and
-one 5-minute slot t, every F&O stock with OI gets, over the last WINDOW candles
-(30 min):
-  oi_w        - open interest added, %
-  px_w        - price move, %
-  persist     - share of those candles in which OI rose
+`snapshot_rows` is the Python twin of the page's attachR (docs/index.html):
+for one day file and one 5-minute slot, every F&O stock with OI gets
   vol_vs_avg  - volume so far / its 20-day average full-day volume (2 dp)
-and four percentile ranks (ties averaged) among those stocks. R is the
-geometric mean of the four ranks - but 0 where OI did not grow over the window,
-or where OI fell over the last EXIT_CANDLES candles (positions being closed:
-`exiting`, flagged rather than ranked). An earlier version used OI change
-since the open and so could score a stock 90+ while its OI was already
-falling; this one follows the recent OI trajectory. Keep this and the page's
-attachR in step.
+  oi_chg      - OI added since the first slot of the day, % (2 dp)
+  px_chg      - price move since that first slot, %
+and three percentile ranks (ties averaged) among those stocks. R is the
+geometric mean of the three ranks, 0 where OI has not built up. Keep the two
+implementations in step: the page's numbers were checked against this one.
 
 The backtest asks the plain question: *if you took the stocks with the highest R at time T, in the direction
-of their buildup (long if price is up, short if down), what did price do
-over the next 30 minutes / 60 minutes / to the close?* - against baselines
-(every stock with OI building; the same split by the exit flag; the top stocks
-by volume alone). Limits, said plainly: the replay window is ~20 sessions (the
-futures contract's life), the moments tested are correlated within a day, and
-fills are at the signal candle's close with a flat cost - a sanity check, not proof.
+of their buildup (long if price is up with OI, short if down), what did price do
+over the next 30 minutes / 60 minutes / to the close?* - against two baselines
+(every stock with OI building, and the top stocks by volume alone). Limits, said
+plainly: the replay window is ~20 sessions (the futures contract's life), the
+moments tested are correlated within a day, and fills are at the signal
+candle's close with a flat cost - so read it as a sanity check, not proof.
 """
 from __future__ import annotations
 
@@ -32,8 +25,6 @@ from statistics import mean, pstdev
 SESSION_START_MINUTES = 9 * 60 + 15
 STEP = 5
 LAST_SLOT = 74
-WINDOW = 6
-EXIT_CANDLES = 3
 
 
 def slot_for(hhmm: str) -> int:
@@ -64,37 +55,25 @@ def snapshot_rows(day: dict, slot: int, min_stocks: int = 10) -> list[dict]:
     for symbol, s in day["stocks"].items():
         if not s.get("fo") or not s.get("o") or not s.get("av") or s["c"][slot] is None:
             continue
-        w = min(WINDOW, slot - 1)
-        if w < EXIT_CANDLES:
+        volume = sum(s["v"][: slot + 1])
+        o = [x for x in s["o"][: slot + 1] if x is not None]
+        p = [x for x in s["p"][: slot + 1] if x is not None]
+        if len(o) < 2 or len(p) < 2 or not o[0] or not p[0]:
             continue
-        o, p = s["o"], s["p"]
-        first = next((x for x in o[: slot + 1] if x is not None), None)
-        o_t, o_w, p_t, p_w = o[slot], o[slot - w], p[slot], p[slot - w]
-        if not first or not o_t or not o_w or not p_t or not p_w:
-            continue
-        window = o[slot - w: slot + 1]
-        if any(x is None for x in window):
-            continue
-        up = sum(1 for i in range(1, len(window)) if window[i] > window[i - 1])
-        o_exit = o[slot - EXIT_CANDLES]
-        oi_w = _r2((o_t - o_w) / o_w * 100)
-        px_w = (p_t - p_w) / p_w * 100
+        oi_chg = _r2((o[-1] - o[0]) / o[0] * 100)
+        px_chg = (p[-1] - p[0]) / p[0] * 100
         rows.append({
-            "symbol": symbol, "vol_vs_avg": _r2(sum(s["v"][: slot + 1]) / s["av"]),
-            "oi_chg": _r2((o_t - first) / first * 100), "oi_w": oi_w, "px_w": px_w, "persist": up / w,
-            "px_open": (p_t - next(x for x in p[: slot + 1] if x is not None)) / next(x for x in p[: slot + 1] if x is not None) * 100,
-            "exiting": o_exit is not None and o_t - o_exit <= 0,
-            "bias": ("long" if px_w >= 0 else "short") if oi_w > 0 else ("cover" if px_w >= 0 else "unwind"),
+            "symbol": symbol, "vol_vs_avg": _r2(volume / s["av"]), "oi_chg": oi_chg, "px_chg": px_chg,
+            "bias": ("long" if px_chg >= 0 else "short") if oi_chg > 0 else ("cover" if px_chg >= 0 else "unwind"),
             "price": s["c"][slot],
         })
     if len(rows) < min_stocks:
         return []
     pv = percentile_ranks([r["vol_vs_avg"] for r in rows])
-    po = percentile_ranks([r["oi_w"] for r in rows])
-    pp = percentile_ranks([abs(r["px_w"]) for r in rows])
-    pq = percentile_ranks([r["persist"] for r in rows])
-    for r, a, b, c, d in zip(rows, pv, po, pp, pq):
-        r["r"] = round((a * b * c * d) ** 0.25) if r["oi_w"] > 0 and not r["exiting"] else 0
+    po = percentile_ranks([r["oi_chg"] for r in rows])
+    pp = percentile_ranks([abs(r["px_chg"]) for r in rows])
+    for r, a, b, c in zip(rows, pv, po, pp):
+        r["r"] = round((a * b * c) ** (1 / 3)) if r["oi_chg"] > 0 else 0
     return rows
 
 
@@ -112,9 +91,8 @@ HORIZONS = {"next 30 min": 6, "next 60 min": 12, "to the close": None}
 
 def run_backtest(days: list[dict], times: list[str], top_n: int = 5, cost_pct: float = 0.10) -> dict:
     """{group: {horizon: [(day index, net directional return %), ...]}}"""
-    groups = ["Top by R-factor", "R >= 70", "R 40-69", "R < 40 (OI building, not exiting)",
-              "Every stock with OI building", "  ... of which still building (not exiting)",
-              "  ... of which exiting (R = 0, flagged)", "Top by volume only (direction = price since open)"]
+    groups = ["Top by R-factor", "R >= 70", "R 40-69", "R < 40 (OI building)", "Every stock with OI building",
+              "Top by volume only (direction = price since open)"]
     out = {g: {h: [] for h in HORIZONS} for g in groups}
     for day_index, day in enumerate(days):
         for hhmm in times:
@@ -123,23 +101,19 @@ def run_backtest(days: list[dict], times: list[str], top_n: int = 5, cost_pct: f
             if not rows:
                 continue
             building = [r for r in rows if r["bias"] in ("long", "short")]
-            ranked = [r for r in building if not r["exiting"]]
-            by_r = sorted(ranked, key=lambda r: (r["r"], r["vol_vs_avg"]), reverse=True)
+            by_r = sorted(building, key=lambda r: (r["r"], r["vol_vs_avg"]), reverse=True)
             by_vol = sorted(rows, key=lambda r: r["vol_vs_avg"], reverse=True)
             picks = {
                 "Top by R-factor": by_r[:top_n],
-                "R >= 70": [r for r in ranked if r["r"] >= 70],
-                "R 40-69": [r for r in ranked if 40 <= r["r"] < 70],
-                "R < 40 (OI building, not exiting)": [r for r in ranked if r["r"] < 40],
+                "R >= 70": [r for r in building if r["r"] >= 70],
+                "R 40-69": [r for r in building if 40 <= r["r"] < 70],
+                "R < 40 (OI building)": [r for r in building if r["r"] < 40],
                 "Every stock with OI building": building,
-                "  ... of which still building (not exiting)": ranked,
-                "  ... of which exiting (R = 0, flagged)": [r for r in building if r["exiting"]],
                 "Top by volume only (direction = price since open)": by_vol[:top_n],
             }
             for group, chosen in picks.items():
                 for r in chosen:
-                    move = r["px_open"] if group.startswith("Top by volume only") else r["px_w"]
-                    direction = 1 if move >= 0 else -1
+                    direction = 1 if r["px_chg"] >= 0 else -1
                     for horizon, hs in HORIZONS.items():
                         ret = forward_return(day, r["symbol"], slot, hs, direction)
                         if ret is not None:
