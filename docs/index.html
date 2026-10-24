@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #14181f; --muted: #5d6675; --line: #e3e6ec;
+    --up: #0b7a43; --up-bg: #e3f4ea; --down: #b3261e; --down-bg: #fbe7e5; --accent: #2457d6; --chip: #eef1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116; --panel: #161b22; --ink: #e8ecf2; --muted: #9aa4b2; --line: #272e38;
+      --up: #3fcf8e; --up-bg: #12301f; --down: #ff7b72; --down-bg: #3a1a18; --accent: #6b9bff; --chip: #212833;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --panel: #161b22; --ink: #e8ecf2; --muted: #9aa4b2; --line: #272e38;
+    --up: #3fcf8e; --up-bg: #12301f; --down: #ff7b72; --down-bg: #3a1a18; --accent: #6b9bff; --chip: #212833;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 14px 16px; }
+  h1 { font-size: 18px; margin: 0; }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+  .pill { padding: 2px 10px; border-radius: 99px; font-weight: 600; font-size: 12px; background: var(--chip); color: var(--muted); }
+  .pill.live { background: var(--up-bg); color: var(--up); }
+  .pill.stale { background: var(--down-bg); color: var(--down); }
+  main { display: grid; gap: 16px; padding: 0 16px 24px; grid-template-columns: minmax(280px, 380px) 1fr; align-items: start; }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; }
+    /* compact two-column sector cards so the stock table isn't pushed a screen away */
+    #sectors { display: grid; grid-template-columns: 1fr 1fr; }
+    .sector { border-right: 1px solid var(--line); padding: 8px 10px; }
+    .sector:nth-child(2n) { border-right: 0; }
+    .sector .meta { display: none; }
+    .sector .name { font-size: 13px; white-space: normal; line-height: 1.2; }
+    #sectorHint { display: none; }
+  }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  section > h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; }
+  section > h2 small { color: var(--muted); font-weight: 400; }
+  .sector { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: center; background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; color: inherit; font: inherit; }
+  .sector:last-child { border-bottom: 0; }
+  .sector:hover, .sector:focus-visible { background: var(--chip); outline: none; }
+  .sector[aria-pressed="true"] { background: var(--chip); box-shadow: inset 3px 0 0 var(--accent); }
+  .sector .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sector .chg { text-align: right; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sector .bar { grid-column: 1 / -1; height: 6px; background: var(--chip); border-radius: 3px; position: relative; overflow: hidden; }
+  .sector .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+  .sector .meta { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .bar i.up { background: var(--up); left: 50%; } .bar i.down { background: var(--down); right: 50%; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); align-items: center; }
+  .controls label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  select, input[type="search"] { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; max-width: 100%; }
+  input[type="search"] { width: 130px; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; }
+  th[aria-sort] { color: var(--ink); }
+  th[aria-sort="descending"]::after { content: " ▼"; font-size: 10px; } th[aria-sort="ascending"]::after { content: " ▲"; font-size: 10px; }
+  td.sym { font-weight: 700; } td.sec { color: var(--muted); max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .fo { margin-left: 6px; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--muted); font-weight: 600; }
+  .hot { font-weight: 700; }
+  .empty { padding: 28px 14px; color: var(--muted); text-align: center; }
+  footer { padding: 0 16px 24px; color: var(--muted); font-size: 12px; max-width: 900px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Market Dashboard <span style="color:var(--muted);font-weight:400">· Nifty 500</span></h1>
+  <div class="status"><span id="pill" class="pill">Loading…</span><span id="updated"></span></div>
+</header>
+<main>
+  <section aria-labelledby="sh">
+    <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
+    <div id="sectors"></div>
+  </section>
+  <section aria-labelledby="th">
+    <h2 id="th">Highest volume <small id="count"></small></h2>
+    <div class="controls">
+      <label>Sector <select id="sectorSel"></select></label>
+      <label><input type="checkbox" id="foOnly"> F&amp;O only</label>
+      <label>Show <select id="topN"><option>25</option><option>50</option><option>100</option><option value="0">All</option></select></label>
+      <label>Move <select id="dir"><option value="all">All</option><option value="up">Gainers</option><option value="down">Losers</option></select></label>
+      <input type="search" id="q" placeholder="Search symbol" aria-label="Search symbol">
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty" hidden></div>
+    </div>
+  </section>
+</main>
+<footer>
+  Sector change is the equal-weighted average move of its Nifty 500 members (Industry column of the NSE list).
+  Turnover = price × volume so far. “Vol vs 20d” is today's volume so far divided by the average <em>full-day</em> volume of
+  the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
+  Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var REFRESH_MS = 60000;
+  var COLS = [
+    { key: "rank", label: "#", sort: null },
+    { key: "symbol", label: "Symbol", sort: "symbol" },
+    { key: "sector", label: "Sector", sort: "sector" },
+    { key: "price", label: "LTP", sort: "price" },
+    { key: "change_pct", label: "Chg %", sort: "change_pct" },
+    { key: "volume", label: "Volume", sort: "volume" },
+    { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
+    { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" }
+  ];
+  var state = { data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
+
+  function $(id) { return document.getElementById(id); }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+
+  function dataUrl() {
+    var override = new URLSearchParams(location.search).get("src");
+    if (override) return override;
+    var owner = location.hostname.split(".")[0], repo = location.pathname.split("/").filter(Boolean)[0] || "";
+    return "https://raw.githubusercontent.com/" + owner + "/" + repo + "/dashboard-data/data.json";
+  }
+
+  function fmtVol(v) {
+    if (v >= 1e7) return (v / 1e7).toFixed(2) + " Cr";
+    if (v >= 1e5) return (v / 1e5).toFixed(2) + " L";
+    return v.toLocaleString("en-IN");
+  }
+  function fmtPct(v) { return (v > 0 ? "+" : "") + v.toFixed(2) + "%"; }
+  function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
+  function el(tag, props, text) {
+    var e = document.createElement(tag);
+    if (props) Object.keys(props).forEach(function (k) { if (k === "class") e.className = props[k]; else e.setAttribute(k, props[k]); });
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function renderSectors() {
+    var box = $("sectors"); box.textContent = "";
+    var sectors = state.data.sectors, max = Math.max.apply(null, sectors.map(function (s) { return Math.abs(s.change_pct); }).concat([0.01]));
+    sectors.forEach(function (s) {
+      var row = el("button", { "class": "sector", type: "button", "aria-pressed": String(state.sector === s.name) });
+      row.appendChild(el("span", { "class": "name", title: s.name }, s.name));
+      row.appendChild(el("span", { "class": "chg " + cls(s.change_pct) }, (s.change_pct > 0 ? "▲ " : s.change_pct < 0 ? "▼ " : "") + fmtPct(s.change_pct)));
+      var bar = el("span", { "class": "bar" });
+      bar.appendChild(el("i", { "class": cls(s.change_pct) || "up", style: "width:" + (Math.abs(s.change_pct) / max * 50) + "%" }));
+      row.appendChild(bar);
+      row.appendChild(el("span", { "class": "meta" }, s.advancers + " up · " + s.decliners + " down · " + s.stocks + " stocks · ₹" + s.turnover_cr.toLocaleString("en-IN") + " Cr traded"));
+      row.addEventListener("click", function () { state.sector = state.sector === s.name ? "" : s.name; save(); render(); });
+      box.appendChild(row);
+    });
+  }
+
+  function renderSelect() {
+    var sel = $("sectorSel"); sel.textContent = "";
+    sel.appendChild(el("option", { value: "" }, "All sectors"));
+    state.data.sectors.map(function (s) { return s.name; }).sort().forEach(function (n) {
+      var o = el("option", { value: n }, n); if (n === state.sector) o.selected = true; sel.appendChild(o);
+    });
+    if (state.sector && !state.data.sectors.some(function (s) { return s.name === state.sector; })) state.sector = "";
+    sel.value = state.sector;
+  }
+
+  function renderHead() {
+    var head = $("head"); head.textContent = "";
+    COLS.forEach(function (c) {
+      var th = el("th", { scope: "col" }, c.label);
+      if (c.sort) {
+        if (state.sortKey === c.sort) th.setAttribute("aria-sort", state.sortDir < 0 ? "descending" : "ascending");
+        th.addEventListener("click", function () {
+          if (state.sortKey === c.sort) state.sortDir *= -1; else { state.sortKey = c.sort; state.sortDir = (c.sort === "symbol" || c.sort === "sector") ? 1 : -1; }
+          save(); render();
+        });
+      }
+      head.appendChild(th);
+    });
+  }
+
+  function visibleStocks() {
+    var q = state.q.trim().toUpperCase();
+    var list = state.data.stocks.filter(function (s) {
+      return (!state.sector || s.sector === state.sector) && (!state.fo || s.fo) &&
+        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && (!q || s.symbol.indexOf(q) !== -1);
+    });
+    var k = state.sortKey, d = state.sortDir;
+    list.sort(function (a, b) {
+      var x = a[k], y = b[k];
+      if (x === null || x === undefined) return 1; if (y === null || y === undefined) return -1;
+      return (typeof x === "string" ? x.localeCompare(y) : x - y) * d;
+    });
+    return list;
+  }
+
+  function renderRows() {
+    var all = visibleStocks(), list = state.topN ? all.slice(0, state.topN) : all, body = $("rows");
+    body.textContent = "";
+    $("count").textContent = list.length === all.length ? all.length + " stocks" : "top " + list.length + " of " + all.length;
+    $("th").firstChild.textContent = "Highest volume" + (state.sector ? " — " + state.sector : "");
+    var empty = $("empty");
+    empty.hidden = list.length > 0;
+    if (!list.length) empty.textContent = "No stocks match these filters.";
+    list.forEach(function (s, i) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, String(i + 1)));
+      var sym = el("td", { "class": "sym" }, s.symbol);
+      if (s.fo) sym.appendChild(el("span", { "class": "fo", title: "Has stock futures" }, "F&O"));
+      tr.appendChild(sym);
+      tr.appendChild(el("td", { "class": "sec", title: s.sector }, s.sector));
+      tr.appendChild(el("td", null, s.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })));
+      tr.appendChild(el("td", { "class": cls(s.change_pct) }, (s.change_pct > 0 ? "▲ " : s.change_pct < 0 ? "▼ " : "") + fmtPct(s.change_pct)));
+      tr.appendChild(el("td", null, fmtVol(s.volume)));
+      tr.appendChild(el("td", null, s.turnover_cr.toLocaleString("en-IN", { maximumFractionDigits: 1 })));
+      tr.appendChild(el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×"));
+      body.appendChild(tr);
+    });
+  }
+
+  function renderStatus() {
+    var d = state.data, pill = $("pill"), when = new Date(d.updated_at);
+    var age = (Date.now() - when.getTime()) / 60000;
+    var dataDay = d.data_date ? new Date(d.data_date + "T00:00:00") : null;
+    var dayLabel = dataDay ? dataDay.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "";
+    if (d.market_status === "open" && age < 15) { pill.className = "pill live"; pill.textContent = "● Live"; }
+    else if (d.market_status === "open") { pill.className = "pill stale"; pill.textContent = "Data delayed"; }
+    else { pill.className = "pill"; pill.textContent = "Market closed" + (dayLabel ? " · showing " + dayLabel : ""); }
+    $("updated").textContent = "Updated " + when.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
+      (age >= 1 ? " (" + Math.round(age) + " min ago)" : "");
+    $("foOnly").parentNode.hidden = !d.has_fo;
+    if (!d.has_fo) state.fo = false;
+  }
+
+  function render() {
+    if (!state.data) return;
+    renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
+    $("foOnly").checked = state.fo; $("topN").value = String(state.topN); $("dir").value = state.dir;
+  }
+
+  function showMessage(text) {
+    $("pill").className = "pill stale"; $("pill").textContent = text;
+  }
+
+  function refresh() {
+    var url = dataUrl(), sep = url.indexOf("?") === -1 ? "?" : "&";
+    fetch(url + sep + "t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) { state.data = d; render(); })
+      .catch(function (e) {
+        if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
+        else showMessage("Refresh failed - showing last data");
+      });
+  }
+
+  load();
+  $("sectorSel").addEventListener("change", function (e) { state.sector = e.target.value; save(); render(); });
+  $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
+  $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
+  $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("q").addEventListener("input", function (e) { state.q = e.target.value; renderRows(); });
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+  setInterval(function () { if (state.data) renderStatus(); }, 30000);
+})();
+</script>
+</body>
+</html>

@@ -245,6 +245,36 @@ class UpstoxClient:
         url = f"{config.UPSTOX_BASE_URL_V3}/historical-candle/intraday/{instrument_key}/days/1"
         return self._request_candles(url, instrument_key)
 
+    def get_quotes(self, instrument_keys: list[str], batch_size: int = 250) -> list[dict]:
+        """Live market quotes (last price, day volume, change vs the previous
+        close, day OHLC) for many instruments at once via v2
+        market-quote/quotes - one request per `batch_size` keys (the endpoint
+        accepts up to 500), so the whole Nifty 500 is two calls. Returns the
+        raw per-instrument dicts; each carries `instrument_token` (the
+        instrument_key) so callers can map them back without trusting the
+        response's own key format."""
+        quotes: list[dict] = []
+        for i in range(0, len(instrument_keys), batch_size):
+            batch = instrument_keys[i:i + batch_size]
+            url = f"{config.UPSTOX_BASE_URL}/market-quote/quotes"
+            last_exc: Exception | None = None
+            for attempt in range(1, config.UPSTOX_MAX_RETRIES + 1):
+                try:
+                    resp = self._session.get(url, params={"instrument_key": ",".join(batch)}, timeout=20)
+                    if resp.status_code == 429:
+                        time.sleep(2**attempt)
+                        continue
+                    resp.raise_for_status()
+                    quotes.extend((resp.json().get("data") or {}).values())
+                    break
+                except requests.RequestException as exc:
+                    last_exc = exc
+                    time.sleep(1)
+            else:
+                raise UpstoxError(f"Failed to fetch quotes for a batch of {len(batch)}: {last_exc}")
+            self.throttle()
+        return quotes
+
     def get_candles_between(
         self, instrument_key: str, unit: str, interval: int, from_date: date, to_date: date
     ) -> pd.DataFrame:

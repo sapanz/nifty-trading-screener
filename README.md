@@ -497,6 +497,28 @@ how far back a backtest asked to look. Monthly's native fetch has always
 been about depth: `MONTHLY_ATH_HISTORY_YEARS` (25 years) so its
 all-time-high check isn't silently capped at 6 years.
 
+## Market dashboard
+
+A web page (`docs/index.html`) showing **sector day change** (equal-weighted
+average move of each sector's Nifty 500 members, with advancers/decliners and
+turnover) and the **highest-volume stocks**, filterable by sector, F&O-only,
+gainers/losers and symbol search, sortable by volume, turnover, change or
+volume vs. its 20-day average - for picking intraday candidates.
+
+How it works, all free: `.github/workflows/dashboard.yml` starts at 09:10 and
+14:30 IST on weekdays, logs in to Upstox, and `scripts/run_dashboard.py`
+fetches live quotes for the whole Nifty 500 (two API calls) every 2 minutes
+until 15:35, publishing the snapshot as `data.json` on the `dashboard-data`
+branch (one force-pushed commit, so no history builds up). The page, served by
+GitHub Pages from `/docs`, reads that file every minute. To switch it on once:
+repo **Settings -> Pages -> Source: Deploy from a branch -> `main` / `/docs`**;
+the page is then at `https://<user>.github.io/<repo>/`. Anyone with the link can
+open it (it holds market data only; the Upstox token never leaves the job).
+Because GitHub's raw-file cache and the 2-minute cadence both apply, expect
+data a few minutes old, not tick-by-tick. Running the workflow manually with
+"once" ticked publishes a single snapshot for a smoke test (a manual run
+cancels a session in progress - they share a concurrency group).
+
 ## Known limitations
 
 - **Trendline Break Short (5-minute) is backtest-only so far.** Shorts an
@@ -799,7 +821,7 @@ HEADLESS=false python scripts/login_upstox.py
 ```
 signals/
   config.py          tunable thresholds
-  universe.py        Nifty 500 constituent list (from NSE)
+  universe.py        Nifty 500 constituent list + each stock's industry (from NSE)
   upstox_client.py   Upstox API wrapper (instrument master + daily/weekly/monthly candles)
   upstox_login.py    Playwright-driven TOTP login -> OAuth authorization code
   upstox_oauth.py    OAuth code -> access token exchange (shared by CI login + manual tool)

@@ -1,0 +1,76 @@
+name: Dashboard
+
+# Keeps docs/index.html's data fresh through the trading session. Two starts so
+# the session (9:15-15:30 IST, longer than GitHub's 6h job cap) is covered:
+# 09:10 IST (03:40 UTC) and 14:30 IST (09:00 UTC); the later start cancels the
+# earlier job (concurrency below), each logs in to Upstox afresh.
+on:
+  schedule:
+    - cron: "40 3 * * 1-5"
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      once:
+        description: "Publish a single snapshot and exit (smoke test)"
+        type: boolean
+        default: false
+      refresh_seconds:
+        description: "Seconds between refreshes"
+        type: number
+        default: 120
+
+concurrency:
+  group: dashboard
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # to publish data.json to the dashboard-data branch
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium (for automated Upstox login)
+        run: playwright install --with-deps chromium
+
+      - name: Log in to Upstox (TOTP)
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/login_upstox.py
+
+      - name: Upload login failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstox-login-failure
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
+          if-no-files-found: ignore
+
+      - name: Run dashboard refresher
+        env:
+          # UPSTOX_ACCESS_TOKEN is already in the job environment here,
+          # written by the login step above via $GITHUB_ENV.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DASHBOARD_ONCE: ${{ inputs.once }}
+          DASHBOARD_REFRESH_SECONDS: ${{ inputs.refresh_seconds || 120 }}
+        run: python scripts/run_dashboard.py
