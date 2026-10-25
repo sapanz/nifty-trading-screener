@@ -80,6 +80,7 @@
   td.sym { font-weight: 700; } td.sec { color: var(--muted); max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
   .fo { margin-left: 6px; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--muted); font-weight: 600; }
   .hot { font-weight: 700; }
+  .obcell .mute { color: var(--muted); font-size: 12px; } .obtag { font-size: 11px; font-weight: 600; padding: 0 6px; margin-left: 6px; border-radius: 99px; background: var(--chip); color: var(--muted); } .obtag.test { background: var(--accent); color: #fff; }
   .lvl { font-size: 12px; font-weight: 600; white-space: nowrap; } .lvl.up { color: var(--up); } .lvl.down { color: var(--down); } .lvl.warn { color: #b26a00; } .lvl.mute { color: var(--muted); font-weight: 400; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl.warn { color: #e0a64a; } }
   td.rcell { white-space: nowrap; } td.rcell .bias { margin-left: 5px; font-size: 11px; }
@@ -153,6 +154,15 @@
         <option value="brokeHi">Broke prev-day high (any time today)</option><option value="brokeLo">Broke prev-day low (any time today)</option>
         <option value="failed">Broke a level, back inside</option><option value="inside">Inside prev-day range</option>
       </select></label>
+      <label>Order block <select id="obSel" aria-label="Intraday order block filter">
+        <option value="all">Any</option>
+        <option value="bull-test">Bullish - retesting now</option>
+        <option value="bull-fresh">Bullish - waiting for a dip</option>
+        <option value="bull">Bullish - either</option>
+        <option value="bear-test">Bearish - retesting now</option>
+        <option value="bear-fresh">Bearish - waiting for a bounce</option>
+        <option value="bear">Bearish - either</option>
+      </select></label>
       <input type="search" id="q" placeholder="Search symbol" aria-label="Search symbol">
     </div>
     <div class="tablewrap">
@@ -170,6 +180,7 @@
   the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
   <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
   <strong>Swing</strong> (built each evening after the close) applies the same idea to daily charts: volume vs its 20-day average, OI added over the last 5 sessions (near + next month futures) and the 5-session price move; ⚠ roll marks a window that includes a futures expiry, when the OI change includes settled and rolled positions.
+  <strong>Order block (5-min, Live, F&amp;O stocks):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -196,7 +207,8 @@
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" },
     { key: "oi_chg", label: "OI chg %", sort: "oi_chg", help: "Open interest added (or removed) since 09:15, % - F&O stocks only" },
-    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." }
+    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." },
+    { key: "ob", label: "Order block (5-min)", sort: "ob_sl", help: "Live only, F&O stocks. The last opposite candle before a structure-breaking thrust today: its low (bullish) is a tight stop. Sorts by the smallest stop distance." }
   ];
   var COLS_SWING = [
     { key: "rank", label: "#", sort: null },
@@ -211,16 +223,18 @@
     { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest added (or removed) over the last 5 sessions, % - what R-factor looks at" },
     { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." }
   ];
-  function columns() { return state.mode === "swing" ? COLS_SWING : COLS; }
+  function columns() { return state.mode === "swing" ? COLS_SWING : state.mode === "live" ? COLS : COLS.filter(function (c) { return c.key !== "ob"; }); }
+  var ASCENDING = { symbol: 1, sector: 1, ob_sl: 1 };
+  function defaultDir(key) { return ASCENDING[key] || -1; }
   var SORT_OPTS = {
-    live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"]],
+    live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all" };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -555,6 +569,9 @@
     if (state.mode === "live") loadLiveOi();
   }
   function closeOi() { state.sel = null; $("oiOverlay").hidden = true; }
+  function loadLiveBlocks() {
+    liveJson("blocks.json").then(function (d) { state.blocks = d; if (state.mode === "live") render(); }).catch(function () {});
+  }
   function loadLiveOi() {
     liveJson("oi.json").then(function (d) { state.oiLive = d; if (state.mode === "live") render(); renderOi(); }).catch(function () { renderOi(); });
   }
@@ -588,6 +605,33 @@
     var pv = pctRanks(rows.map(function (s) { return s.vol_vs_avg; })), po = pctRanks(rows.map(function (s) { return s.oi_chg; })),
         pp = pctRanks(rows.map(function (s) { return Math.abs(s.px_chg); }));
     rows.forEach(function (s, i) { s.r = s.oi_chg > 0 ? Math.round(Math.cbrt(pv[i] * po[i] * pp[i])) : 0; });
+  }
+  /* ---------- order blocks (5-minute, live) ---------- */
+  /* blocks.json holds, per F&O stock, its best bullish and bearish zone from the last 5-minute scan. The stop distance
+     and position are worked out here against the live price: bullish stop = zone low less 0.1%, bearish = zone high plus 0.1%. */
+  var OB_BUFFER = 0.001;
+  function attachBlocks(d) {
+    var table = state.blocks && state.blocks.stocks || {};
+    d.stocks.forEach(function (s) {
+      s.obs = []; s.ob = null; s.ob_sl = null;
+      (table[s.symbol] || []).forEach(function (b) {
+        var bull = b.d === "bull", stop = bull ? b.lo * (1 - OB_BUFFER) : b.hi * (1 + OB_BUFFER);
+        var risk = bull ? (s.price - stop) / s.price * 100 : (stop - s.price) / s.price * 100;
+        if (!(risk > 0)) return;                                      // price is already through the stop: the zone has failed
+        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sl: r2(risk), stop: stop,
+                    dist: r2(bull ? (s.price / b.hi - 1) * 100 : (b.lo / s.price - 1) * 100), inside: s.price >= b.lo && s.price <= b.hi };
+        s.obs.push(rec);
+      });
+    });
+  }
+  function obPick(s, mode) {
+    var list = s.obs || [];
+    if (mode === "all") {
+      list = list.slice().sort(function (a, b) { return (b.st === "testing") - (a.st === "testing") || (b.d === "bull") - (a.d === "bull"); });
+      return list[0] || null;
+    }
+    var parts = mode.split("-"), want = parts[0], st = parts[1];
+    return list.filter(function (b) { return b.d === want && (!st || (st === "test" ? b.st === "testing" : b.st === "fresh")); })[0] || null;
   }
   /* ---------- previous-day high / low ---------- */
   /* pd: above = trading above yesterday's high now; below = under yesterday's low now; both / failhi / faillo =
@@ -657,7 +701,7 @@
       if (c.sort) {
         if (state.sortKey === c.sort) th.setAttribute("aria-sort", state.sortDir < 0 ? "descending" : "ascending");
         th.addEventListener("click", function () {
-          if (state.sortKey === c.sort) state.sortDir *= -1; else { state.sortKey = c.sort; state.sortDir = (c.sort === "symbol" || c.sort === "sector") ? 1 : -1; }
+          if (state.sortKey === c.sort) state.sortDir *= -1; else { state.sortKey = c.sort; state.sortDir = defaultDir(c.sort); }
           save(); render();
         });
       }
@@ -669,9 +713,10 @@
     var q = state.q.trim().toUpperCase();
     var list = state.data.stocks.filter(function (s) {
       return (!state.sector || s.sector === state.sector) && (!state.fo || s.fo) &&
-        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && levelMatch(s, state.lvl) && (!q || s.symbol.indexOf(q) !== -1);
+        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && levelMatch(s, state.lvl) && (state.mode !== "live" || state.ob === "all" || obPick(s, state.ob)) && (!q || s.symbol.indexOf(q) !== -1);
     });
     var k = state.sortKey, d = state.sortDir;
+    if (state.mode === "live") list.forEach(function (s) { var b = obPick(s, state.ob); s.ob = b; s.ob_sl = b ? b.sl : null; });
     list.sort(function (a, b) {
       var x = a[k], y = b[k];
       if (x === null || x === undefined) return 1; if (y === null || y === undefined) return -1;
@@ -684,12 +729,14 @@
     var all = visibleStocks(), list = state.topN ? all.slice(0, state.topN) : all, body = $("rows");
     body.textContent = "";
     $("count").textContent = list.length === all.length ? all.length + " stocks" : "top " + list.length + " of " + all.length;
-    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers", chg_5d: "Biggest 5-day movers", oi_1d: "Biggest 1-day OI change", pdh_dist: "Furthest above prev-day high", pdl_depth: "Furthest below prev-day low" };
+    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers", chg_5d: "Biggest 5-day movers", oi_1d: "Biggest 1-day OI change", pdh_dist: "Furthest above prev-day high", pdl_depth: "Furthest below prev-day low", ob_sl: "Order blocks - smallest stop" };
     if (state.mode === "swing") { titles.r = "Swing: highest R-factor"; titles.oi_chg = "Swing: biggest 5-day OI change"; }
     $("th").firstChild.textContent = (titles[state.sortKey] || "Stocks") + (state.sector ? " — " + state.sector : "");
     var empty = $("empty");
     empty.hidden = list.length > 0;
-    if (!list.length) empty.textContent = "No stocks match these filters.";
+    if (!list.length) empty.textContent = state.mode === "live" && state.ob !== "all" && !state.blocks
+      ? "Order-block zones aren't published yet - the first scan runs a few minutes after the market opens, then every 5 minutes."
+      : "No stocks match these filters.";
     var cols = columns();
     list.forEach(function (s, i) {
       var tr = el("tr", { tabindex: "0", title: "Click for futures OI buildup" });
@@ -731,6 +778,18 @@
       case "vol_vs_avg": return el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×");
       case "oi_1d": return pctCell(s.oi_1d, false);
       case "oi_chg": return pctCell(s.oi_chg, false);
+      case "ob": {
+        var ot = el("td", { "class": "obcell" }), b = s.ob;
+        if (!b) { ot.textContent = state.blocks ? "–" : "…"; return ot; }
+        var bull = b.d === "bull";
+        ot.appendChild(el("span", { "class": "lvl " + (bull ? "up" : "down") }, (bull ? "▲ " : "▼ ") + b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
+        ot.appendChild(el("span", { "class": "obtag" + (b.st === "testing" || b.inside ? " test" : "") }, b.inside ? "in zone" : b.st === "testing" ? "retesting" : "waiting"));
+        ot.appendChild(el("span", { "class": "mute" }, " stop " + b.sl.toFixed(2) + "%"));
+        ot.title = (bull ? "Bullish" : "Bearish") + " order block from " + b.t + " (thrust " + b.imp + " ATR). Stop " + b.stop.toLocaleString("en-IN", { maximumFractionDigits: 2 }) +
+          " = " + b.sl.toFixed(2) + " % from the live price; price is " + fmtPct(b.dist) + (bull ? " above" : " below") + " the zone. Zones as of " +
+          (state.blocks && state.blocks.updated_at ? new Date(state.blocks.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "?");
+        return ot;
+      }
       case "r": {
         var rc = el("td", { "class": "rcell" });
         if (s.r === null || s.r === undefined) { rc.textContent = "–"; return rc; }
@@ -782,11 +841,13 @@
   function render() {
     if (!state.data) return;
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
+    if (state.mode === "live") attachBlocks(state.data);
     $("lvl").parentNode.hidden = state.mode === "swing";
+    $("obSel").parentNode.hidden = state.mode !== "live";
     renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
     $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");
-    $("foOnly").checked = state.fo; $("lvl").value = state.lvl; $("topN").value = String(state.topN); $("dir").value = state.dir;
+    $("foOnly").checked = state.fo; $("lvl").value = state.lvl; $("obSel").value = state.ob; $("topN").value = String(state.topN); $("dir").value = state.dir;
   }
 
   function showMessage(text) {
@@ -796,7 +857,7 @@
   function refresh() {
     if (state.mode !== "live") return;
     liveJson("data.json")
-      .then(function (d) { if (state.mode === "live") { state.data = d; render(); loadLiveOi(); } })
+      .then(function (d) { if (state.mode === "live") { state.data = d; render(); loadLiveOi(); loadLiveBlocks(); } })
       .catch(function (e) {
         if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
         else showMessage("Refresh failed - showing last data");
@@ -805,10 +866,11 @@
 
   load();
   $("sectorSel").addEventListener("change", function (e) { state.sector = e.target.value; save(); render(); });
-  $("sortSel").addEventListener("change", function (e) { state.sortKey = e.target.value; state.sortDir = -1; save(); render(); });
+  $("sortSel").addEventListener("change", function (e) { state.sortKey = e.target.value; state.sortDir = defaultDir(e.target.value); save(); render(); });
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("obSel").addEventListener("change", function (e) { state.ob = e.target.value; save(); render(); });
   $("lvl").addEventListener("change", function (e) { state.lvl = e.target.value; save(); render(); });
   $("q").addEventListener("input", function (e) { state.q = e.target.value; renderRows(); });
   refresh();

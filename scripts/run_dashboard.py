@@ -4,6 +4,8 @@
 A second loop, every DASHBOARD_OI_REFRESH_SECONDS (default 300), fetches
 today's 5-minute futures candles (with open interest) for the F&O stocks and
 publishes them as oi.json next to data.json - the OI-buildup chart's data.
+A third loop, same cadence, scans the F&O stocks' 5-minute equity candles for
+order blocks (signals/intraday_blocks.py) and publishes blocks.json.
 
 Every DASHBOARD_REFRESH_SECONDS: fetch live quotes for the Nifty 500, build
 the snapshot (signals/dashboard.py) and publish it as data.json on the
@@ -31,7 +33,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import dashboard, data, oi, runtime, universe  # noqa: E402
+from signals import dashboard, data, intraday_blocks, oi, runtime, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -104,6 +106,57 @@ def refresh_oi(access_token: str, futures_map: dict, token, repository) -> None:
     logger.info("OI: %d stocks published", len(stocks))
 
 
+def load_warmup(client: UpstoxClient, keys: dict[str, str], today: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Each stock's previous session of 5-minute candles - warm-up for ATR and earlier swing levels."""
+    out = {}
+    for symbol, key in keys.items():
+        try:
+            df = client.get_candles_between(key, "minutes", 5, (today - pd.Timedelta(days=7)).date(), (today - pd.Timedelta(days=1)).date())
+            if len(df):
+                last_day = df.index.normalize().max()
+                out[symbol] = df[df.index.normalize() == last_day]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Warm-up candles failed for %s: %s", symbol, exc)
+        client.throttle()
+    return out
+
+
+def refresh_blocks(client: UpstoxClient, keys: dict[str, str], warmup: dict, token, repository) -> None:
+    """One pass: today's 5-minute candles per F&O stock -> order blocks -> blocks.json (published)."""
+    now = datetime.now(IST)
+    today = pd.Timestamp(now.date())
+    naive_now = pd.Timestamp(now.replace(tzinfo=None))
+    stocks = {}
+    for symbol, key in keys.items():
+        try:
+            df = client.get_intraday_candles(key, 5)
+            if len(df):
+                found = intraday_blocks.scan_symbol(pd.concat([warmup.get(symbol, df.iloc[0:0]), df]), today, naive_now)
+                if found:
+                    stocks[symbol] = found
+        except Exception as exc:  # noqa: BLE001 - one stock's failure shouldn't drop the rest
+            logger.warning("Block scan failed for %s: %s", symbol, exc)
+        client.throttle()
+    payload = {"updated_at": now.isoformat(timespec="seconds"), "date": today.date().isoformat(), "scanned": len(keys), "stocks": stocks}
+    with PUBLISH_LOCK:
+        (SITE_DIR / "blocks.json").write_text(json.dumps(payload, separators=(",", ":")))
+    _publish(token, repository, f"blocks {payload['updated_at']}")
+    logger.info("Order blocks: %d of %d stocks have a live zone", len(stocks), len(keys))
+
+
+def _blocks_loop(access_token: str, keys: dict[str, str], token, repository, interval: int) -> None:
+    client = UpstoxClient(access_token)
+    warmup = load_warmup(client, keys, pd.Timestamp(datetime.now(IST).date()))
+    logger.info("Order blocks: warm-up candles for %d stocks", len(warmup))
+    while datetime.now(IST).time() <= STOP_AFTER:
+        started = time.time()
+        try:
+            refresh_blocks(client, keys, warmup, token, repository)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Block refresh failed: %s", exc)
+        time.sleep(max(30, interval - (time.time() - started)))
+
+
 def _oi_loop(access_token: str, futures_map: dict, token, repository, interval: int) -> None:
     while datetime.now(IST).time() <= STOP_AFTER:
         try:
@@ -156,6 +209,15 @@ def main() -> None:
             threading.Thread(
                 target=_oi_loop, daemon=True,
                 args=(access_token, futures_map, token, repository, int(os.environ.get("DASHBOARD_OI_REFRESH_SECONDS", "300"))),
+            ).start()
+    block_keys = {sym: instrument_map[sym] for sym in sorted(fo_symbols or ()) if sym in instrument_map}
+    if block_keys:
+        if once:
+            refresh_blocks(client, block_keys, load_warmup(client, block_keys, pd.Timestamp(datetime.now(IST).date())), token, repository)
+        else:
+            threading.Thread(
+                target=_blocks_loop, daemon=True,
+                args=(access_token, block_keys, token, repository, int(os.environ.get("DASHBOARD_OI_REFRESH_SECONDS", "300"))),
             ).start()
     failures = 0
     first = True

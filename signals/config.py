@@ -453,6 +453,11 @@ OB_MAX_HOLD_BARS = 20
 OB_MIN_RISK_PCT = 0.5        # skip trades whose stop distance is below / above these (noise / too wide)
 OB_MAX_RISK_PCT = 8.0
 
+# Order blocks on the 5-minute chart (dashboard: "Order block" column and filter)
+INTRADAY_OB_IMPULSE_ATR = 2.0   # displacement leg, in ATRs - lower than daily (5-minute legs are shorter)
+INTRADAY_OB_EXPIRY_BARS = 36    # a zone stays on the list for 3 hours
+INTRADAY_OB_RECENT_BARS = 3     # "testing": the retest happened within the last 3 bars (15 minutes)
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small
