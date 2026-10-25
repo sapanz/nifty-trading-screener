@@ -180,7 +180,7 @@
   the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
   <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
   <strong>Swing</strong> (built each evening after the close) applies the same idea to daily charts: volume vs its 20-day average, OI added over the last 5 sessions (near + next month futures) and the 5-session price move; ⚠ roll marks a window that includes a futures expiry, when the OI change includes settled and rolled positions.
-  <strong>Order block (5-min, Live, F&amp;O stocks):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
+  <strong>Order block (5-min, F&amp;O stocks; Live and Replay):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -208,7 +208,7 @@
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" },
     { key: "oi_chg", label: "OI chg %", sort: "oi_chg", help: "Open interest added (or removed) since 09:15, % - F&O stocks only" },
     { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." },
-    { key: "ob", label: "Order block (5-min)", sort: "ob_sl", help: "Live only, F&O stocks. The last opposite candle before a structure-breaking thrust today: its low (bullish) is a tight stop. Sorts by the smallest stop distance." }
+    { key: "ob", label: "Order block (5-min)", sort: "ob_sl", help: "F&O stocks. The last opposite candle before a structure-breaking thrust today: its low (bullish) is a tight stop. Sorts by the smallest stop distance." }
   ];
   var COLS_SWING = [
     { key: "rank", label: "#", sort: null },
@@ -223,14 +223,15 @@
     { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest added (or removed) over the last 5 sessions, % - what R-factor looks at" },
     { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." }
   ];
-  function columns() { return state.mode === "swing" ? COLS_SWING : state.mode === "live" ? COLS : COLS.filter(function (c) { return c.key !== "ob"; }); }
+  function obActive() { return state.mode === "live" || (state.mode === "replay" && state.hasOb); }
+  function columns() { return state.mode === "swing" ? COLS_SWING : obActive() ? COLS : COLS.filter(function (c) { return c.key !== "ob"; }); }
   var ASCENDING = { symbol: 1, sector: 1, ob_sl: 1 };
   function defaultDir(key) { return ASCENDING[key] || -1; }
   var SORT_OPTS = {
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false };
 
   function $(id) { return document.getElementById(id); }
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
@@ -308,25 +309,53 @@
       replay_label: day.date + " · " + slotLabel(slot) };
   }
 
+  /* Order blocks as they stood at a replayed moment: the day file stores each block with the slots it formed (f),
+     was first retested (t) and was stopped through (x); this is the JS twin of states_at in signals/intraday_blocks.py
+     (a test checks it agrees with the live scan at every slot). Best bullish and best bearish zone per stock:
+     retesting beats waiting, then the most recently formed. Slot s = the candle starting 09:15 + 5s. */
+  var OB_EXPIRY = 36, OB_RECENT = 3;
+  function replayBlocksAt(day, slot) {
+    var out = {};
+    Object.keys(day.stocks).forEach(function (sym) {
+      var blocks = day.stocks[sym].ob; if (!blocks) return;
+      var best = {};
+      blocks.forEach(function (b) {
+        if (b.f > slot || slot - b.f > OB_EXPIRY) return;
+        var st, touched = b.t !== null && b.t !== undefined && b.t <= slot;
+        if (!touched) st = "fresh";
+        else if (b.x !== null && b.x !== undefined && b.x <= slot) return;
+        else if (slot - b.t <= OB_RECENT) st = "testing";
+        else return;
+        var rank = (st === "testing" ? 1000 : 0) + b.f, m = 9 * 60 + 15 + b.i * 5;
+        if (!best[b.d] || rank > best[b.d].rank) best[b.d] = { rank: rank, rec: { d: b.d, st: st, lo: b.lo, hi: b.hi, t: pad(Math.floor(m / 60)) + ":" + pad(m % 60), imp: b.imp } };
+      });
+      var recs = Object.keys(best).map(function (k) { return best[k].rec; });
+      if (recs.length) out[sym] = recs;
+    });
+    return { stocks: out };
+  }
+
   function fetchJson(url, bust) {
     return fetch(url + (bust ? "?t=" + Date.now() : ""), bust ? { cache: "no-store" } : undefined)
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
   }
   function note(text) { $("rNote").textContent = text || ""; }
 
+  function dayHasOb(d) { return Object.keys(d.stocks).some(function (k) { return d.stocks[k].ob !== undefined; }); }
   function loadDay(date) {
-    if (state.dayCache[date]) { state.day = state.dayCache[date]; state.dayDate = date; return Promise.resolve(); }
+    if (state.dayCache[date]) { state.day = state.dayCache[date]; state.dayDate = date; state.hasOb = dayHasOb(state.day); return Promise.resolve(); }
     note("Loading " + date + "…");
     return fetchJson(histBase() + "days/" + date + ".json", false).then(function (d) {
-      state.dayCache[date] = d; state.day = d; state.dayDate = date;
+      state.dayCache[date] = d; state.day = d; state.dayDate = date; state.hasOb = dayHasOb(d);
       var anyLevels = Object.keys(d.stocks).some(function (k) { return d.stocks[k].ph !== undefined; });
-      note(anyLevels ? "" : "Previous-day high/low isn't stored for this day yet (history is rebuilt each evening) - the level filter will show nothing.");
+      note(!state.hasOb ? "Order blocks aren't stored for this day (history is rebuilt each evening) - the Order block column is hidden." : anyLevels ? "" : "Previous-day high/low isn't stored for this day yet (history is rebuilt each evening) - the level filter will show nothing.");
     });
   }
 
   function renderReplay() {
     if (state.mode !== "replay" || !state.day) return;
     state.data = snapshotAt(state.day, state.slot);
+    state.rblocks = replayBlocksAt(state.day, state.slot);
     if (state.sel) renderOi();
     $("rDate").value = state.dayDate; $("rTime").value = String(state.slot);
     $("rPrev").disabled = state.slot <= 0; $("rNext").disabled = state.slot >= state.day.slots - 1;
@@ -611,7 +640,7 @@
      and position are worked out here against the live price: bullish stop = zone low less 0.1%, bearish = zone high plus 0.1%. */
   var OB_BUFFER = 0.001;
   function attachBlocks(d) {
-    var table = state.blocks && state.blocks.stocks || {};
+    var src = state.mode === "replay" ? state.rblocks : state.blocks, table = src && src.stocks || {};
     d.stocks.forEach(function (s) {
       s.obs = []; s.ob = null; s.ob_sl = null;
       (table[s.symbol] || []).forEach(function (b) {
@@ -713,10 +742,10 @@
     var q = state.q.trim().toUpperCase();
     var list = state.data.stocks.filter(function (s) {
       return (!state.sector || s.sector === state.sector) && (!state.fo || s.fo) &&
-        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && levelMatch(s, state.lvl) && (state.mode !== "live" || state.ob === "all" || obPick(s, state.ob)) && (!q || s.symbol.indexOf(q) !== -1);
+        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && levelMatch(s, state.lvl) && (!obActive() || state.ob === "all" || obPick(s, state.ob)) && (!q || s.symbol.indexOf(q) !== -1);
     });
     var k = state.sortKey, d = state.sortDir;
-    if (state.mode === "live") list.forEach(function (s) { var b = obPick(s, state.ob); s.ob = b; s.ob_sl = b ? b.sl : null; });
+    if (obActive()) list.forEach(function (s) { var b = obPick(s, state.ob); s.ob = b; s.ob_sl = b ? b.sl : null; });
     list.sort(function (a, b) {
       var x = a[k], y = b[k];
       if (x === null || x === undefined) return 1; if (y === null || y === undefined) return -1;
@@ -780,14 +809,14 @@
       case "oi_chg": return pctCell(s.oi_chg, false);
       case "ob": {
         var ot = el("td", { "class": "obcell" }), b = s.ob;
-        if (!b) { ot.textContent = state.blocks ? "–" : "…"; return ot; }
+        if (!b) { ot.textContent = state.blocks || state.mode === "replay" ? "–" : "…"; return ot; }
         var bull = b.d === "bull";
         ot.appendChild(el("span", { "class": "lvl " + (bull ? "up" : "down") }, (bull ? "▲ " : "▼ ") + b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
         ot.appendChild(el("span", { "class": "obtag" + (b.st === "testing" || b.inside ? " test" : "") }, b.inside ? "in zone" : b.st === "testing" ? "retesting" : "waiting"));
         ot.appendChild(el("span", { "class": "mute" }, " stop " + b.sl.toFixed(2) + "%"));
         ot.title = (bull ? "Bullish" : "Bearish") + " order block from " + b.t + " (thrust " + b.imp + " ATR). Stop " + b.stop.toLocaleString("en-IN", { maximumFractionDigits: 2 }) +
           " = " + b.sl.toFixed(2) + " % from the live price; price is " + fmtPct(b.dist) + (bull ? " above" : " below") + " the zone. Zones as of " +
-          (state.blocks && state.blocks.updated_at ? new Date(state.blocks.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "?");
+          (state.mode === "replay" ? state.data.replay_label : state.blocks && state.blocks.updated_at ? new Date(state.blocks.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "?");
         return ot;
       }
       case "r": {
@@ -841,9 +870,9 @@
   function render() {
     if (!state.data) return;
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
-    if (state.mode === "live") attachBlocks(state.data);
+    if (obActive()) attachBlocks(state.data);
     $("lvl").parentNode.hidden = state.mode === "swing";
-    $("obSel").parentNode.hidden = state.mode !== "live";
+    $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
     $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");

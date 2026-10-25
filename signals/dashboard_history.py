@@ -18,7 +18,11 @@ Day file shape (keys kept short - 500 stocks x 75 slots adds up):
                       "c": [close per slot, null before the first trade],
                       "v": [volume per slot],
                       "o": [futures open interest per slot, F&O stocks only, when known],
-                      "p": [futures close per slot, alongside "o"]}}}
+                      "p": [futures close per slot, alongside "o"],
+                      "ob": [order blocks that formed that day, F&O stocks only:
+                             {"d": "bull"|"bear", "i": block candle slot, "f": slot it formed (structure broke),
+                              "lo","hi": zone, "t": first retest slot or null, "x": slot it was stopped through or null,
+                              "imp": thrust in ATRs} - see signals/intraday_blocks.py]}}}
 Slot i covers 09:15 + 5i minutes .. +5; a closed price is carried forward
 through slots with no trades.
 """
@@ -44,6 +48,7 @@ def build_day(
     """The day file for `day`, or None if too few stocks traded to be a real
     session. `futures` ({symbol: 5-minute candles of its futures contract with
     open_interest}) adds each F&O stock's OI arrays ("o", "p") when available."""
+    from signals.intraday_blocks import day_blocks
     from signals.oi import oi_arrays
 
     day = day.normalize()
@@ -88,6 +93,10 @@ def build_day(
             "c": closes,
             "v": volumes,
         }
+        if stocks[symbol]["fo"]:
+            blocks = day_blocks(df, day)
+            if blocks:
+                stocks[symbol]["ob"] = blocks
         arrays = oi_arrays(futures.get(symbol), day) if futures else None
         if arrays:
             stocks[symbol].update(arrays)

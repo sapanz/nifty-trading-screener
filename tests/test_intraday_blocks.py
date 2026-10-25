@@ -68,3 +68,31 @@ def test_bearish_mirror_and_too_little_data():
     mirror = _frame([200 - x for x in CHOP], [200 - x for x in UP])
     assert [b for b in ib.scan_symbol(mirror, DAY) if b["d"] == "bear"]
     assert ib.scan_symbol(_frame(CHOP[:5], UP[:5]), DAY) == []
+
+
+def _norm(recs):
+    return sorted((r["d"], r["st"], r["lo"], r["hi"], r["t"], r["imp"]) for r in recs)
+
+
+def test_replay_states_match_the_live_scan_at_every_slot():
+    scenarios = [
+        UP + [111, 109, 100.2, 104, 106, 107],                        # thrust, retest that holds, bounce
+        UP + [111, 100, 96, 95, 94],                                  # thrust, retest, broken through
+        UP + [113 + 0.1 * i for i in range(config.INTRADAY_OB_EXPIRY_BARS + 4)],   # never retested, expires
+    ]
+    for today in scenarios:
+        for flip in (False, True):
+            prev, tod = (CHOP, today) if not flip else ([200 - x for x in CHOP], [200 - x for x in today])
+            frame = _frame(prev, tod)
+            blocks = ib.day_blocks(frame, DAY)
+            assert blocks
+            n_prev = len(prev)
+            for n in range(1, len(tod) + 1):
+                live = ib.scan_symbol(frame.iloc[: n_prev + n], DAY)
+                assert _norm(ib.states_at(blocks, n - 1)) == _norm(live), (flip, n)
+
+
+def test_day_blocks_only_includes_blocks_formed_that_day():
+    frame = _frame(UP + CHOP, CHOP)
+    assert ib.day_blocks(frame, DAY) == []
+    assert ib.day_blocks(frame.iloc[:5], DAY) == []

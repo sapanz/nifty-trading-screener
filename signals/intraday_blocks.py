@@ -70,3 +70,65 @@ def scan_symbol(candles: pd.DataFrame, day: pd.Timestamp, now: pd.Timestamp | No
         if block.direction not in best or rank > best[block.direction][0]:
             best[block.direction] = (rank, _record(block, state, times))
     return [rec for _, rec in best.values()]
+
+
+# ---- Replay: the same zones for every 5-minute mark of a finished session -----------------------------------
+
+SESSION_START_MINUTES = 9 * 60 + 15
+WARMUP_BARS = 160                 # previous session (and a bit more) ahead of the day, for ATR and earlier swings
+
+
+def _slot(ts: pd.Timestamp) -> int:
+    return (ts.hour * 60 + ts.minute - SESSION_START_MINUTES) // BAR_MINUTES
+
+
+def day_blocks(candles: pd.DataFrame, day: pd.Timestamp) -> list[dict]:
+    """Every order block that formed during `day`, with the slots at which it formed ("f"), was first
+    retested ("t") and was stopped through ("x") - enough for the page to say what each zone looked like
+    at any 5-minute mark (states_at / the page's replayBlocksAt). Slot s = the candle starting 09:15 + 5s."""
+    if candles is None or candles.empty:
+        return []
+    frame = candles[candles.index.normalize() <= day.normalize()].tail(WARMUP_BARS + 75)
+    todays = frame.index.normalize() == day.normalize()
+    if len(frame) < 30 or not todays.any():
+        return []
+    o, h, l, c = (frame[col].to_numpy(dtype=float) for col in ("open", "high", "low", "close"))
+    times = frame.index
+    first_today = int(np.argmax(todays))
+    buf = config.OB_STOP_BUFFER_PCT / 100
+    out = []
+    for block in find_order_blocks(o, h, l, c, impulse_atr=config.INTRADAY_OB_IMPULSE_ATR):
+        if block.formed_idx < first_today:
+            continue
+        t = first_touch(block, o, h, l, config.INTRADAY_OB_EXPIRY_BARS)
+        x = None
+        if t is not None:
+            through = np.flatnonzero(l[t:] <= block.low * (1 - buf)) if block.direction == "bull" else np.flatnonzero(h[t:] >= block.high * (1 + buf))
+            x = _slot(times[t + int(through[0])]) if len(through) else None
+        out.append({"d": block.direction, "i": _slot(times[block.idx]), "f": _slot(times[block.formed_idx]), "lo": round(block.low, 2),
+                    "hi": round(block.high, 2), "t": None if t is None else _slot(times[t]), "x": x, "imp": round(block.impulse_atr, 1)})
+    return out
+
+
+def states_at(blocks: list[dict], slot: int) -> list[dict]:
+    """Best bullish / bearish zone as of the close of `slot` - the same answer scan_symbol gives on candles up to that
+    slot (test_intraday_blocks checks they agree); the page has a JS twin."""
+    best: dict[str, tuple] = {}
+    for b in blocks:
+        if b["f"] > slot or slot - b["f"] > config.INTRADAY_OB_EXPIRY_BARS:
+            continue
+        touched = b["t"] is not None and b["t"] <= slot
+        if not touched:
+            state = "fresh"
+        elif b["x"] is not None and b["x"] <= slot:
+            continue
+        elif slot - b["t"] <= config.INTRADAY_OB_RECENT_BARS:
+            state = "testing"
+        else:
+            continue
+        rank = (state == "testing", b["f"])
+        if b["d"] not in best or rank > best[b["d"]][0]:
+            best[b["d"]] = (rank, {"d": b["d"], "st": state, "lo": b["lo"], "hi": b["hi"],
+                                   "t": f"{(SESSION_START_MINUTES + b['i'] * BAR_MINUTES) // 60:02d}:{(SESSION_START_MINUTES + b['i'] * BAR_MINUTES) % 60:02d}",
+                                   "imp": b["imp"]})
+    return [rec for _, rec in best.values()]

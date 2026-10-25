@@ -606,7 +606,10 @@ the zone's low (plus 0.1%) is a tight stop. In **Live** mode, F&O stocks get an 
 
 A third loop in the dashboard job (`scripts/run_dashboard.py`) rescans every F&O stock's *completed* 5-minute candles every
 5 minutes (yesterday's session is only warm-up) and publishes `blocks.json`; detection is `signals/orderblocks.py`,
-the live states are `signals/intraday_blocks.py`. Replay mode does not show it (the replay files keep closes only).
+the live states are `signals/intraday_blocks.py`. **Replay** shows the same column and filter for any stored day and
+5-minute mark: the nightly day files carry each F&O stock's blocks of that day with the slots they formed, were retested
+and were stopped through (`ob`), and the page works out the state at the chosen moment (a test checks it agrees with the
+live scan at every slot). Days built before this was added show no Order block column until the history is rebuilt.
 
 Backtests (`orderblock_backtest.yml` for daily charts, `intraday_ob_backtest.yml` for 5-minute) measure retest trades net of
 costs against a random-entry baseline with the same stop/target distances. The daily test (Nifty 500, 2020-2026) found no

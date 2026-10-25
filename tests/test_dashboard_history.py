@@ -99,3 +99,17 @@ def test_day_file_records_previous_day_levels_and_the_first_slot_each_was_broken
     low_df = _session("2026-10-23", base=90.0)            # opens at 90 < 96: low broken on the very first candle
     intraday["S0"] = low_df
     assert dh.build_day(day, intraday, daily, industries, None)["stocks"]["S0"]["bl"] == 0
+
+
+def test_day_file_carries_order_blocks_for_fo_stocks_only():
+    from tests.test_intraday_blocks import CHOP, UP, DAY, PREV, _frame
+    frame = _frame(CHOP, UP + [111, 109, 100.2, 104])
+    frame["volume"] = 1000
+    day, intraday, daily, industries = _world()
+    intraday["S0"], intraday["S1"] = frame, frame.copy()
+    for sym in ("S0", "S1"):
+        daily[sym] = _daily(pd.bdate_range(end="2026-10-21", periods=30), close=100.0)
+    payload = dh.build_day(pd.Timestamp(DAY), intraday, daily, industries, {"S0"})
+    blocks = payload["stocks"]["S0"]["ob"]
+    assert blocks and {"d", "i", "f", "lo", "hi", "t", "x", "imp"} <= set(blocks[0])
+    assert "ob" not in payload["stocks"]["S1"]
