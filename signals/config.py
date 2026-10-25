@@ -438,6 +438,21 @@ TRENDLINE_DAILY_MAX_RISK_PCT = 6.0
 TRENDLINE_DAILY_TARGET_R = 2.0
 TRENDLINE_DAILY_MIN_VOL_RATIO = 1.5
 
+# --- Order blocks (signals/orderblocks.py) ------------------------------------
+# The last opposing candle before a strong move that breaks structure; traded on a
+# return to its zone. Untuned starting points; signals/orderblock_backtest.py logs
+# diagnostics so they can be mined rather than guessed.
+OB_SWING_K = 3               # swing high / low = highest / lowest of this many bars either side
+OB_IMPULSE_ATR = 2.5         # the move away from the block must cover at least this many ATRs
+OB_MAX_LEG_BARS = 8          # ... within this many bars of breaking structure
+OB_BLOCK_LOOKBACK = 3        # the block is the last opposing candle, at most this many bars before the leg's extreme
+OB_EXPIRY_BARS = 40          # an untouched block is dropped after this many bars
+OB_STOP_BUFFER_PCT = 0.1     # stop sits this far beyond the zone
+OB_TARGET_R = 2.0
+OB_MAX_HOLD_BARS = 20
+OB_MIN_RISK_PCT = 0.5        # skip trades whose stop distance is below / above these (noise / too wide)
+OB_MAX_RISK_PCT = 8.0
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small

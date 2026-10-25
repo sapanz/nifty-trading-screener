@@ -1,0 +1,56 @@
+name: Order Block Backtest
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium (for automated Upstox login)
+        run: playwright install --with-deps chromium
+
+      - name: Log in to Upstox (TOTP)
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/login_upstox.py
+
+      - name: Upload login failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstox-login-failure
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
+          if-no-files-found: ignore
+
+      - name: Run order block backtest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/run_orderblock_backtest.py
+
+      - name: Upload trade CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orderblock-backtest
+          path: orderblock_backtest.csv
+          if-no-files-found: ignore
