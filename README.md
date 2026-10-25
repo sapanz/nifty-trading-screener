@@ -594,6 +594,26 @@ flagged **⚠ roll**: the OI change then includes settled and rolled positions.
 There is no backtest of the swing R-factor yet - only about a month of
 contract history exists, so it needs the saved series to grow first.
 
+### Order blocks (intraday, 5-minute)
+
+An **order block** is the last opposite-coloured candle before a thrust that breaks the recent swing high (bullish: the
+last red candle) or swing low (bearish). Its range is the zone; price often comes back to it before the move resumes, and
+the zone's low (plus 0.1%) is a tight stop. In **Live** mode, F&O stocks get an **Order block** column and filter:
+
+- **waiting** - the thrust happened today and price has not come back yet;
+- **retesting** - price touched the zone in the last 15 minutes without trading through the far edge; **in zone** if it is inside it now;
+- **stop %** - distance from the live price to the stop; sort by "Order block: smallest stop %".
+
+A third loop in the dashboard job (`scripts/run_dashboard.py`) rescans every F&O stock's *completed* 5-minute candles every
+5 minutes (yesterday's session is only warm-up) and publishes `blocks.json`; detection is `signals/orderblocks.py`,
+the live states are `signals/intraday_blocks.py`. Replay mode does not show it (the replay files keep closes only).
+
+Backtests (`orderblock_backtest.yml` for daily charts, `intraday_ob_backtest.yml` for 5-minute) measure retest trades net of
+costs against a random-entry baseline with the same stop/target distances. The daily test (Nifty 500, 2020-2026) found no
+reliable standalone edge: out-of-sample profit factor 0.90 overall, bullish blocks slightly positive over the whole period
+(+0.11% per trade, PF 1.05) but negative in 2022, 2024 and 2026, bearish blocks clearly negative. Treat the column as a way
+to find candidates and place a stop, not as a signal.
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest
