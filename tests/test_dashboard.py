@@ -178,3 +178,16 @@ def test_snapshot_keeps_previous_day_levels_only_when_history_agrees_with_the_qu
     assert rows["BBB"]["pdh"] is None and rows["BBB"]["pdl"] is None
     assert rows["CCC"]["pdh"] == 55.0
     assert rows["DDD"]["pdh"] is None                                     # no history for it at all
+
+
+def test_levels_fall_back_to_the_previous_sessions_own_snapshot():
+    previous = {"data_date": "2026-10-23", "stocks": [
+        {"symbol": "AAA", "high": 105.0, "low": 95.0, "price": 100.0},
+        {"symbol": "BBB", "high": None, "low": 10.0, "price": 11.0}]}
+    out = dashboard.levels_from_snapshot(previous, "2026-10-26")                    # Monday uses Friday's final snapshot
+    assert out == {"AAA": {"pdh": 105.0, "pdl": 95.0, "pdc": 100.0}}
+    assert dashboard.levels_from_snapshot(previous, "2026-10-23") == {}             # same session: not "previous"
+    assert dashboard.levels_from_snapshot(None, "2026-10-26") == {} and dashboard.levels_from_snapshot({}, "x") == {}
+    # and it goes through the same quote check as history-derived levels
+    snap = _snapshot([_q("K0", 102, 2, 500)], levels=out)
+    assert [r for r in snap["stocks"] if r["symbol"] == "AAA"][0]["pdh"] == 105.0

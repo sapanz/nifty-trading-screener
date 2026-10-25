@@ -66,6 +66,22 @@ def previous_levels(daily: dict[str, pd.DataFrame], today: pd.Timestamp) -> dict
     return out
 
 
+def levels_from_snapshot(previous: dict | None, session_date: str) -> dict[str, dict[str, float]]:
+    """Fallback source for the previous-day levels: the dashboard's own last
+    published snapshot, if it is from an EARLIER session than `session_date`.
+    Its rows carry that session's final day high / low and last price, i.e.
+    exactly the previous session's high, low and close. Independent of when
+    Upstox's daily history catches up, so a lagging history can't leave the
+    filter empty. (A snapshot from the same session is no use and is ignored.)"""
+    if not previous or not previous.get("data_date") or previous["data_date"] >= session_date:
+        return {}
+    out = {}
+    for row in previous.get("stocks", []):
+        if row.get("high") and row.get("low") and row.get("price"):
+            out[row["symbol"]] = {"pdh": float(row["high"]), "pdl": float(row["low"]), "pdc": float(row["price"])}
+    return out
+
+
 def _change(quote: dict[str, Any], last: float) -> tuple[float, float] | None:
     """(previous close, change %) from a raw quote, or None if unusable."""
     net = quote.get("net_change")

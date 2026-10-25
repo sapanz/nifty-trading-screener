@@ -22,6 +22,7 @@ import os
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime, time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -57,6 +58,18 @@ def _trade_date(value) -> str | None:
             return datetime.fromtimestamp(int(value) / 1000, IST).date().isoformat()
         return datetime.fromisoformat(str(value)).date().isoformat()
     except (ValueError, OSError):
+        return None
+
+
+def _previous_snapshot(repository: str | None) -> dict | None:
+    """The last published data.json (the previous session's final snapshot when a day's first
+    cycle starts) - the fallback source of previous-day levels. Fail soft."""
+    if not repository:
+        return None
+    try:
+        return json.load(urllib.request.urlopen(f"https://raw.githubusercontent.com/{repository}/{DATA_BRANCH}/data.json", timeout=30))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("No previous snapshot to fall back on for previous-day levels: %s", exc)
         return None
 
 
@@ -121,7 +134,10 @@ def main() -> None:
             throttle=client.throttle, label="daily (for average volume)",
         )
         avg_volume = dashboard.average_volumes(daily, today=pd.Timestamp(datetime.now(IST).date()))
-        logger.info("Reference data ready: %d symbols, %d with average volume", len(instrument_map), len(avg_volume))
+        previous_snapshot = _previous_snapshot(repository)      # taken now, before this run publishes anything
+        last_dates = sorted({df.index[-1].date().isoformat() for df in daily.values() if len(df)})
+        logger.info("Reference data ready: %d symbols, %d with average volume; daily history ends %s",
+                    len(instrument_map), len(avg_volume), last_dates[-3:])
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
@@ -157,7 +173,9 @@ def main() -> None:
             # the last session, not today - so take the date from the quotes' own trade times.
             dates = [d for d in (_trade_date(q.get("last_trade_time")) for q in quotes) if d]
             data_date = max(dates) if dates else now.date().isoformat()
-            levels = dashboard.previous_levels(daily, pd.Timestamp(data_date))
+            # History first; the previous session's own last snapshot fills any stock history couldn't (a lagging history).
+            levels = {**dashboard.levels_from_snapshot(previous_snapshot, data_date),
+                      **dashboard.previous_levels(daily, pd.Timestamp(data_date))}
             snapshot = dashboard.build_snapshot(quotes, key_to_symbol, industries, avg_volume, fo_symbols, now, levels)
             snapshot["data_date"] = max(dates) if dates else None
             snapshot["market_status"] = market_status(now)
@@ -166,8 +184,9 @@ def main() -> None:
             with PUBLISH_LOCK:
                 (SITE_DIR / "data.json").write_text(json.dumps(snapshot, separators=(",", ":")))
             _publish(token, repository, f"snapshot {snapshot['updated_at']}")
-            logger.info("Snapshot: %d stocks, %d sectors, data date %s", snapshot["stock_count"],
-                        len(snapshot["sectors"]), snapshot["data_date"])
+            logger.info("Snapshot: %d stocks, %d sectors, data date %s, previous-day levels for %d",
+                        snapshot["stock_count"], len(snapshot["sectors"]), snapshot["data_date"],
+                        sum(1 for r in snapshot["stocks"] if r.get("pdh")))
             failures = 0
         except Exception as exc:  # noqa: BLE001 - one bad cycle shouldn't end the session
             failures += 1
