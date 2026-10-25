@@ -121,6 +121,7 @@ def main() -> None:
             throttle=client.throttle, label="daily (for average volume)",
         )
         avg_volume = dashboard.average_volumes(daily, today=pd.Timestamp(datetime.now(IST).date()))
+        levels = dashboard.previous_levels(daily, pd.Timestamp(datetime.now(IST).date()))
         logger.info("Reference data ready: %d symbols, %d with average volume", len(instrument_map), len(avg_volume))
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
@@ -153,7 +154,7 @@ def main() -> None:
             if first:
                 logger.info("Sample raw quotes: %s", json.dumps(quotes[:2], default=str)[:1500])
                 first = False
-            snapshot = dashboard.build_snapshot(quotes, key_to_symbol, industries, avg_volume, fo_symbols, now)
+            snapshot = dashboard.build_snapshot(quotes, key_to_symbol, industries, avg_volume, fo_symbols, now, levels)
             dates = [d for d in (_trade_date(s["last_trade"]) for s in snapshot["stocks"]) if d]
             snapshot["data_date"] = max(dates) if dates else None
             snapshot["market_status"] = market_status(now)

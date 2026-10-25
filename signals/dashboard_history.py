@@ -12,6 +12,9 @@ Day file shape (keys kept short - 500 stocks x 75 slots adds up):
   {"date": "2026-10-23", "start": "09:15", "step": 5, "slots": 75,
    "stocks": {"SYM": {"s": sector, "fo": 0|1, "pc": previous close,
                       "av": 20-day average volume or null,
+                      "ph": previous session's high, "pl": its low,
+                      "bh": first slot whose high went above ph (null if never),
+                      "bl": first slot whose low went below pl (null if never),
                       "c": [close per slot, null before the first trade],
                       "v": [volume per slot],
                       "o": [futures open interest per slot, F&O stocks only, when known],
@@ -66,11 +69,21 @@ def build_day(
                 closes[i] = last
             else:
                 last = value
+        prev_high, prev_low = float(before["high"].iloc[-1]), float(before["low"].iloc[-1])
+        broke_hi = broke_lo = None
+        for slot, high, low in zip(slots, session["high"], session["low"]):
+            if not 0 <= slot < SLOTS:
+                continue
+            if broke_hi is None and pd.notna(high) and high > prev_high:
+                broke_hi = int(slot)
+            if broke_lo is None and pd.notna(low) and low < prev_low:
+                broke_lo = int(slot)
         recent = before["volume"].tail(AVG_VOLUME_DAYS)
         stocks[symbol] = {
             "s": industries.get(symbol) or "Other",
             "fo": int(bool(fo_symbols and symbol in fo_symbols)),
             "pc": round(float(before["close"].iloc[-1]), 2),
+            "ph": round(prev_high, 2), "pl": round(prev_low, 2), "bh": broke_hi, "bl": broke_lo,
             "av": round(float(recent.mean()), 1) if len(recent) >= 5 and recent.mean() > 0 else None,
             "c": closes,
             "v": volumes,

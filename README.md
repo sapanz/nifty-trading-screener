@@ -522,6 +522,24 @@ not tick-by-tick. Running the workflow manually with
 "once" ticked publishes a single snapshot for a smoke test (a manual run
 cancels a session in progress - they share a concurrency group).
 
+### Previous-day high / low filter
+
+A **Prev-day level** filter and a **vs prev-day H/L** column (Live and Replay)
+show where each stock trades against yesterday's high (PDH) and low (PDL):
+*above PDH* / *below PDL* (trading beyond it now), *broke PDH / PDL, back inside*
+(touched beyond a level at some point today but is back in the range - a
+failed breakout to know about before chasing), *broke both*, or *inside range*.
+The filter options also include "broke ... (any time today)" and the table can
+be sorted by distance above PDH or below PDL, and combined with the sector,
+F&O-only, gainers/losers and R-factor controls. Live, yesterday's levels come
+from the daily history the dashboard job already fetches, kept only where that
+history's last close matches the previous close implied by the live quote
+(history sometimes lags a session; a level from the wrong day is worse than
+none) and "today" uses the quote's day high/low. Replay uses the levels stored
+in each history day file plus the first 5-minute slot in which each was broken,
+so a replay at 10:30 only knows about breaks up to 10:30; day files built before
+this feature don't have them and say so until the nightly rebuild.
+
 ### R-factor and OI change columns
 
 For F&O stocks the table also shows **OI chg %** (open interest added since

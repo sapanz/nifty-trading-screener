@@ -80,6 +80,8 @@
   td.sym { font-weight: 700; } td.sec { color: var(--muted); max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
   .fo { margin-left: 6px; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--muted); font-weight: 600; }
   .hot { font-weight: 700; }
+  .lvl { font-size: 12px; font-weight: 600; white-space: nowrap; } .lvl.up { color: var(--up); } .lvl.down { color: var(--down); } .lvl.warn { color: #b26a00; } .lvl.mute { color: var(--muted); font-weight: 400; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl.warn { color: #e0a64a; } }
   td.rcell { white-space: nowrap; } td.rcell .bias { margin-left: 5px; font-size: 11px; }
   .empty { padding: 28px 14px; color: var(--muted); text-align: center; }
 
@@ -146,6 +148,11 @@
       <label><input type="checkbox" id="foOnly"> F&amp;O only</label>
       <label>Show <select id="topN"><option>25</option><option>50</option><option>100</option><option value="0">All</option></select></label>
       <label>Move <select id="dir"><option value="all">All</option><option value="up">Gainers</option><option value="down">Losers</option></select></label>
+      <label>Prev-day level <select id="lvl" aria-label="Previous-day high / low filter">
+        <option value="all">Any</option><option value="above">Above prev-day high</option><option value="below">Below prev-day low</option>
+        <option value="brokeHi">Broke prev-day high (any time today)</option><option value="brokeLo">Broke prev-day low (any time today)</option>
+        <option value="failed">Broke a level, back inside</option><option value="inside">Inside prev-day range</option>
+      </select></label>
       <input type="search" id="q" placeholder="Search symbol" aria-label="Search symbol">
     </div>
     <div class="tablewrap">
@@ -184,6 +191,7 @@
     { key: "sector", label: "Sector", sort: "sector" },
     { key: "price", label: "LTP", sort: "price" },
     { key: "change_pct", label: "Chg %", sort: "change_pct" },
+    { key: "pd", label: "vs prev-day H/L", sort: "pdh_dist", help: "Where the stock trades against yesterday's high (PDH) and low (PDL). Sorts by distance above PDH." },
     { key: "volume", label: "Volume", sort: "volume" },
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" },
@@ -205,14 +213,14 @@
   ];
   function columns() { return state.mode === "swing" ? COLS_SWING : COLS; }
   var SORT_OPTS = {
-    live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"]],
+    live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1 };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all" };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -269,7 +277,10 @@
       if (price === null || price === undefined) return;          // hadn't traded yet at this point
       var vol = 0; for (var i = 0; i <= slot; i++) vol += s.v[i];
       var row = { symbol: sym, sector: s.s, price: price, change_pct: r2((price / s.pc - 1) * 100), volume: vol,
-        turnover_cr: r2(price * vol / 1e7), vol_vs_avg: s.av ? r2(vol / s.av) : null, fo: !!s.fo };
+        turnover_cr: r2(price * vol / 1e7), vol_vs_avg: s.av ? r2(vol / s.av) : null, fo: !!s.fo,
+        pdh: s.ph === undefined ? null : s.ph, pdl: s.pl === undefined ? null : s.pl,
+        brokeHi: s.ph === undefined ? undefined : (s.bh !== null && s.bh !== undefined && s.bh <= slot),
+        brokeLo: s.pl === undefined ? undefined : (s.bl !== null && s.bl !== undefined && s.bl <= slot) };
       stocks.push(row); (by[row.sector] = by[row.sector] || []).push(row);
     });
     var sectors = Object.keys(by).map(function (name) {
@@ -293,7 +304,9 @@
     if (state.dayCache[date]) { state.day = state.dayCache[date]; state.dayDate = date; return Promise.resolve(); }
     note("Loading " + date + "…");
     return fetchJson(histBase() + "days/" + date + ".json", false).then(function (d) {
-      state.dayCache[date] = d; state.day = d; state.dayDate = date; note("");
+      state.dayCache[date] = d; state.day = d; state.dayDate = date;
+      var anyLevels = Object.keys(d.stocks).some(function (k) { return d.stocks[k].ph !== undefined; });
+      note(anyLevels ? "" : "Previous-day high/low isn't stored for this day yet (history is rebuilt each evening) - the level filter will show nothing.");
     });
   }
 
@@ -576,6 +589,36 @@
         pp = pctRanks(rows.map(function (s) { return Math.abs(s.px_chg); }));
     rows.forEach(function (s, i) { s.r = s.oi_chg > 0 ? Math.round(Math.cbrt(pv[i] * po[i] * pp[i])) : 0; });
   }
+  /* ---------- previous-day high / low ---------- */
+  /* pd: above = trading above yesterday's high now; below = under yesterday's low now; both / failhi / faillo =
+     broke a level at some point today but is back inside (a failed breakout - worth knowing before chasing);
+     inside = has not touched either. Live uses the quote's day high/low; Replay uses the first slot a level was broken. */
+  function annotateLevels(d) {
+    d.stocks.forEach(function (s) {
+      s.pd = null; s.pdh_dist = null; s.pdl_depth = null;
+      if (s.pdh === null || s.pdh === undefined || s.pdl === null || s.pdl === undefined) return;
+      var bh = s.brokeHi !== undefined ? s.brokeHi : (s.high !== null && s.high !== undefined && s.high > s.pdh);
+      var bl = s.brokeLo !== undefined ? s.brokeLo : (s.low !== null && s.low !== undefined && s.low < s.pdl);
+      var above = s.price > s.pdh, below = s.price < s.pdl;
+      bh = bh || above; bl = bl || below;
+      s.brokeHi = bh; s.brokeLo = bl;
+      s.pdh_dist = r2((s.price / s.pdh - 1) * 100); s.pdl_depth = r2((s.pdl / s.price - 1) * 100);
+      s.pd = above ? "above" : below ? "below" : (bh && bl ? "both" : bh ? "failhi" : bl ? "faillo" : "inside");
+    });
+  }
+  function levelMatch(s, mode) {
+    if (mode === "all") return true;
+    switch (mode) {
+      case "above": return s.pd === "above";
+      case "below": return s.pd === "below";
+      case "brokeHi": return s.brokeHi === true;
+      case "brokeLo": return s.brokeLo === true;
+      case "failed": return s.pd === "failhi" || s.pd === "faillo" || s.pd === "both";
+      case "inside": return s.pd === "inside";
+    }
+    return true;
+  }
+
   var BIAS_TAG = { long: ["▲", "up", "Long buildup: OI up, price up"], short: ["▼", "down", "Short buildup: OI up, price down"],
                    cover: ["", "", "Short covering: OI down, price up"], unwind: ["", "", "Long unwinding: OI down, price down"] };
 
@@ -626,7 +669,7 @@
     var q = state.q.trim().toUpperCase();
     var list = state.data.stocks.filter(function (s) {
       return (!state.sector || s.sector === state.sector) && (!state.fo || s.fo) &&
-        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && (!q || s.symbol.indexOf(q) !== -1);
+        (state.dir === "all" || (state.dir === "up" ? s.change_pct > 0 : s.change_pct < 0)) && levelMatch(s, state.lvl) && (!q || s.symbol.indexOf(q) !== -1);
     });
     var k = state.sortKey, d = state.sortDir;
     list.sort(function (a, b) {
@@ -641,7 +684,7 @@
     var all = visibleStocks(), list = state.topN ? all.slice(0, state.topN) : all, body = $("rows");
     body.textContent = "";
     $("count").textContent = list.length === all.length ? all.length + " stocks" : "top " + list.length + " of " + all.length;
-    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers", chg_5d: "Biggest 5-day movers", oi_1d: "Biggest 1-day OI change" };
+    var titles = { volume: "Highest volume", r: "Highest R-factor", oi_chg: "Biggest OI change", turnover_cr: "Highest turnover", vol_vs_avg: "Highest volume vs 20-day average", change_pct: "Biggest movers", chg_5d: "Biggest 5-day movers", oi_1d: "Biggest 1-day OI change", pdh_dist: "Furthest above prev-day high", pdl_depth: "Furthest below prev-day low" };
     if (state.mode === "swing") { titles.r = "Swing: highest R-factor"; titles.oi_chg = "Swing: biggest 5-day OI change"; }
     $("th").firstChild.textContent = (titles[state.sortKey] || "Stocks") + (state.sector ? " — " + state.sector : "");
     var empty = $("empty");
@@ -674,6 +717,15 @@
       case "price": return el("td", null, s.price.toLocaleString("en-IN", { minimumFractionDigits: 2 }));
       case "change_pct": return pctCell(s.change_pct, true);
       case "chg_5d": return pctCell(s.chg_5d, true);
+      case "pd": {
+        var td = el("td", { "class": "pdcell" });
+        if (!s.pd) { td.textContent = "–"; return td; }
+        var label = { above: ["▲ above PDH " + fmtPct(s.pdh_dist), "up"], below: ["▼ below PDL " + fmtPct(-s.pdl_depth), "down"],
+                      failhi: ["↩ broke PDH, back inside", "warn"], faillo: ["↩ broke PDL, back inside", "warn"], both: ["↕ broke both", "warn"], inside: ["inside range", "mute"] }[s.pd];
+        td.appendChild(el("span", { "class": "lvl " + label[1] }, label[0]));
+        td.title = "PDH " + s.pdh.toLocaleString("en-IN") + " · PDL " + s.pdl.toLocaleString("en-IN") + (state.mode === "live" && s.high ? " · today high " + s.high + ", low " + s.low : "");
+        return td;
+      }
       case "volume": return el("td", null, fmtVol(s.volume));
       case "turnover_cr": return el("td", null, s.turnover_cr.toLocaleString("en-IN", { maximumFractionDigits: 1 }));
       case "vol_vs_avg": return el("td", { "class": s.vol_vs_avg !== null && s.vol_vs_avg >= 1 ? "hot" : "" }, s.vol_vs_avg === null ? "–" : s.vol_vs_avg.toFixed(2) + "×");
@@ -729,11 +781,12 @@
 
   function render() {
     if (!state.data) return;
-    if (state.mode !== "swing") attachR(state.data);
+    if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
+    $("lvl").parentNode.hidden = state.mode === "swing";
     renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
     $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");
-    $("foOnly").checked = state.fo; $("topN").value = String(state.topN); $("dir").value = state.dir;
+    $("foOnly").checked = state.fo; $("lvl").value = state.lvl; $("topN").value = String(state.topN); $("dir").value = state.dir;
   }
 
   function showMessage(text) {
@@ -756,6 +809,7 @@
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("lvl").addEventListener("change", function (e) { state.lvl = e.target.value; save(); render(); });
   $("q").addEventListener("input", function (e) { state.q = e.target.value; renderRows(); });
   refresh();
   setInterval(refresh, REFRESH_MS);

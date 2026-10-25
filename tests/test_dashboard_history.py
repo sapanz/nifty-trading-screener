@@ -81,3 +81,21 @@ def test_trading_days_keeps_recent_days_where_most_stocks_traded():
     days = dh.trading_days(frames, limit=2)
     assert [d.date().isoformat() for d in days] == ["2026-10-21", "2026-10-22"]
     assert pd.Timestamp("2026-10-19") not in dh.trading_days(frames, limit=10)
+
+
+def test_day_file_records_previous_day_levels_and_the_first_slot_each_was_broken():
+    day, intraday, daily, industries = _world()
+    for sym in daily:                                     # previous session: high 104, low 96
+        daily[sym]["high"], daily[sym]["low"] = 104.0, 96.0
+    # S0 trades 100..107.4 (high = close + 0.1): first slot with high > 104 is where close passes 103.9
+    out = dh.build_day(day, intraday, daily, industries, None)["stocks"]
+    s0 = out["S0"]
+    assert (s0["ph"], s0["pl"]) == (104.0, 96.0)
+    expected = next(i for i in range(75) if 100.0 + i * 0.1 + 0.1 > 104.0)
+    assert s0["bh"] == expected and s0["bl"] is None
+    # S1 starts at 101: breaks earlier
+    assert out["S1"]["bh"] < s0["bh"]
+    # a stock that dips under the previous low
+    low_df = _session("2026-10-23", base=90.0)            # opens at 90 < 96: low broken on the very first candle
+    intraday["S0"] = low_df
+    assert dh.build_day(day, intraday, daily, industries, None)["stocks"]["S0"]["bl"] == 0

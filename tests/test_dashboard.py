@@ -20,7 +20,7 @@ def _snapshot(quotes, **kw):
     mapping = {f"K{i}": s for i, s in enumerate(["AAA", "BBB", "CCC", "DDD"])}
     industries = {"AAA": "Banks", "BBB": "Banks", "CCC": "IT", "DDD": "IT"}
     avg = kw.pop("avg", {"AAA": 1000.0, "BBB": 1000.0, "CCC": 4000.0})
-    return dashboard.build_snapshot(quotes, mapping, industries, avg, kw.pop("fo", {"AAA", "CCC"}), NOW)
+    return dashboard.build_snapshot(quotes, mapping, industries, avg, kw.pop("fo", {"AAA", "CCC"}), NOW, kw.pop("levels", None))
 
 
 def test_sector_change_is_the_average_with_breadth_and_ranked_best_first():
@@ -157,3 +157,24 @@ def test_publish_accepts_a_relative_directory(tmp_path, monkeypatch):
     shown = subprocess.run(["git", "--git-dir", str(remote), "show", "dashboard-data:data.json"],
                            capture_output=True, text=True, check=True).stdout
     assert shown == "{}"
+
+
+def test_previous_levels_come_from_the_last_completed_session():
+    idx = pd.bdate_range(end="2026-10-23", periods=5)
+    df = pd.DataFrame({"open": 1.0, "high": [10, 11, 12, 13, 99], "low": [1, 2, 3, 4, 0.5], "close": [5, 6, 7, 8, 9], "volume": 1.0}, index=idx)
+    out = dashboard.previous_levels({"AAA": df}, pd.Timestamp("2026-10-23"))      # today's own row is excluded
+    assert out["AAA"] == {"pdh": 13.0, "pdl": 4.0, "pdc": 8.0}
+    assert dashboard.previous_levels({"AAA": df}, pd.Timestamp("2026-10-01")) == {}
+
+
+def test_snapshot_keeps_previous_day_levels_only_when_history_agrees_with_the_quote():
+    levels = {"AAA": {"pdh": 105.0, "pdl": 95.0, "pdc": 100.0},
+              "BBB": {"pdh": 205.0, "pdl": 195.0, "pdc": 150.0},      # history is a session stale: close disagrees with the quote
+              "CCC": {"pdh": 55.0, "pdl": 45.0, "pdc": 50.2}}         # within 0.5% of the quote's previous close: fine
+    quotes = [_q("K0", 102, 2, 500), _q("K1", 201, 1, 500), _q("K2", 51, 1, 500), _q("K3", 10, 1, 500)]
+    snap = _snapshot(quotes, levels=levels)
+    rows = {s["symbol"]: s for s in snap["stocks"]}
+    assert (rows["AAA"]["pdh"], rows["AAA"]["pdl"]) == (105.0, 95.0)
+    assert rows["BBB"]["pdh"] is None and rows["BBB"]["pdl"] is None
+    assert rows["CCC"]["pdh"] == 55.0
+    assert rows["DDD"]["pdh"] is None                                     # no history for it at all

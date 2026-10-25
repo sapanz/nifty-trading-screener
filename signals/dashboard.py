@@ -14,6 +14,13 @@ Definitions, so the numbers aren't mysterious:
   * turnover - last price x day volume so far, in Rs crore: a better
     "where is the money trading" measure than raw share count, which favours
     cheap stocks.
+  * previous-day high / low (pdh / pdl) - the prior completed session's high
+    and low, from daily history. The page marks each stock "above PDH" / "below
+    PDL" (trading beyond it now), "broke ..." (touched beyond it at any point
+    today, even if back inside) or "inside". A stock's levels are only kept
+    if that history's last close matches the previous close implied by the
+    live quote - history lags a session at times, and a level from the wrong
+    day would be worse than none.
   * volume vs 20-day average - day volume so far divided by the average FULL
     day volume of the prior 20 sessions. It is naturally well below 1x early
     in the session (a normal day is ~15% done by 10am and ~50% by midday), so
@@ -44,6 +51,21 @@ def average_volumes(daily: dict[str, pd.DataFrame], today: pd.Timestamp | None =
     return out
 
 
+LEVEL_TOLERANCE_PCT = 0.5
+
+
+def previous_levels(daily: dict[str, pd.DataFrame], today: pd.Timestamp) -> dict[str, dict[str, float]]:
+    """{symbol: {pdh, pdl, pdc}} from the last completed session before `today`."""
+    out: dict[str, dict[str, float]] = {}
+    for symbol, df in daily.items():
+        before = df[df.index.normalize() < today.normalize()]
+        if before.empty:
+            continue
+        last = before.iloc[-1]
+        out[symbol] = {"pdh": float(last["high"]), "pdl": float(last["low"]), "pdc": float(last["close"])}
+    return out
+
+
 def _change(quote: dict[str, Any], last: float) -> tuple[float, float] | None:
     """(previous close, change %) from a raw quote, or None if unusable."""
     net = quote.get("net_change")
@@ -60,6 +82,7 @@ def build_snapshot(
     avg_volume: dict[str, float],
     fo_symbols: set[str] | None,
     now: datetime,
+    levels: dict[str, dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     stocks = []
     for q in quotes:
@@ -74,6 +97,8 @@ def build_snapshot(
         prev_close, change_pct = change
         avg = avg_volume.get(symbol)
         ohlc = q.get("ohlc") or {}
+        lv = (levels or {}).get(symbol)
+        trusted = lv is not None and lv["pdc"] > 0 and abs(lv["pdc"] / prev_close - 1) * 100 <= LEVEL_TOLERANCE_PCT
         stocks.append({
             "symbol": symbol,
             "sector": industries.get(symbol) or "Other",
@@ -83,6 +108,7 @@ def build_snapshot(
             "turnover_cr": round(float(last) * float(volume) / CRORE, 2),
             "vol_vs_avg": round(float(volume) / avg, 2) if avg else None,
             "high": ohlc.get("high"), "low": ohlc.get("low"),
+            "pdh": round(lv["pdh"], 2) if trusted else None, "pdl": round(lv["pdl"], 2) if trusted else None,
             "fo": bool(fo_symbols and symbol in fo_symbols),
             "last_trade": q.get("last_trade_time"),
         })
