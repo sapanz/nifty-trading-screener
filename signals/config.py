@@ -458,6 +458,12 @@ INTRADAY_OB_IMPULSE_ATR = 2.0   # displacement leg, in ATRs - lower than daily (
 INTRADAY_OB_EXPIRY_BARS = 36    # a zone stays on the list for 3 hours
 INTRADAY_OB_RECENT_BARS = 3     # "testing": the retest happened within the last 3 bars (15 minutes)
 
+# Intraday order-block backtest (5-minute bars, F&O stocks)
+INTRADAY_OB_MIN_RISK_PCT = 0.15     # entry-to-stop distance bounds, % of entry
+INTRADAY_OB_MAX_RISK_PCT = 3.0
+INTRADAY_OB_LAST_ENTRY = "14:30"    # no new entries after this bar start
+INTRADAY_OB_EXIT_BAR = "15:10"      # positions are closed at the close of this bar (15:15)
+
 # --- Circuit breaker --------------------------------------------------------
 # If the data source is blocking/rejecting requests wholesale (as NSE direct
 # scraping turned out to do from GitHub Actions), fail fast after a small
