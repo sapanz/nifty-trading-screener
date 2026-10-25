@@ -48,6 +48,7 @@ class IBTrade:
     impulse_atr: float
     with_day: bool        # bullish zone and stock up on the day at formation (bearish: down on the day)
     minutes_in: int       # entry minutes after 09:15
+    session: int = 0      # session number within the symbol's own series
 
 
 def _minute(ts: pd.Timestamp) -> int:
@@ -106,7 +107,7 @@ def trade_for(block: OrderBlock, symbol, times, ids, info, o, h, l, c, prev_clos
         symbol=symbol, direction=block.direction, day=times[t].normalize(), entry_time=times[t].strftime("%H:%M"), entry=entry,
         outcome=outcome, net_pct=gross - COST, r_multiple=gross / risk_pct, risk_pct=risk_pct, impulse_atr=block.impulse_atr,
         with_day=(up_on_day if block.direction == "bull" else (prev_close is not None and not up_on_day)),
-        minutes_in=_minute(times[t]) - (9 * 60 + 15),
+        minutes_in=_minute(times[t]) - (9 * 60 + 15), session=int(sid),
     )
 
 
