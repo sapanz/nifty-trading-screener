@@ -1,0 +1,95 @@
+name: Intraday Research
+
+# Fetches 3 years of 5-minute candles for the F&O stocks once (cached), then runs the walk-forward research loop:
+# event table -> models -> configuration search -> report in the log. Re-runs reuse the cache and need no Upstox login.
+on:
+  workflow_dispatch:
+    inputs:
+      refetch:
+        description: "Fetch the candles again even if a cache exists"
+        type: boolean
+        default: false
+      months:
+        description: "Months of history to fetch"
+        type: number
+        default: 36
+      geoms:
+        description: "Geometry indices to model (comma list of 0-7)"
+        default: "0,1,2,3,4,5,6,7"
+      features_off:
+        description: "Features to drop (comma list), for ablations"
+        default: ""
+      train_frac:
+        description: "Share of the days used as the first training window"
+        default: "0.4"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt lightgbm scikit-learn
+
+      - name: Restore cached candles
+        id: cache
+        if: ${{ !inputs.refetch }}
+        uses: actions/cache/restore@v4
+        with:
+          path: research_data
+          key: research-data-none
+          restore-keys: research-data-v1-
+
+      - name: Install Playwright's Chromium (only when fetching)
+        if: ${{ inputs.refetch || steps.cache.outputs.cache-matched-key == '' }}
+        run: playwright install --with-deps chromium
+
+      - name: Log in to Upstox (only when fetching)
+        if: ${{ inputs.refetch || steps.cache.outputs.cache-matched-key == '' }}
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/login_upstox.py
+
+      - name: Fetch candles (skipped when the cache supplied them)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RESEARCH_MONTHS: ${{ inputs.months }}
+          RESEARCH_REFETCH: ${{ inputs.refetch }}
+        run: python scripts/run_research.py --fetch
+
+      - name: Save candles to the cache
+        if: ${{ hashFiles('research_data/intraday_5m.pkl.gz') != '' && (inputs.refetch || steps.cache.outputs.cache-matched-key == '') }}
+        uses: actions/cache/save@v4
+        with:
+          path: research_data
+          key: research-data-v1-${{ github.run_id }}
+
+      - name: Research
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RESEARCH_GEOMS: ${{ inputs.geoms }}
+          RESEARCH_FEATURES_OFF: ${{ inputs.features_off }}
+          RESEARCH_TRAIN_FRAC: ${{ inputs.train_frac }}
+        run: python scripts/run_research.py
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-report
+          path: research_report.txt
+          if-no-files-found: ignore
