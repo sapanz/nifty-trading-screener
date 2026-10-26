@@ -626,8 +626,8 @@ side, both pointing up, taller = more open interest changed. Each bar is split
 into dark = new positions opened (buy side: long buildup, sell side: short
 buildup) and light = positions closed (short covering / long unwinding), where a
 candle counts as buy-side if price rose in it and sell-side if it fell. Above
-the chart: current OI, change since 09:15, futures price move, which side has
-been stronger and the day's buy/sell split; "Show the numbers" lists every
+the chart: current OI, change since 09:15, futures price move and a **whole-day
+reading**; "Show the numbers" lists every
 block (price move, OI change, the four components, net reading). F&O stocks
 only, on the current-month futures contract. Live, `scripts/run_dashboard.py`
 refreshes `oi.json` (today's 5-minute futures candles, one request per F&O
@@ -636,6 +636,17 @@ files carry the OI arrays, so the chart follows the chosen date and time. OI
 comes from the current-month contract, so replay days before the previous
 monthly expiry (~29-30 Sep) show what was then the next-month contract
 (smaller OI, rising as traders rolled over); the chart says so.
+
+**Flat candles and the reading.** A candle whose price moved less than 0.1% (daily:
+0.25%) is *flat*: its OI change says nothing about who was in control, so it is
+drawn as a grey bar and left out of the buy/sell totals instead of being coloured
+by a one-tick move (on 26 Oct a flat 09:35 Coforge candle that added 8% to OI
+was counted as "short buildup" and made the sell side look like 72%). The
+whole-day reading judges the day so far two ways - by OI and by number of
+candles won - and says **Buy / Sell in control** only if the side leads on both
+and holds at least 60% of the OI; otherwise **Mixed**. A one-candle spike can
+no longer decide it. The tiles also show the candle count (buy / sell / flat).
+It is a reading of what happened so far, not a prediction.
 
 ### Replay
 

@@ -413,18 +413,22 @@
     cover:  { label: "Short covering", color: "var(--up-soft)",   side: "buy",  hint: "OI down, price up" },
     short:  { label: "Short buildup",  color: "var(--down)",      side: "sell", hint: "OI up, price down" },
     unwind: { label: "Long unwinding", color: "var(--down-soft)", side: "sell", hint: "OI down, price down" },
-    flat:   { label: "No price move",  color: "var(--flat)",      side: null,   hint: "" }
+    flat:   { label: "Flat (barely moved)", color: "var(--flat)",    side: null,   hint: "" }
   };
   function fmtOi(v) { var a = Math.abs(v), sign = v < 0 ? "−" : (v > 0 ? "+" : ""); return sign + (a >= 1e7 ? (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? (a / 1e5).toFixed(2) + " L" : a >= 1e3 ? (a / 1e3).toFixed(1) + " K" : String(a)); }
   function fmtOiAbs(v) { return fmtOi(v).replace(/^[+−]/, ""); }
   function slotStart(slot) { var m = 9 * 60 + 15 + slot * 5; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); }
-  function kind(d, pr) {
-    if (!pr) return "flat";
+  /* A candle (or block) whose price barely moved is "flat": its OI change says nothing about who was in control,
+     so it is left out of the buy / sell totals instead of being coloured by a tick up or down. `base` is the price
+     at the start of the candle; flatPct is per timeline (0.1% on 5-minute candles, 0.25% on daily ones). */
+  var FLAT_INTRADAY = 0.1, FLAT_SWING = 0.25;
+  function kind(d, pr, base, flatPct) {
+    if (!pr || (base && Math.abs(pr) / base * 100 < flatPct)) return "flat";
     return d >= 0 ? (pr > 0 ? "long" : "short") : (pr > 0 ? "cover" : "unwind");
   }
 
   /* the OI/price arrays for a stock as of the current view, or null */
-  var INTRADAY_TL = { n: 75, label: function (i) { return slotStart(i); }, endLabel: function (i) { return slotLabel(i); }, since: "09:15", groups: null, groupLabel: "Group candles" };
+  var INTRADAY_TL = { n: 75, label: function (i) { return slotStart(i); }, endLabel: function (i) { return slotLabel(i); }, since: "09:15", groups: null, groupLabel: "Group candles", flat: FLAT_INTRADAY };
   var curTl = INTRADAY_TL;
   function shortDate(d) { return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
   function oiSeries(sym) {
@@ -434,7 +438,7 @@
       var dts = sr.series.map(function (x) { return x[0]; });
       return { o: sr.series.map(function (x) { return x[1]; }), p: sr.series.map(function (x) { return x[2]; }), upTo: sr.series.length - 1, info: "Daily, as of the " + shortDate(state.data.asof) + " close",
         tl: { n: sr.series.length, label: function (i) { return shortDate(dts[i]); }, endLabel: function (i) { return shortDate(dts[i]); }, since: shortDate(dts[0]),
-              groups: [[1, "1 day"], [2, "2 days"], [5, "1 week"]], groupLabel: "Group days", swing: true } };
+              groups: [[1, "1 day"], [2, "2 days"], [5, "1 week"]], groupLabel: "Group days", swing: true, flat: FLAT_SWING } };
     }
     if (state.mode === "replay") {
       var st = state.day && state.day.stocks[sym];
@@ -452,7 +456,7 @@
       var a = series.o[i - 1], b = series.o[i], pa = series.p[i - 1], pb = series.p[i];
       if (a === null || b === null || pa === null || pb === null) continue;
       var d = b - a, pr = pb - pa;
-      bars.push({ slot: i, d: d, pr: pr, kind: kind(d, pr), oi: b, price: pb });
+      bars.push({ slot: i, d: d, pr: pr, kind: kind(d, pr, pa, curTl.flat), oi: b, price: pb });
     }
     return bars;
   }
@@ -474,7 +478,7 @@
     var by = {};
     bars.forEach(function (b) {
       var k = Math.floor((b.slot - 1) / g);
-      var u = by[k] = by[k] || { k: k, start: b.slot, end: b.slot, long: 0, cover: 0, short: 0, unwind: 0, d: 0, pr: 0, oiEnd: b.oi, first: b };
+      var u = by[k] = by[k] || { k: k, start: b.slot, end: b.slot, long: 0, cover: 0, short: 0, unwind: 0, flat: 0, d: 0, pr: 0, oiEnd: b.oi, first: b };
       u.end = Math.max(u.end, b.slot); u.d += b.d; u.pr += b.pr; u.oiEnd = b.oi;
       if (u[b.kind] !== undefined) u[b.kind] += Math.abs(b.d);
     });
@@ -484,7 +488,7 @@
 
   function drawChart(blocks, g) {
     var W = 680, H = 250, L = 58, R = 8, T = 12, B = 26, pw = W - L - R, ph = H - T - B, base = T + ph, NB = Math.ceil((curTl.n - 1) / g);
-    var peak = Math.max.apply(null, blocks.map(function (u) { return Math.max(u.long + u.cover, u.short + u.unwind); }).concat([1]));
+    var peak = Math.max.apply(null, blocks.map(function (u) { return Math.max(u.long + u.cover, u.short + u.unwind, u.flat); }).concat([1]));
     var max = niceMax(peak);
     var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Buy and sell open interest activity per time block" });
     [0, max / 2, max].forEach(function (v) {
@@ -498,7 +502,7 @@
       svg.appendChild(svgEl("line", { x1: lx, x2: lx, y1: T, y2: base, stroke: "var(--line)", "stroke-dasharray": "2 3" }));
       svg.appendChild(svgEl("text", { x: lx, y: H - 8, "text-anchor": "middle" }, curTl.label(k * g + 1)));
     }
-    var cell = pw / NB, bw = cell * (g === 1 ? 0.4 : 0.36), gap = cell * 0.04;
+    var cell = pw / NB, bw = cell * (g === 1 ? 0.28 : 0.26), gap = cell * 0.04;
     function stack(x, opened, closed, solid, soft, title) {
       var hOpen = opened / max * ph, hClose = closed / max * ph;
       [[base - hOpen, hOpen, solid], [base - hOpen - hClose, hClose, soft]].forEach(function (seg) {
@@ -510,9 +514,11 @@
     blocks.forEach(function (u) {
       var cx = L + (u.k + 0.5) / NB * pw, head = blockLabel(u) + "\n";
       var note = "OI " + (u.d >= 0 ? "added " : "removed ") + fmtOiAbs(u.d) + " net  ·  price " + (u.pr > 0 ? "+" : "") + u.pr.toFixed(2);
-      stack(cx - bw - gap / 2, u.long, u.cover, "var(--up)", "var(--up-soft)",
+      stack(cx - bw * 1.5 - gap, u.long, u.cover, "var(--up)", "var(--up-soft)",
         head + "BUY side " + fmtOiAbs(u.long + u.cover) + "\n  new buying (long buildup) " + fmtOiAbs(u.long) + "\n  short covering " + fmtOiAbs(u.cover) + "\n" + note);
-      stack(cx + gap / 2, u.short, u.unwind, "var(--down)", "var(--down-soft)",
+      stack(cx - bw / 2, u.flat, 0, "var(--flat)", "var(--flat)",
+        head + "FLAT " + fmtOiAbs(u.flat) + " of OI change in candles where price barely moved (under " + curTl.flat + "%) - direction unclear, not counted as buy or sell\n" + note);
+      stack(cx + bw / 2 + gap, u.short, u.unwind, "var(--down)", "var(--down-soft)",
         head + "SELL side " + fmtOiAbs(u.short + u.unwind) + "\n  new selling (short buildup) " + fmtOiAbs(u.short) + "\n  long unwinding " + fmtOiAbs(u.unwind) + "\n" + note);
     });
     return svg;
@@ -526,7 +532,7 @@
     var tb = el("tbody");
     blocks.slice().reverse().forEach(function (u) {
       var prev = u.first.price - u.first.pr, tr = el("tr");
-      [blockLabel(u), (u.pr > 0 ? "+" : "") + (prev ? (u.pr / prev * 100).toFixed(2) : "0.00") + "%", fmtOi(u.d), fmtOiAbs(u.long), fmtOiAbs(u.cover), fmtOiAbs(u.short), fmtOiAbs(u.unwind), BUILDUP[kind(u.d, u.pr)].label]
+      [blockLabel(u), (u.pr > 0 ? "+" : "") + (prev ? (u.pr / prev * 100).toFixed(2) : "0.00") + "%", fmtOi(u.d), fmtOiAbs(u.long), fmtOiAbs(u.cover), fmtOiAbs(u.short), fmtOiAbs(u.unwind), BUILDUP[kind(u.d, u.pr, prev, curTl.flat)].label]
         .forEach(function (v, i) { tr.appendChild(el("td", { "class": i === 1 ? cls(u.pr) : "" }, v)); });
       tb.appendChild(tr);
     });
@@ -556,14 +562,23 @@
     var first = series.o.filter(function (v) { return v !== null; })[0], last = series.o[series.upTo];
     var p0 = series.p.filter(function (v) { return v !== null; })[0], p1 = series.p[series.upTo];
     var net = last - first, pr = p1 - p0;
-    var sums = { long: 0, cover: 0, short: 0, unwind: 0 };
-    bars.forEach(function (b) { if (sums[b.kind] !== undefined) sums[b.kind] += Math.abs(b.d); });
+    var sums = { long: 0, cover: 0, short: 0, unwind: 0 }, cnt = { buy: 0, sell: 0, flat: 0 };
+    bars.forEach(function (b) {
+      if (sums[b.kind] !== undefined) sums[b.kind] += Math.abs(b.d);
+      if (b.kind === "long" || b.kind === "cover") cnt.buy++; else if (b.kind === "short" || b.kind === "unwind") cnt.sell++; else cnt.flat++;
+    });
     var buy = sums.long + sums.cover, sell = sums.short + sums.unwind, tot = buy + sell || 1;
+    /* The whole day so far is judged two ways - by how much OI changed hands and by how many candles each side won - so
+       one huge candle cannot decide it. A side is "in control" only when it leads on BOTH and holds at least 60% of the OI. */
+    var oiSide = buy >= sell ? "Buy" : "Sell", oiShare = Math.round(Math.max(buy, sell) / tot * 100);
+    var candleSide = cnt.buy === cnt.sell ? null : (cnt.buy > cnt.sell ? "Buy" : "Sell");
+    var reading = candleSide === oiSide && oiShare >= 60 ? oiSide : "Mixed";
 
     var grid = el("div", { "class": "oiSummary" });
     [["Open interest", fmtOiAbs(last)], ["Change since " + curTl.since, fmtOi(net) + " (" + (first ? ((net / first) * 100).toFixed(2) : "0") + "%)"],
      [(curTl.swing ? "Price since " : "Futures price since ") + curTl.since, (pr > 0 ? "+" : "") + (p0 ? (pr / p0 * 100).toFixed(2) : "0") + "%"],
-     ["Stronger side so far", (buy >= sell ? "Buy " + Math.round(buy / tot * 100) : "Sell " + Math.round(sell / tot * 100)) + "%"]].forEach(function (kv) {
+     ["Whole day so far", reading === "Mixed" ? "Mixed" : reading + " in control"],
+     ["Candles buy / sell / flat", cnt.buy + " / " + cnt.sell + " / " + cnt.flat]].forEach(function (kv) {
       var d = el("div"); d.appendChild(el("b", null, kv[1])); d.appendChild(el("span", null, kv[0])); grid.appendChild(d);
     });
     body.appendChild(grid);
@@ -574,6 +589,7 @@
     var split = el("div", { "class": "split", "aria-hidden": "true" });
     split.appendChild(el("i", { "class": "buy", style: "width:" + (buy / tot * 100) + "%" })); split.appendChild(el("i", { "class": "sell", style: "width:" + (sell / tot * 100) + "%" }));
     body.appendChild(split); body.appendChild(labels);
+    body.appendChild(el("p", { "class": "oiNote" }, "Flat candles (price moved less than " + curTl.flat + "%) are left out of the buy / sell totals. \u201cIn control\u201d needs the side to lead on OI and on number of candles, with at least 60% of the OI; otherwise it reads Mixed (" + oiSide + " " + oiShare + "% of OI, " + cnt.buy + " buy vs " + cnt.sell + " sell candles)."));
 
     var ctl = el("div", { "class": "oiCtl" }); ctl.appendChild(el("span", null, curTl.groupLabel));
     var sel = el("select", { "aria-label": curTl.groupLabel });
@@ -585,7 +601,7 @@
     var chart = el("div", { id: "oiChart" }); chart.appendChild(drawChart(blocks, g)); body.appendChild(chart);
     var legend = el("div", { "class": "legend" });
     [["var(--up)", "Buy: new buying (OI up, price up)"], ["var(--up-soft)", "Buy: short covering (OI down, price up)"],
-     ["var(--down)", "Sell: new selling (OI up, price down)"], ["var(--down-soft)", "Sell: long unwinding (OI down, price down)"]].forEach(function (k) {
+     ["var(--down)", "Sell: new selling (OI up, price down)"], ["var(--down-soft)", "Sell: long unwinding (OI down, price down)"], ["var(--flat)", "Flat: price barely moved - not counted"]].forEach(function (k) {
       var item = el("span"); var sw = el("i"); sw.style.background = k[0]; item.appendChild(sw); item.appendChild(document.createTextNode(k[1])); legend.appendChild(item);
     });
     body.appendChild(legend);
