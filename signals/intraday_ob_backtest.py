@@ -232,8 +232,8 @@ def summarize(trades: list[IBTrade], baseline: list[float]) -> str:
         lines += [f"  {label:<24} IS  {_stats(pick([t for t in trades if t.day <= cut]))}", " " * 26 + f"OOS {_stats(pick([t for t in trades if t.day > cut]))}"]
     lines += ["", "<b>Liquidity sweep and thrust volume</b> (IS | OOS)"]
     for label, f in (("swept an earlier swing", lambda t: t.swept), ("no sweep", lambda t: not t.swept),
-                     ("thrust volume >= 2x normal", lambda t: t.vol_ratio is not None and t.vol_ratio >= 2),
-                     ("thrust volume < 1x normal", lambda t: t.vol_ratio is not None and t.vol_ratio < 1)):
+                     ("thrust volume 2x normal or more", lambda t: t.vol_ratio is not None and t.vol_ratio >= 2),
+                     ("thrust volume under 1x normal", lambda t: t.vol_ratio is not None and t.vol_ratio < 1)):
         lines += [f"  {label:<28} IS  {_stats([t for t in trades if f(t) and t.day <= cut])}", " " * 30 + f"OOS {_stats([t for t in trades if f(t) and t.day > cut])}"]
     lines += ["", "<b>Top-ranked per day</b> - on each day only the 20 highest-score zones in each direction (what a 'strongest first' list shows); entry time before 11:00 only"]
     by_day: dict = {}

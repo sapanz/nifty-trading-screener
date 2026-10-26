@@ -57,13 +57,19 @@ def main() -> None:
     trades, arrays = ib.run_intraday_backtest(intraday)
     summary = ib.summarize(trades, ib.random_baseline(trades, arrays))
     print(f"\n=== {TITLE} ===\n{summary}")
-    send_message(token, chat_id, f"{EMOJI} <b>{TITLE}</b>\n{summary}")
+    try:
+        send_message(token, chat_id, f"{EMOJI} <b>{TITLE}</b>\n{summary}")
+    except Exception as exc:  # noqa: BLE001 - the log has the full summary; a Telegram hiccup must not fail the run
+        print(f"telegram skipped: {exc}")
 
     oi_days = load_oi_days(os.environ.get("GITHUB_REPOSITORY", "sapanz/nifty-trading-screener"))
     recs = ibr.annotate(trades, ibr.build_day_tables(intraday), oi_days)
     morning = ibr.summarize_r(recs, arrays, len(oi_days))
     print(morning)
-    send_message(token, chat_id, f"{EMOJI} <b>Order blocks: mornings, high R-factor</b>{morning}")
+    try:
+        send_message(token, chat_id, f"{EMOJI} <b>Order blocks: mornings, high R-factor</b>{morning}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"telegram skipped: {exc}")
     with open(CSV_PATH, "w", newline="") as handle:
         if trades:
             writer = csv.DictWriter(handle, fieldnames=[f.name for f in dataclasses.fields(trades[0])])
