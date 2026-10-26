@@ -5,7 +5,8 @@ A second loop, every DASHBOARD_OI_REFRESH_SECONDS (default 300), fetches
 today's 5-minute futures candles (with open interest) for the F&O stocks and
 publishes them as oi.json next to data.json - the OI-buildup chart's data.
 A third loop, same cadence, scans the F&O stocks' 5-minute equity candles for
-order blocks (signals/intraday_blocks.py) and publishes blocks.json.
+order blocks (signals/intraday_blocks.py) and publishes blocks.json (zones, strength score) and
+candles.json (today's candles and key levels for the stocks that have a zone - the chart view).
 
 Every DASHBOARD_REFRESH_SECONDS: fetch live quotes for the Nifty 500, build
 the snapshot (signals/dashboard.py) and publish it as data.json on the
@@ -126,20 +127,24 @@ def refresh_blocks(client: UpstoxClient, keys: dict[str, str], warmup: dict, tok
     now = datetime.now(IST)
     today = pd.Timestamp(now.date())
     naive_now = pd.Timestamp(now.replace(tzinfo=None))
-    stocks = {}
+    stocks, charts = {}, {}
     for symbol, key in keys.items():
         try:
             df = client.get_intraday_candles(key, 5)
             if len(df):
-                found = intraday_blocks.scan_symbol(pd.concat([warmup.get(symbol, df.iloc[0:0]), df]), today, naive_now)
+                combined = pd.concat([warmup.get(symbol, df.iloc[0:0]), df])
+                found = intraday_blocks.scan_symbol(combined, today, naive_now)
                 if found:
                     stocks[symbol] = found
+                    charts[symbol] = intraday_blocks.chart_payload(combined, today, naive_now)
         except Exception as exc:  # noqa: BLE001 - one stock's failure shouldn't drop the rest
             logger.warning("Block scan failed for %s: %s", symbol, exc)
         client.throttle()
     payload = {"updated_at": now.isoformat(timespec="seconds"), "date": today.date().isoformat(), "scanned": len(keys), "stocks": stocks}
+    chart_payload = {"updated_at": payload["updated_at"], "date": payload["date"], "stocks": {k: v for k, v in charts.items() if v}}
     with PUBLISH_LOCK:
         (SITE_DIR / "blocks.json").write_text(json.dumps(payload, separators=(",", ":")))
+        (SITE_DIR / "candles.json").write_text(json.dumps(chart_payload, separators=(",", ":")))
     _publish(token, repository, f"blocks {payload['updated_at']}")
     logger.info("Order blocks: %d of %d stocks have a live zone", len(stocks), len(keys))
 

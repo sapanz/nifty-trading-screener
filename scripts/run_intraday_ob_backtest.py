@@ -57,7 +57,7 @@ def main() -> None:
     trades, arrays = ib.run_intraday_backtest(intraday)
     summary = ib.summarize(trades, ib.random_baseline(trades, arrays))
     print(f"\n=== {TITLE} ===\n{summary}")
-    send_message(token, chat_id, f"{EMOJI} <b>{TITLE}</b>\n{summary.split('<b>By entry time</b>')[0].rstrip()}")
+    send_message(token, chat_id, f"{EMOJI} <b>{TITLE}</b>\n{summary}")
 
     oi_days = load_oi_days(os.environ.get("GITHUB_REPOSITORY", "sapanz/nifty-trading-screener"))
     recs = ibr.annotate(trades, ibr.build_day_tables(intraday), oi_days)

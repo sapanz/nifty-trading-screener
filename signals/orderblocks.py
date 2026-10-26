@@ -40,6 +40,8 @@ class OrderBlock:
     low: float            # zone: the candle's low ...
     high: float           # ... to its high
     impulse_atr: float    # size of the displacement leg in ATRs
+    swept: bool = False   # the leg first took out an earlier swing low (bullish) / high (bearish): liquidity grabbed before the thrust
+    vol_ratio: float | None = None   # volume of the thrust bars vs the average of the 20 bars before it (None if no volume given)
 
     @property
     def width_pct(self) -> float:
@@ -63,9 +65,26 @@ def _pivots(values: np.ndarray, k: int, highs: bool) -> list[int]:
     return out
 
 
+def _thrust_volume(volume: np.ndarray | None, o: int, i: int) -> float | None:
+    if volume is None or o < 5:
+        return None
+    base = float(np.mean(volume[max(0, o - 20):o]))
+    return round(float(np.mean(volume[o:i + 1])) / base, 2) if base > 0 else None
+
+
+def _swept(pivots: list[int], values: np.ndarray, o: int, i: int, k: int, highs: bool) -> bool:
+    """Did the leg's extreme bar `o` go beyond the latest earlier swing pivot (a stop pool just beyond it)?
+    Only pivots already confirmed at bar i-1 count, so nothing here looks ahead."""
+    earlier = [x for x in pivots if x < o and x + k <= i - 1]
+    if not earlier:
+        return False
+    level = values[earlier[-1]]
+    return bool(values[o] > level) if highs else bool(values[o] < level)
+
+
 def find_order_blocks(
     open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray,
-    swing_k: int | None = None, impulse_atr: float | None = None,
+    swing_k: int | None = None, impulse_atr: float | None = None, volume: np.ndarray | None = None,
 ) -> list[OrderBlock]:
     """Every order block formed in the series, in the order they became known."""
     k = swing_k or config.OB_SWING_K
@@ -93,7 +112,8 @@ def find_order_blocks(
                 j = next((x for x in range(o, max(-1, o - config.OB_BLOCK_LOOKBACK - 1), -1) if close[x] < open_[x]), None)
                 if j is not None and ("bull", j) not in seen and j < i:
                     seen.add(("bull", j))
-                    blocks.append(OrderBlock("bull", j, i, float(low[j]), float(high[j]), float((close[i] - low[o]) / a[o])))
+                    blocks.append(OrderBlock("bull", j, i, float(low[j]), float(high[j]), float((close[i] - low[o]) / a[o]),
+                                             _swept(swing_lo, low, o, i, k, False), _thrust_volume(volume, o, i)))
         # ---- bearish: close breaks below the latest swing low for the first time
         if level_lo is not None and close[i] < level_lo <= close[i - 1]:
             o = start + int(np.argmax(high[start:i + 1]))
@@ -101,7 +121,8 @@ def find_order_blocks(
                 j = next((x for x in range(o, max(-1, o - config.OB_BLOCK_LOOKBACK - 1), -1) if close[x] > open_[x]), None)
                 if j is not None and ("bear", j) not in seen and j < i:
                     seen.add(("bear", j))
-                    blocks.append(OrderBlock("bear", j, i, float(low[j]), float(high[j]), float((high[o] - close[i]) / a[o])))
+                    blocks.append(OrderBlock("bear", j, i, float(low[j]), float(high[j]), float((high[o] - close[i]) / a[o]),
+                                             _swept(swing_hi, high, o, i, k, True), _thrust_volume(volume, o, i)))
     return blocks
 
 

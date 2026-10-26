@@ -71,7 +71,7 @@ def test_bearish_mirror_and_too_little_data():
 
 
 def _norm(recs):
-    return sorted((r["d"], r["st"], r["lo"], r["hi"], r["t"], r["imp"]) for r in recs)
+    return sorted((r["d"], r["st"], r["lo"], r["hi"], r["t"], r["imp"], r["sw"], r["vr"], r["wd"], r["sc"]) for r in recs)
 
 
 def test_replay_states_match_the_live_scan_at_every_slot():
@@ -96,3 +96,29 @@ def test_day_blocks_only_includes_blocks_formed_that_day():
     frame = _frame(UP + CHOP, CHOP)
     assert ib.day_blocks(frame, DAY) == []
     assert ib.day_blocks(frame.iloc[:5], DAY) == []
+
+
+def test_key_levels_find_support_resistance_and_equal_lows_pool():
+    # two swing lows at ~95 (an equal-lows pool), a swing high at 110, price now 103
+    path = [101, 100.5, 100, 98, 95, 97, 99, 101, 103, 105, 104, 106, 110, 108, 106, 104, 102, 100, 98, 95.1, 97, 99, 101, 103]
+    n = len(path)
+    c = np.array(path, dtype=float)
+    h, l = c + 0.2, c - 0.2
+    lv = ib.key_levels(h, l, 103.0)
+    assert lv["res"] is not None and 109 < lv["res"] < 111
+    assert lv["sup"] is not None and lv["sup"] < 103
+    assert lv["liq_lo"] is not None and 94 < lv["liq_lo"] < 96
+
+
+def test_chart_payload_has_todays_candles_and_levels():
+    frame = _frame(CHOP, UP)
+    payload = ib.chart_payload(frame, DAY)
+    assert len(payload["c"]) == len(UP) and all(len(x) == 4 for x in payload["c"] if x)
+    assert set(payload["lv"]) == {"sup", "res", "liq_lo", "liq_hi"}
+    assert ib.chart_payload(frame.iloc[:5], pd.Timestamp("2026-12-01")) is None
+
+
+def test_block_score_orders_sensibly():
+    assert ib.block_score(4, 3, True, True) == 100
+    assert ib.block_score(2, 1, False, False) < ib.block_score(3, 2, True, False)
+    assert 0 <= ib.block_score(2, None, False, False) <= 100

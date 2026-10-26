@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from signals import config
-from signals.intraday_blocks import BAR_MINUTES
+from signals.intraday_blocks import BAR_MINUTES, block_score
 from signals.orderblock_backtest import _gross, _walk
 from signals.orderblocks import OrderBlock, find_order_blocks, first_touch
 
@@ -49,6 +49,9 @@ class IBTrade:
     with_day: bool        # bullish zone and stock up on the day at formation (bearish: down on the day)
     minutes_in: int       # entry minutes after 09:15
     session: int = 0      # session number within the symbol's own series
+    swept: bool = False   # the thrust first took out an earlier swing extreme (liquidity grab)
+    vol_ratio: float | None = None
+    score: int = 0        # block_score() at formation
 
 
 def _minute(ts: pd.Timestamp) -> int:
@@ -103,11 +106,12 @@ def trade_for(block: OrderBlock, symbol, times, ids, info, o, h, l, c, prev_clos
     x, exit_price, outcome = _walk_to_exit(block.direction, o, h, l, c, t, entry, stop, target, exit_idx)
     gross = _gross(block.direction, entry, exit_price)
     up_on_day = prev_close is not None and c[block.formed_idx] > prev_close
+    with_day = up_on_day if block.direction == "bull" else (prev_close is not None and not up_on_day)
     return IBTrade(
         symbol=symbol, direction=block.direction, day=times[t].normalize(), entry_time=times[t].strftime("%H:%M"), entry=entry,
         outcome=outcome, net_pct=gross - COST, r_multiple=gross / risk_pct, risk_pct=risk_pct, impulse_atr=block.impulse_atr,
-        with_day=(up_on_day if block.direction == "bull" else (prev_close is not None and not up_on_day)),
-        minutes_in=_minute(times[t]) - (9 * 60 + 15), session=int(sid),
+        with_day=with_day, minutes_in=_minute(times[t]) - (9 * 60 + 15), session=int(sid),
+        swept=block.swept, vol_ratio=block.vol_ratio, score=block_score(block.impulse_atr, block.vol_ratio, block.swept, with_day),
     )
 
 
@@ -123,7 +127,8 @@ def run_intraday_backtest(intraday: dict[str, pd.DataFrame]) -> tuple[list[IBTra
         # previous session's last close per session
         last_close = {sid: float(c[info[sid][1]]) for sid in info}
         arrays[symbol] = (times, ids, info, o, h, l, c, last_close)
-        for block in find_order_blocks(o, h, l, c, impulse_atr=config.INTRADAY_OB_IMPULSE_ATR):
+        volume = df["volume"].to_numpy(dtype=float) if "volume" in df else None
+        for block in find_order_blocks(o, h, l, c, impulse_atr=config.INTRADAY_OB_IMPULSE_ATR, volume=volume):
             sid = int(ids[block.formed_idx])
             trade = trade_for(block, symbol, times, ids, info, o, h, l, c, last_close.get(sid - 1))
             if trade:
@@ -217,6 +222,28 @@ def summarize(trades: list[IBTrade], baseline: list[float]) -> str:
     for lo, hi, label in ((0, 45, "09:15-10:00"), (45, 105, "10:00-11:00"), (105, 195, "11:00-12:30"), (195, 400, "12:30-14:30")):
         pick = lambda grp: [t for t in grp if lo <= t.minutes_in < hi]
         lines += [f"  {label:<24} IS  {_stats(pick([t for t in trades if t.day <= cut]))}", " " * 26 + f"OOS {_stats(pick([t for t in trades if t.day > cut]))}"]
+    lines += ["", "<b>Strength score</b> (block_score: thrust 40, volume 25, liquidity sweep 20, with the day 15) - quintiles of ALL trades; IS | OOS"]
+    scores = [t.score for t in trades]
+    cuts = sorted(set(np.quantile(scores, [0.2, 0.4, 0.6, 0.8]).round(0)))
+    edges = [-np.inf, *cuts, np.inf]
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        pick = lambda grp: [t for t in grp if lo < t.score <= hi]
+        label = f"score ({lo:.0f}, {hi:.0f}]".replace("-inf", "-∞").replace("inf", "∞")
+        lines += [f"  {label:<24} IS  {_stats(pick([t for t in trades if t.day <= cut]))}", " " * 26 + f"OOS {_stats(pick([t for t in trades if t.day > cut]))}"]
+    lines += ["", "<b>Liquidity sweep and thrust volume</b> (IS | OOS)"]
+    for label, f in (("swept an earlier swing", lambda t: t.swept), ("no sweep", lambda t: not t.swept),
+                     ("thrust volume >= 2x normal", lambda t: t.vol_ratio is not None and t.vol_ratio >= 2),
+                     ("thrust volume < 1x normal", lambda t: t.vol_ratio is not None and t.vol_ratio < 1)):
+        lines += [f"  {label:<28} IS  {_stats([t for t in trades if f(t) and t.day <= cut])}", " " * 30 + f"OOS {_stats([t for t in trades if f(t) and t.day > cut])}"]
+    lines += ["", "<b>Top-ranked per day</b> - on each day only the 20 highest-score zones in each direction (what a 'strongest first' list shows); entry time before 11:00 only"]
+    by_day: dict = {}
+    for t in trades:
+        if t.minutes_in < 105:
+            by_day.setdefault((t.day, t.direction), []).append(t)
+    top = [t for grp in by_day.values() for t in sorted(grp, key=lambda x: -x.score)[:20]]
+    rest = [t for grp in by_day.values() for t in sorted(grp, key=lambda x: -x.score)[20:]]
+    lines += [f"  top 20 per day/direction  {_stats(top)}", f"  the rest                  {_stats(rest)}",
+              f"  top 20, out-of-sample     {_stats([t for t in top if t.day > cut])}"]
     lines += ["", "<b>By impulse size</b> (all trades; quartiles; IS | OOS)"]
     values = [t.impulse_atr for t in trades]
     edges = [-np.inf, *sorted(set(np.quantile(values, [0.25, 0.5, 0.75]).round(2))), np.inf]

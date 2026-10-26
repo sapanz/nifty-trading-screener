@@ -132,3 +132,19 @@ def test_shorts_only_for_fo_symbols_and_summary_runs():
     base = obb.random_baseline(trades2, arrays2)
     text = obb.summarize(trades2, base) if trades2 else obb.summarize([], [])
     assert isinstance(text, str)
+
+
+def test_sweep_and_volume_features_and_no_lookahead():
+    # a swing low at 95, then a dip to 93 (takes it out), a red candle, and a thrust through the swing high
+    base = [100, 101, 102, 101, 100, 98, 95, 97, 99, 100, 99.5, 100, 99, 97, 94, 93, 92.5, 99, 108, 111, 112]
+    o, h, l, c = _series(base)
+    vol = np.full(len(c), 1000.0); vol[-4:] = 4000.0
+    blocks = [b for b in find_order_blocks(o, h, l, c, volume=vol) if b.direction == "bull"]
+    assert blocks and blocks[0].swept is True
+    assert blocks[0].vol_ratio is not None and blocks[0].vol_ratio > 1.5
+    plain = [b for b in find_order_blocks(o, h, l, c) if b.direction == "bull"]
+    assert plain and plain[0].vol_ratio is None
+    # appending bars after formation must not change the features
+    o2, h2, l2, c2 = _series(base + [113, 112, 111])
+    again = [b for b in find_order_blocks(o2, h2, l2, c2, volume=np.concatenate([vol, [900, 900, 900]])) if b.direction == "bull"]
+    assert (again[0].swept, again[0].vol_ratio) == (blocks[0].swept, blocks[0].vol_ratio)
