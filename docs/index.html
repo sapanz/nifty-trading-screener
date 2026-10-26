@@ -111,6 +111,20 @@
   details.oiTable td:last-child, details.oiTable th:last-child { text-align: left; }
   details.oiTable th { position: static; cursor: default; }
   .oiNote { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  #strongest { grid-column: 1 / -1; } #strongest[hidden] { display: none; }
+  .scols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { .scols { grid-template-columns: 1fr; } }
+  .scols h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; } .scols h3.up { color: var(--up); } .scols h3.down { color: var(--down); }
+  .scard { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 5px; cursor: pointer; background: var(--bg); }
+  .scard:hover, .scard:focus-visible { border-color: var(--accent); outline: none; }
+  .scard .rk { color: var(--muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+  .scard .top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; } .scard .top span { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .scard .bar { height: 3px; background: var(--chip); border-radius: 2px; margin: 3px 0; } .scard .bar i { display: block; height: 100%; border-radius: 2px; }
+  .scard .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 3px 10px; font-variant-numeric: tabular-nums; }
+  .scard .meta b { color: var(--ink); font-weight: 600; }
+  .stabs { display: flex; gap: 6px; margin: 0 0 10px; } .stabs button { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .stabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #obChart svg { width: 100%; height: auto; display: block; } #obChart text { fill: var(--muted); font-size: 11px; }
+  .whyList { margin: 8px 0 0; padding-left: 18px; font-size: 13px; } .whyList li { margin: 2px 0; }
   footer { padding: 0 16px 24px; color: var(--muted); font-size: 12px; max-width: 900px; }
 </style>
 </head>
@@ -134,6 +148,14 @@
   <span class="note" id="rNote"></span>
 </div>
 <main>
+  <section id="strongest" aria-labelledby="sbH" hidden>
+    <h2 id="sbH">Strongest order blocks <small id="sbCount"></small></h2>
+    <div class="controls">
+      <label>R-factor at least <select id="sMinR" aria-label="Minimum R-factor"><option value="0">Any</option><option value="50">50</option><option value="70">70</option><option value="85">85</option></select></label>
+      <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked by strength; uses the sector filter below. Click a stock for the chart.</span>
+    </div>
+    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
+  </section>
   <section aria-labelledby="sh">
     <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
     <div id="sectors"></div>
@@ -231,11 +253,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, tab: "oi", sMinR: 0 };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -327,7 +349,7 @@
         else if (slot - b.t <= OB_RECENT) st = "testing";
         else return;
         var rank = (st === "testing" ? 1000 : 0) + b.f, m = 9 * 60 + 15 + b.i * 5;
-        if (!best[b.d] || rank > best[b.d].rank) best[b.d] = { rank: rank, rec: { d: b.d, st: st, lo: b.lo, hi: b.hi, t: pad(Math.floor(m / 60)) + ":" + pad(m % 60), imp: b.imp } };
+        if (!best[b.d] || rank > best[b.d].rank) best[b.d] = { rank: rank, rec: { d: b.d, st: st, lo: b.lo, hi: b.hi, t: pad(Math.floor(m / 60)) + ":" + pad(m % 60), imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd } };
       });
       var recs = Object.keys(best).map(function (k) { return best[k].rec; });
       if (recs.length) out[sym] = recs;
@@ -545,6 +567,16 @@
     $("oiTitle").textContent = sym;
     $("oiSub").textContent = row ? row.sector + " · " + row.price.toLocaleString("en-IN", { minimumFractionDigits: 2 }) + " (" + fmtPct(row.change_pct) + ")" : "";
     var body = $("oiBody"); body.textContent = "";
+    var hasZone = state.mode === "live" && row && row.obs && row.obs.length;
+    if (hasZone) {
+      var tabs = el("div", { "class": "stabs", role: "group", "aria-label": "View" });
+      [["chart", "Chart & order block"], ["oi", "OI buildup"]].forEach(function (t) {
+        var b = el("button", { type: "button", "aria-pressed": String(state.tab === t[0]) }, t[1]);
+        b.addEventListener("click", function () { state.tab = t[0]; renderOi(); }); tabs.appendChild(b);
+      });
+      body.appendChild(tabs);
+      if (state.tab === "chart") { body.appendChild(chartView(sym, row)); return; }
+    }
     var series = oiSeries(sym);
     if (!series) {
       var fo = row ? row.fo : false;
@@ -609,9 +641,9 @@
     body.appendChild(el("p", { "class": "oiNote" }, "Green bars = buyers were in control (price rising), red = sellers (price falling); a taller bar means more open interest changed hands. Dark = new positions opened, light = existing positions closed. Hover a bar for exact figures. " + (curTl.swing ? "Open interest here is the total of the near and next-month futures, saved each evening so contract rolls don't distort it; price is the stock's daily close" : "Current-month futures contract") + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
   }
 
-  function openOi(sym) {
-    state.sel = sym; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
-    if (state.mode === "live") loadLiveOi();
+  function openOi(sym, tab) {
+    state.sel = sym; state.tab = tab === "chart" && state.mode === "live" ? "chart" : "oi"; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
+    if (state.mode === "live") { loadLiveOi(); loadCandles(); }
   }
   function closeOi() { state.sel = null; $("oiOverlay").hidden = true; }
   function loadLiveBlocks() {
@@ -663,7 +695,7 @@
         var bull = b.d === "bull", stop = bull ? b.lo * (1 - OB_BUFFER) : b.hi * (1 + OB_BUFFER);
         var risk = bull ? (s.price - stop) / s.price * 100 : (stop - s.price) / s.price * 100;
         if (!(risk > 0)) return;                                      // price is already through the stop: the zone has failed
-        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sl: r2(risk), stop: stop,
+        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, sl: r2(risk), stop: stop,
                     dist: r2(bull ? (s.price / b.hi - 1) * 100 : (b.lo / s.price - 1) * 100), inside: s.price >= b.lo && s.price <= b.hi };
         s.obs.push(rec);
       });
@@ -678,6 +710,131 @@
     var parts = mode.split("-"), want = parts[0], st = parts[1];
     return list.filter(function (b) { return b.d === want && (!st || (st === "test" ? b.st === "testing" : b.st === "fresh")); })[0] || null;
   }
+  /* ---------- strongest order blocks: ranked cards ---------- */
+  function strongestList(dir) {
+    var out = [];
+    state.data.stocks.forEach(function (s) {
+      if (state.sector && s.sector !== state.sector) return;
+      var b = (s.obs || []).filter(function (x) { return x.d === dir; })[0];
+      if (!b || b.sc === undefined || b.sc === null) return;
+      if (state.sMinR && !(s.r >= state.sMinR)) return;
+      out.push({ s: s, b: b });
+    });
+    out.sort(function (x, y) { return y.b.sc - x.b.sc || (y.b.st === "testing") - (x.b.st === "testing") || x.b.sl - y.b.sl; });
+    return out;
+  }
+  function whyText(b) {
+    var parts = ["thrust " + b.imp + " ATR"];
+    if (b.vr !== null && b.vr !== undefined) parts.push("volume " + b.vr + "×");
+    parts.push(b.sw ? "took out an earlier " + (b.d === "bull" ? "low" : "high") + " first" : "no liquidity sweep");
+    parts.push(b.wd ? "with the day's direction" : "against the day's direction");
+    return parts.join(" · ");
+  }
+  function renderStrongest() {
+    var sec = $("strongest"), any = state.data.stocks.some(function (s) { return (s.obs || []).some(function (b) { return b.sc !== undefined && b.sc !== null; }); });
+    sec.hidden = !obActive() || !any;
+    if (sec.hidden) return;
+    $("sMinR").value = String(state.sMinR);
+    var total = 0;
+    [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
+      var list = strongestList(pair[0]); total += list.length;
+      var box = $(pair[1]); box.textContent = "";
+      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : "None right now."));
+      list.slice(0, 20).forEach(function (x, i) {
+        var s = x.s, b = x.b, bull = b.d === "bull", card = el("div", { "class": "scard", tabindex: "0", role: "button", title: whyText(b) });
+        card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
+        var body = el("div"), top = el("div", { "class": "top" });
+        top.appendChild(el("span", null, s.symbol)); top.appendChild(el("span", { "class": cls(s.change_pct) }, fmtPct(s.change_pct)));
+        body.appendChild(top);
+        var bar = el("div", { "class": "bar" }); bar.appendChild(el("i", { style: "width:" + b.sc + "%;background:" + (bull ? "var(--up)" : "var(--down)") })); body.appendChild(bar);
+        var meta = el("div", { "class": "meta" });
+        meta.appendChild(el("span", null, "strength " + b.sc));
+        meta.appendChild(el("span", null, b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
+        meta.appendChild(el("span", null, b.inside ? "in zone" : b.st === "testing" ? "retesting" : "waiting"));
+        meta.appendChild(el("span", null, "stop " + b.sl.toFixed(2) + "%"));
+        if (s.r !== null && s.r !== undefined) {
+          var tag = BIAS_TAG[s.bias], aligned = tag && tag[0] && ((bull && s.bias === "long") || (!bull && s.bias === "short"));
+          meta.appendChild(el("span", { title: "R-factor (volume, OI buildup and price move)" + (aligned ? " - OI buildup agrees with this zone" : "") }, "R " + s.r + (aligned ? " ✓" : "")));
+        }
+        body.appendChild(meta); card.appendChild(body);
+        var open = function () { openOi(s.symbol, "chart"); };
+        card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+        box.appendChild(card);
+      });
+    });
+    $("sbCount").textContent = total ? total + " zones" : "";
+  }
+
+  /* ---------- chart: today's 5-minute candles with the zone, stop, support / resistance and liquidity ---------- */
+  function loadCandles() {
+    liveJson("candles.json").then(function (d) { state.candles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () {});
+  }
+  function slotOf(label) { var p = label.split(":"); return (parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - 555) / 5; }
+  function chartFor(sym) { var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : null; }
+  function drawObChart(cd, row) {
+    var cs = cd.c, W = 680, H = 330, L = 40, R = 104, T = 10, B = 24, pw = W - L - R, ph = H - T - B, N = Math.min(75, Math.max(36, cs.length + 12));   // early in the day the x-axis is zoomed to what exists
+    var lows = [], highs = [];
+    cs.forEach(function (c) { if (c) { lows.push(c[2]); highs.push(c[1]); } });
+    var lo = Math.min.apply(null, lows), hi = Math.max.apply(null, highs);
+    (row.obs || []).forEach(function (b) { lo = Math.min(lo, b.lo, b.stop); hi = Math.max(hi, b.hi, b.stop); });
+    var span = hi - lo, lv = cd.lv || {}, lines = [];
+    function add(price, label, color, dash) { if (price === null || price === undefined) return; if (price < lo - span * 0.6 || price > hi + span * 0.6) return; lines.push({ p: price, label: label, color: color, dash: dash }); }
+    add(lv.res, "Resistance", "var(--muted)", "4 3"); add(lv.sup, "Support", "var(--muted)", "4 3");
+    add(lv.liq_hi, "Liquidity", "#d99a1e", "2 3"); add(lv.liq_lo, "Liquidity", "#d99a1e", "2 3");
+    add(row.pdh, "PD high", "var(--accent)", "6 3"); add(row.pdl, "PD low", "var(--accent)", "6 3");
+    lines.forEach(function (l) { lo = Math.min(lo, l.p); hi = Math.max(hi, l.p); });
+    var pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+    var y = function (v) { return T + (hi - v) / (hi - lo) * ph; }, x = function (slot) { return L + (slot + 0.5) / N * pw; };
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Five-minute candles with the order block zone and key levels" });
+    for (var g = 0; g <= 4; g++) {
+      var gv = lo + (hi - lo) * g / 4, gy = y(gv);
+      svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: gy, y2: gy, stroke: "var(--line)" }));
+      svg.appendChild(svgEl("text", { x: L - 4, y: gy + 4, "text-anchor": "end" }, gv.toFixed(gv >= 1000 ? 0 : 1)));
+    }
+    for (var sl = 0; sl < N; sl += (N > 40 ? 12 : 6)) svg.appendChild(svgEl("text", { x: x(sl), y: H - 8, "text-anchor": "middle" }, slotStart(sl)));
+    (row.obs || []).forEach(function (b) {
+      var bull = b.d === "bull", x0 = x(slotOf(b.t)) - pw / N * 0.5, col = bull ? "var(--up)" : "var(--down)";
+      svg.appendChild(svgEl("rect", { x: x0, y: y(b.hi), width: W - R - x0, height: Math.max(y(b.lo) - y(b.hi), 2), fill: col, "fill-opacity": "0.16", stroke: col, "stroke-opacity": "0.7" }));
+      svg.appendChild(svgEl("text", { x: W - R - 4, y: bull ? y(b.lo) + 13 : y(b.hi) - 5, "text-anchor": "end", style: "fill:" + col + ";font-weight:600" }, (bull ? "Bullish" : "Bearish") + " order block " + b.lo + "–" + b.hi));
+      svg.appendChild(svgEl("line", { x1: x0, x2: W - R, y1: y(b.stop), y2: y(b.stop), stroke: "var(--down)", "stroke-dasharray": "3 3", "stroke-opacity": "0.8" }));
+      lines.push({ p: b.stop, label: "Stop", color: "var(--down)", dash: "", noLine: true });
+    });
+    var cw = pw / N * 0.62;
+    cs.forEach(function (c, i) {
+      if (!c) return; var up = c[3] >= c[0], col = up ? "var(--up)" : "var(--down)";
+      svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
+      svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: cw, height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
+    });
+    lines.forEach(function (l) { if (!l.noLine) svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: y(l.p), y2: y(l.p), stroke: l.color, "stroke-dasharray": l.dash, "stroke-opacity": "0.9" })); });
+    var last = cs.slice().reverse().filter(Boolean)[0]; if (last) lines.push({ p: last[3], label: "Last", color: "var(--ink)", dash: "", noLine: true });
+    lines.sort(function (a, b) { return b.p - a.p; });
+    var prevY = -99;                                           // right-hand labels, nudged apart so they stay readable
+    lines.forEach(function (l) {
+      var ly = Math.max(y(l.p) + 4, prevY + 12); prevY = ly;
+      svg.appendChild(svgEl("text", { x: W - R + 4, y: ly, style: "fill:" + l.color + ";font-size:10px;font-weight:600" }, l.p.toFixed(l.p >= 1000 ? 1 : 2)));
+      svg.appendChild(svgEl("text", { x: W - R + 46, y: ly, style: "fill:" + l.color + ";font-size:10px" }, l.label));
+    });
+    return svg;
+  }
+  function chartView(sym, row) {
+    var wrap = el("div"), cd = chartFor(sym);
+    if (!cd) { wrap.appendChild(el("p", { "class": "oiNote" }, state.candles ? "No chart for this stock: it has no live order block right now." : "Loading the chart…")); return wrap; }
+    var chart = el("div", { id: "obChart" }); chart.appendChild(drawObChart(cd, row || { obs: [] })); wrap.appendChild(chart);
+    var recs = (row && row.obs) || [];
+    recs.forEach(function (b) {
+      var bull = b.d === "bull", h = el("p", { "class": "oiNote" });
+      h.textContent = (bull ? "Bullish" : "Bearish") + " zone " + b.lo + "–" + b.hi + " from " + b.t + " · strength " + b.sc + " · " + (b.inside ? "price is in the zone" : b.st === "testing" ? "retesting" : "waiting for price to come back") + " · stop " + b.stop.toLocaleString("en-IN", { maximumFractionDigits: 2 }) + " (" + b.sl.toFixed(2) + "% from the live price).";
+      wrap.appendChild(h);
+      var ul = el("ul", { "class": "whyList" });
+      [["Thrust", b.imp + " ATR"], ["Volume of the thrust", b.vr === null || b.vr === undefined ? "not available" : b.vr + "× the average of the 20 candles before"],
+       ["Liquidity", b.sw ? "it first took out an earlier swing " + (bull ? "low" : "high") + " (stops grabbed, then reversal)" : "no earlier swing " + (bull ? "low" : "high") + " was taken out"],
+       ["Day's direction", b.wd ? "with it" : "against it"]].forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
+      wrap.appendChild(ul);
+    });
+    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price (yesterday's tail and today); liquidity = two or more swing highs / lows within 0.15% of each other, where stops tend to rest. Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + "."));
+    return wrap;
+  }
+
   /* ---------- previous-day high / low ---------- */
   /* pd: above = trading above yesterday's high now; below = under yesterday's low now; both / failhi / faillo =
      broke a level at some point today but is back inside (a failed breakout - worth knowing before chasing);
@@ -887,6 +1044,7 @@
     if (!state.data) return;
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
+    if (obActive()) renderStrongest(); else $("strongest").hidden = true;
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
@@ -902,7 +1060,7 @@
   function refresh() {
     if (state.mode !== "live") return;
     liveJson("data.json")
-      .then(function (d) { if (state.mode === "live") { state.data = d; render(); loadLiveOi(); loadLiveBlocks(); } })
+      .then(function (d) { if (state.mode === "live") { state.data = d; render(); loadLiveOi(); loadLiveBlocks(); if (state.sel) loadCandles(); } })
       .catch(function (e) {
         if (!state.data) { showMessage("No data yet"); $("empty").hidden = false; $("empty").textContent = "Waiting for the first snapshot (" + e.message + "). It is published while the market session runs."; }
         else showMessage("Refresh failed - showing last data");
@@ -915,6 +1073,7 @@
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("sMinR").addEventListener("change", function (e) { state.sMinR = parseInt(e.target.value, 10); save(); render(); });
   $("obSel").addEventListener("change", function (e) { state.ob = e.target.value; save(); render(); });
   $("lvl").addEventListener("change", function (e) { state.lvl = e.target.value; save(); render(); });
   $("q").addEventListener("input", function (e) { state.q = e.target.value; renderRows(); });

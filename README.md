@@ -594,6 +594,18 @@ flagged **⚠ roll**: the OI change then includes settled and rolled positions.
 There is no backtest of the swing R-factor yet - only about a month of
 contract history exists, so it needs the saved series to grow first.
 
+**Strongest order blocks and the chart.** Live (and Replay, for days rebuilt after this was added) has a
+**Strongest order blocks** panel above the table: the top 20 bullish and top 20 bearish F&O zones, strongest first, each
+with a strength bar, the zone, waiting / retesting / in zone, the stop distance and the stock's R-factor (✓ when its OI
+buildup agrees with the zone's direction). A minimum-R filter and the sector filter apply to it. Clicking a card (or a
+stock with a zone) opens a **Chart & order block** tab: today's 5-minute candles with the zone shaded, the stop, nearest
+swing support / resistance, liquidity pools (two or more swing highs / lows within 0.15% - where stops rest), yesterday's
+high / low and the last price, plus why the zone scored what it did. Strength (0-100) =
+thrust size 40 + thrust volume 25 + a liquidity sweep before the thrust (the leg first took out an earlier swing low / high) 20 +
+going with the stock's direction on the day 15 (`signals/intraday_blocks.py: block_score`); the backtest
+(`intraday_ob_backtest.yml`) reports how the score ranks outcomes. The scan also publishes `candles.json`
+(candles and levels for stocks that currently have a zone).
+
 ### Order blocks (intraday, 5-minute)
 
 An **order block** is the last opposite-coloured candle before a thrust that breaks the recent swing high (bullish: the
