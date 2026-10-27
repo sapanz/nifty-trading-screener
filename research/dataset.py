@@ -40,9 +40,19 @@ VARIANTS = [
     {"name": "T1.0x/S1.0x dynamic<=12:00", "tk": 1.0, "sk": 1.0, "pol": "DYN12"},
     {"name": "T0.25x/S0.75x flat 12:00", "tk": 0.25, "sk": 0.75, "pol": "T12"},
     {"name": "T0.7x/S1.4x dynamic<=15:15", "tk": 0.7, "sk": 1.4, "pol": "DYN15"},
+    # dynamic-exit family around the best first result (v11): giveback fraction, profit trigger, sideways rule, cap time, target
+    {"name": "v11 giveback 0.4", "tk": 0.7, "sk": 1.4, "pol": "DYN15", "gb": 0.4},
+    {"name": "v11 giveback 0.6", "tk": 0.7, "sk": 1.4, "pol": "DYN15", "gb": 0.6},
+    {"name": "v11 trigger 0.25ADR", "tk": 0.7, "sk": 1.4, "pol": "DYN15", "mfe": 0.25},
+    {"name": "v11 trigger 0.10ADR", "tk": 0.7, "sk": 1.4, "pol": "DYN15", "mfe": 0.10},
+    {"name": "v11 without sideways rule", "tk": 0.7, "sk": 1.4, "pol": "DYN15", "side": False},
+    {"name": "v11 capped 12:00", "tk": 0.7, "sk": 1.4, "pol": "DYN12"},
+    {"name": "v11 capped 13:00", "tk": 0.7, "sk": 1.4, "pol": "DYN13"},
+    {"name": "T1.2x/S1.4x dynamic<=15:15", "tk": 1.2, "sk": 1.4, "pol": "DYN15"},
+    {"name": "noT/S1.4x dynamic<=15:15", "tk": None, "sk": 1.4, "pol": "DYN15"},
 ]
 GEOMS = VARIANTS                       # kept for the older name
-CAP_IDX = {"T15": EXIT_IDX, "T12": 32, "T13": 44, "DYN12": 32, "DYN15": EXIT_IDX}   # last bar index a policy may hold to
+CAP_IDX = {"T15": EXIT_IDX, "T12": 32, "T13": 44, "DYN12": 32, "DYN13": 44, "DYN15": EXIT_IDX}   # last bar index a policy may hold to
 EX_REASON = {0: "target", 1: "stop", 2: "dynamic", 3: "time"}
 MIN_HISTORY_DAYS = 21
 OB_IMPULSE = config.INTRADAY_OB_IMPULSE_ATR
@@ -143,16 +153,27 @@ def _simulate(o, h, l, c, vw, ent: int, entry: float, adr: float, long: bool):
     fav = sign * ((seg_h if long else seg_l) / entry - 1)                   # best excursion within each bar
     mfe = np.maximum.accumulate(fav)
     idx = np.arange(n_all)
-    cond = (mfe >= 0.15 * adr) & (prof <= 0.5 * mfe)
     prev_right = (c[ent - 1] > vw[ent - 1]) if long else (c[ent - 1] < vw[ent - 1])
-    cond |= prev_right & ((seg_c < seg_v) if long else (seg_c > seg_v))
+    cross = prev_right & ((seg_c < seg_v) if long else (seg_c > seg_v))
     if n_all > 9:
         win_hi = np.lib.stride_tricks.sliding_window_view(seg_h, 9).max(1)
         win_lo = np.lib.stride_tricks.sliding_window_view(seg_l, 9).min(1)
-        side = np.zeros(n_all, dtype=bool)
-        side[8:] = ((win_hi - win_lo) / entry < 0.3 * adr)
-        cond |= side & (np.abs(prof) < 0.1 * adr) & (idx >= 9)
-    dyn_at = _first(cond & (idx >= 3))
+        quiet = np.zeros(n_all, dtype=bool)
+        quiet[8:] = ((win_hi - win_lo) / entry < 0.3 * adr)
+        flat = quiet & (np.abs(prof) < 0.1 * adr) & (idx >= 9)
+    else:
+        flat = np.zeros(n_all, dtype=bool)
+    dyn_cache: dict = {}
+
+    def dyn_at(gb: float, trig: float, use_side: bool) -> int:
+        key = (gb, trig, use_side)
+        if key not in dyn_cache:
+            cond = ((mfe >= trig * adr) & (prof <= (1 - gb) * mfe)) | cross
+            if use_side:
+                cond = cond | flat
+            dyn_cache[key] = _first(cond & (idx >= 3))
+        return dyn_cache[key]
+
     wins = np.zeros(V, dtype=np.float32); pnls = np.zeros(V, dtype=np.float32); bars = np.zeros(V, dtype=np.float32); why = np.zeros(V, dtype=np.float32)
     for v, var in enumerate(VARIANTS):
         cap = min(CAP_IDX[var["pol"]] - ent, n_all - 1)
@@ -164,7 +185,7 @@ def _simulate(o, h, l, c, vw, ent: int, entry: float, adr: float, long: bool):
         else:
             tgt = entry * (1 + var["tk"] * adr) if long else entry * (1 - var["tk"] * adr)
             ft = _first((seg_h[:cap + 1] >= tgt) if long else (seg_l[:cap + 1] <= tgt))
-        e = dyn_at if var["pol"].startswith("DYN") else 10**6
+        e = dyn_at(var.get("gb", 0.5), var.get("mfe", 0.15), var.get("side", True)) if var["pol"].startswith("DYN") else 10**6
         first_hit = min(fs, ft)
         if first_hit <= min(e, cap) and first_hit < 10**6:
             if ft < fs:
@@ -240,6 +261,7 @@ def symbol_events(args) -> pd.DataFrame | None:
                 w_, p_, b_, x_ = _simulate(o, h, l, c, vwap, ent, entry, adr, long)
                 for g in range(len(VARIANTS)):
                     row[f"win_{side}{g}"], row[f"pnl_{side}{g}"], row[f"bars_{side}{g}"], row[f"ex_{side}{g}"] = w_[g], p_[g], b_[g], x_[g]
+                    row[f"rk_{side}{g}"] = VARIANTS[g]["sk"] * adr * 100          # the stop distance (% of entry) = 1R
             rows.append(row)
     if not rows:
         return None

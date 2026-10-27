@@ -47,7 +47,7 @@ def walk_forward(ev: pd.DataFrame, features: list[str] | None = None, sides=("L"
                 out.loc[test, f"p_{side}{g}"] = model.predict_proba(ev.loc[test, features])[:, 1]
     for side in sides:
         for g in geoms:
-            for col in ("win", "pnl", "bars", "ex"):
+            for col in ("win", "pnl", "bars", "ex", "rk"):
                 out[f"{col}_{side}{g}"] = ev[f"{col}_{side}{g}"]
     return out[out["date"] >= first_test].reset_index(drop=True)
 
@@ -60,14 +60,17 @@ def pick_trades(oos: pd.DataFrame, side: str, g: int, threshold: float, k: int, 
         return sel
     sel = sel.assign(p=sel[f"p_{side}{g}"]).sort_values(["date", "p"], ascending=[True, False])
     sel = sel.drop_duplicates(["date", "symbol"]).groupby("date").head(k)
-    return sel.assign(win=sel[f"win_{side}{g}"], pnl=sel[f"pnl_{side}{g}"], bars=sel[f"bars_{side}{g}"], ex=sel[f"ex_{side}{g}"]).sort_values(["date", "ent"])
+    return sel.assign(win=sel[f"win_{side}{g}"], pnl=sel[f"pnl_{side}{g}"], bars=sel[f"bars_{side}{g}"], ex=sel[f"ex_{side}{g}"], rk=sel[f"rk_{side}{g}"]).sort_values(["date", "ent"])
 
 
 def stats(t: pd.DataFrame) -> dict:
     n = len(t)
     if n == 0:
-        return {"n": 0, "win": np.nan, "avg": np.nan, "pf": np.nan, "dd": np.nan, "worst_day": np.nan, "per_day": 0.0, "months_pos": np.nan, "total": 0.0, "hold": np.nan, "ex": {}}
+        return {"n": 0, "win": np.nan, "avg": np.nan, "pf": np.nan, "dd": np.nan, "worst_day": np.nan, "per_day": 0.0, "months_pos": np.nan, "total": 0.0, "hold": np.nan, "ex": {}, "avg_r": np.nan, "r_dd": np.nan, "r_total": 0.0}
     pnl = t["pnl"].to_numpy()
+    r_mult = pnl / t["rk"].to_numpy()
+    r_equity = np.cumsum(r_mult)
+    r_dd = float(np.max(np.maximum.accumulate(np.concatenate([[0], r_equity])) - np.concatenate([[0], r_equity])))
     equity = np.cumsum(pnl)
     dd = float(np.max(np.maximum.accumulate(np.concatenate([[0], equity])) - np.concatenate([[0], equity])))
     gains, losses = pnl[pnl > 0].sum(), -pnl[pnl <= 0].sum()
@@ -75,7 +78,7 @@ def stats(t: pd.DataFrame) -> dict:
     monthly = t.groupby(t["date"].dt.to_period("M"))["pnl"].sum()
     return {"n": n, "win": float(t["win"].mean()), "avg": float(pnl.mean()), "pf": float(gains / losses) if losses > 0 else np.inf,
             "dd": dd, "worst_day": float(daily.min()), "per_day": n / max(t["date"].nunique(), 1), "months_pos": float((monthly > 0).mean()),
-            "total": float(pnl.sum()), "hold": float((t["bars"].mean() + 1) * 5),
+            "total": float(pnl.sum()), "hold": float((t["bars"].mean() + 1) * 5), "avg_r": float(r_mult.mean()), "r_dd": r_dd, "r_total": float(r_mult.sum()),
             "ex": {EX_REASON[int(k)]: float(v) for k, v in t["ex"].value_counts(normalize=True).items()}}
 
 
@@ -83,7 +86,7 @@ def fmt(s: dict) -> str:
     if s["n"] == 0:
         return "n=0"
     return (f"n={s['n']:<5} win {s['win'] * 100:5.1f}%  avg {s['avg']:+.3f}%  PF {s['pf']:.2f}  total {s['total']:+.1f}%  maxDD {s['dd']:.1f}%  "
-            f"worst day {s['worst_day']:+.2f}%  {s['per_day']:.1f}/day  +months {s['months_pos'] * 100:.0f}%  hold {s['hold']:.0f}min  "
+            f"worst day {s['worst_day']:+.2f}%  avg {s['avg_r']:+.2f}R  R-total {s['r_total']:+.1f} R-maxDD {s['r_dd']:.1f}  {s['per_day']:.1f}/day  +months {s['months_pos'] * 100:.0f}%  hold {s['hold']:.0f}min  "
             + "/".join(f"{k} {v * 100:.0f}%" for k, v in sorted(s["ex"].items())))
 
 
@@ -123,6 +126,12 @@ def search(oos: pd.DataFrame, min_n: int = 120, target_win: float = 0.80) -> str
             lines.append(f"      HOLDOUT  : {fmt(hs)}")
     hi_win = sorted([r for r in rows if r[4]["win"] >= target_win], key=lambda r: -r[4]["avg"])[:8]
     show(f"Configurations with win rate >= {target_win * 100:.0f}% on the selection days (best expectancy first):", hi_win)
-    best = sorted([r for r in rows if r[4]["avg"] > 0], key=lambda r: -(r[4]["total"] / max(r[4]["dd"], 0.5)))[:8]
-    show("Best return / drawdown on the selection days (any win rate):", best)
+    best = sorted([r for r in rows if r[4]["avg"] > 0], key=lambda r: -(r[4]["r_total"] / max(r[4]["r_dd"], 1.0)))[:8]
+    show("Best return / drawdown (measured in R = stop distances) on the selection days (any win rate):", best)
+    if best:
+        side, g, thr, k, _ = best[0]
+        lines += ["", f"Best config by quarter ({'long' if side == 'L' else 'short'} v{g} p>={thr:.2f} top{k}/day) over the whole out-of-sample period:"]
+        t = pick_trades(oos, side, g, thr, k)
+        for q, grp in t.groupby(t["date"].dt.to_period("Q")):
+            lines.append(f"  {q}: {fmt(stats(grp))}")
     return "\n".join(lines)

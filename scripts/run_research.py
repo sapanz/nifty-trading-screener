@@ -127,7 +127,8 @@ def main() -> None:
     try:
         from signals import runtime
         from signals.telegram import send_message
-        send_message(runtime.get_env("TELEGRAM_BOT_TOKEN"), runtime.get_env("TELEGRAM_CHAT_ID"), "🔬 <b>Intraday research</b>\n" + report[:3500])
+        import html
+        send_message(runtime.get_env("TELEGRAM_BOT_TOKEN"), runtime.get_env("TELEGRAM_CHAT_ID"), "🔬 <b>Intraday research</b>\n" + html.escape(report)[:3500])
     except Exception as exc:  # noqa: BLE001
         print(f"telegram skipped: {exc}")
 
