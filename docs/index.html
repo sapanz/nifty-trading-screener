@@ -202,7 +202,7 @@
   the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
   <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
   <strong>Swing</strong> (built each evening after the close) applies the same idea to daily charts: volume vs its 20-day average, OI added over the last 5 sessions (near + next month futures) and the 5-session price move; ⚠ roll marks a window that includes a futures expiry, when the OI change includes settled and rolled positions.
-  <strong>Order block (5-min, F&amp;O stocks; Live and Replay):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
+  <strong>Order block (5-min, F&amp;O stocks; Live and Replay):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. In the Swing tab the same idea runs on daily candles (zones formed in the last 40 sessions, rebuilt each evening). Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -243,17 +243,18 @@
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg", help: "Latest session's volume / the average of the 20 sessions before it" },
     { key: "oi_1d", label: "OI 1D %", sort: "oi_1d", help: "Open interest change in the latest session, % (near + next month futures)" },
     { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest added (or removed) over the last 5 sessions, % - what R-factor looks at" },
-    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." }
+    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." },
+    { key: "ob", label: "Order block (daily)", sort: "ob_sl", help: "The last opposite daily candle before a thrust that broke structure. Sorts by the smallest stop distance." }
   ];
-  function obActive() { return state.mode === "live" || (state.mode === "replay" && state.hasOb); }
+  function obActive() { return state.mode === "live" || state.mode === "swing" || (state.mode === "replay" && state.hasOb); }
   function columns() { return state.mode === "swing" ? COLS_SWING : obActive() ? COLS : COLS.filter(function (c) { return c.key !== "ob"; }); }
   var ASCENDING = { symbol: 1, sector: 1, ob_sl: 1 };
   function defaultDir(key) { return ASCENDING[key] || -1; }
   var SORT_OPTS = {
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
-    swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"]]
+    swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, tab: "oi", sMinR: 0 };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, tab: "oi", sMinR: 0 };
 
   function $(id) { return document.getElementById(id); }
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
@@ -273,7 +274,7 @@
      rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
      the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
   function liveJson(name, branch) {
-    var o = branch ? new URLSearchParams(location.search).get("swing") : srcOverride();
+    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : "swing") : srcOverride();
     if (o) return fetchJson(branch ? o : (name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name)), true);
     var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=" + (branch || "dashboard-data");
     return fetch(api, { headers: { Accept: "application/vnd.github.raw" }, cache: "no-cache" })
@@ -394,6 +395,7 @@
   function enterSwing() {
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
       d.market_status = "swing"; d.has_fo = false; state.data = d; render();
@@ -567,7 +569,7 @@
     $("oiTitle").textContent = sym;
     $("oiSub").textContent = row ? row.sector + " · " + row.price.toLocaleString("en-IN", { minimumFractionDigits: 2 }) + " (" + fmtPct(row.change_pct) + ")" : "";
     var body = $("oiBody"); body.textContent = "";
-    var hasZone = state.mode === "live" && row && row.obs && row.obs.length;
+    var hasZone = obActive() && row && row.obs && row.obs.length;
     if (hasZone) {
       var tabs = el("div", { "class": "stabs", role: "group", "aria-label": "View" });
       [["chart", "Chart & order block"], ["oi", "OI buildup"]].forEach(function (t) {
@@ -642,7 +644,7 @@
   }
 
   function openOi(sym, tab) {
-    state.sel = sym; state.tab = tab === "chart" && state.mode === "live" ? "chart" : "oi"; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
+    state.sel = sym; state.tab = tab === "chart" && obActive() ? "chart" : "oi"; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
     if (state.mode === "live") { loadLiveOi(); loadCandles(); }
   }
   function closeOi() { state.sel = null; $("oiOverlay").hidden = true; }
@@ -691,7 +693,7 @@
     var src = state.mode === "replay" ? state.rblocks : state.blocks, table = src && src.stocks || {};
     d.stocks.forEach(function (s) {
       s.obs = []; s.ob = null; s.ob_sl = null;
-      (table[s.symbol] || []).forEach(function (b) {
+      (state.mode === "swing" ? (s.zones || []) : (table[s.symbol] || [])).forEach(function (b) {
         var bull = b.d === "bull", stop = bull ? b.lo * (1 - OB_BUFFER) : b.hi * (1 + OB_BUFFER);
         var risk = bull ? (s.price - stop) / s.price * 100 : (stop - s.price) / s.price * 100;
         if (!(risk > 0)) return;                                      // price is already through the stop: the zone has failed
@@ -735,11 +737,12 @@
     sec.hidden = !obActive() || !any;
     if (sec.hidden) return;
     $("sMinR").value = String(state.sMinR);
+    $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
     [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
       var list = strongestList(pair[0]); total += list.length;
       var box = $(pair[1]); box.textContent = "";
-      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : "None right now."));
+      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone right now." : "None right now."));
       list.slice(0, 20).forEach(function (x, i) {
         var s = x.s, b = x.b, bull = b.d === "bull", card = el("div", { "class": "scard", tabindex: "0", role: "button", title: whyText(b) });
         card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
@@ -770,9 +773,48 @@
     liveJson("candles.json").then(function (d) { state.candles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () {});
   }
   function slotOf(label) { var p = label.split(":"); return (parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - 555) / 5; }
-  function chartFor(sym) { var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : null; }
+  /* swing support / resistance / liquidity pools from candles - the JS twin of key_levels in signals/intraday_blocks.py
+     (pivot = higher / lower than the 3 bars either side, confirmed only by bars that exist; pools = 2+ pivots within tolTol%) */
+  function pivotsOf(vals, highs, k, last) {
+    var out = [];
+    for (var i = k; i + k <= last; i++) {
+      var ok = true;
+      for (var j = 1; j <= k && ok; j++) {
+        if (highs) { if (!(vals[i] > vals[i - j]) || !(vals[i] >= vals[i + j])) ok = false; }
+        else { if (!(vals[i] < vals[i - j]) || !(vals[i] <= vals[i + j])) ok = false; }
+      }
+      if (ok) out.push(vals[i]);
+    }
+    return out;
+  }
+  function keyLevelsJS(highs, lows, price, tolPct) {
+    var hi = pivotsOf(highs, true, 3, highs.length - 1), lo = pivotsOf(lows, false, 3, lows.length - 1), tol = (tolPct || 0.15) / 100;
+    function pool(levels, below) {
+      var c = levels.filter(function (a) { return (a < price) === below && levels.filter(function (b) { return Math.abs(b - a) / a <= tol; }).length >= 2; });
+      return c.length ? r2(below ? Math.max.apply(null, c) : Math.min.apply(null, c)) : null;
+    }
+    var below = lo.filter(function (x) { return x < price; }), above = hi.filter(function (x) { return x > price; });
+    return { sup: below.length ? r2(Math.max.apply(null, below)) : null, res: above.length ? r2(Math.min.apply(null, above)) : null, liq_lo: pool(lo, true), liq_hi: pool(hi, false) };
+  }
+  /* Replay: the candles of the day up to the chosen slot (what the trader saw), levels worked out from them */
+  function replayChart(sym) {
+    var st = state.day && state.day.stocks[sym];
+    if (!st || !st.ox) return null;
+    var cs = [], hs = [], ls = [], last = null;
+    for (var i = 0; i <= state.slot; i++) {
+      if (st.ox[i] === null || st.ox[i] === undefined) { cs.push(null); continue; }
+      cs.push([st.ox[i], st.hx[i], st.lx[i], st.c[i]]); hs.push(st.hx[i]); ls.push(st.lx[i]); last = st.c[i];
+    }
+    if (!hs.length) return null;
+    return { c: cs, lv: keyLevelsJS(hs, ls, last), replay: true };
+  }
+  function chartFor(sym) {
+    if (state.mode === "replay") return replayChart(sym);
+    if (state.mode === "swing") { var sc = state.swingCandles && state.swingCandles.stocks && state.swingCandles.stocks[sym]; return sc && sc.c && sc.c.length ? sc : null; }
+    var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : null;
+  }
   function drawObChart(cd, row) {
-    var cs = cd.c, W = 680, H = 330, L = 40, R = 104, T = 10, B = 24, pw = W - L - R, ph = H - T - B, N = Math.min(75, Math.max(36, cs.length + 12));   // early in the day the x-axis is zoomed to what exists
+    var cs = cd.c, W = 680, H = 330, L = 40, R = 104, T = 10, B = 24, pw = W - L - R, ph = H - T - B, daily = !!cd.dates, N = daily ? cs.length + 6 : Math.min(75, Math.max(36, cs.length + 12));   // early in the day the x-axis is zoomed to what exists
     var lows = [], highs = [];
     cs.forEach(function (c) { if (c) { lows.push(c[2]); highs.push(c[1]); } });
     var lo = Math.min.apply(null, lows), hi = Math.max.apply(null, highs);
@@ -791,9 +833,12 @@
       svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: gy, y2: gy, stroke: "var(--line)" }));
       svg.appendChild(svgEl("text", { x: L - 4, y: gy + 4, "text-anchor": "end" }, gv.toFixed(gv >= 1000 ? 0 : 1)));
     }
-    for (var sl = 0; sl < N; sl += (N > 40 ? 12 : 6)) svg.appendChild(svgEl("text", { x: x(sl), y: H - 8, "text-anchor": "middle" }, slotStart(sl)));
+    for (var sl = 0; sl < N; sl += daily ? Math.ceil(N / 7) : (N > 40 ? 12 : 6)) {
+      if (daily && sl >= cs.length) break;
+      svg.appendChild(svgEl("text", { x: x(sl), y: H - 8, "text-anchor": "middle" }, daily ? shortDate(cd.dates[sl]) : slotStart(sl)));
+    }
     (row.obs || []).forEach(function (b) {
-      var bull = b.d === "bull", x0 = x(slotOf(b.t)) - pw / N * 0.5, col = bull ? "var(--up)" : "var(--down)";
+      var bull = b.d === "bull", x0 = x(daily ? Math.max(cd.dates.indexOf(b.t), 0) : slotOf(b.t)) - pw / N * 0.5, col = bull ? "var(--up)" : "var(--down)";
       svg.appendChild(svgEl("rect", { x: x0, y: y(b.hi), width: W - R - x0, height: Math.max(y(b.lo) - y(b.hi), 2), fill: col, "fill-opacity": "0.16", stroke: col, "stroke-opacity": "0.7" }));
       svg.appendChild(svgEl("text", { x: W - R - 4, y: bull ? y(b.lo) + 13 : y(b.hi) - 5, "text-anchor": "end", style: "fill:" + col + ";font-weight:600" }, (bull ? "Bullish" : "Bearish") + " order block " + b.lo + "–" + b.hi));
       svg.appendChild(svgEl("line", { x1: x0, x2: W - R, y1: y(b.stop), y2: y(b.stop), stroke: "var(--down)", "stroke-dasharray": "3 3", "stroke-opacity": "0.8" }));
@@ -831,7 +876,7 @@
        ["Day's direction", b.wd ? "with it" : "against it"]].forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
       wrap.appendChild(ul);
     });
-    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price (yesterday's tail and today); liquidity = two or more swing highs / lows within 0.15% of each other, where stops tend to rest. Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + "."));
+    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(state.swingCandles.asof || cd.dates[cd.dates.length - 1]) + " close." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
     return wrap;
   }
 
@@ -982,14 +1027,14 @@
       case "oi_chg": return pctCell(s.oi_chg, false);
       case "ob": {
         var ot = el("td", { "class": "obcell" }), b = s.ob;
-        if (!b) { ot.textContent = state.blocks || state.mode === "replay" ? "–" : "…"; return ot; }
+        if (!b) { ot.textContent = state.blocks || state.mode !== "live" ? "–" : "…"; return ot; }
         var bull = b.d === "bull";
         ot.appendChild(el("span", { "class": "lvl " + (bull ? "up" : "down") }, (bull ? "▲ " : "▼ ") + b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
         ot.appendChild(el("span", { "class": "obtag" + (b.st === "testing" || b.inside ? " test" : "") }, b.inside ? "in zone" : b.st === "testing" ? "retesting" : "waiting"));
         ot.appendChild(el("span", { "class": "mute" }, " stop " + b.sl.toFixed(2) + "%"));
         ot.title = (bull ? "Bullish" : "Bearish") + " order block from " + b.t + " (thrust " + b.imp + " ATR). Stop " + b.stop.toLocaleString("en-IN", { maximumFractionDigits: 2 }) +
           " = " + b.sl.toFixed(2) + " % from the live price; price is " + fmtPct(b.dist) + (bull ? " above" : " below") + " the zone. Zones as of " +
-          (state.mode === "replay" ? state.data.replay_label : state.blocks && state.blocks.updated_at ? new Date(state.blocks.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "?");
+          (state.mode === "swing" ? "the " + shortDate(state.data.asof) + " close" : state.mode === "replay" ? state.data.replay_label : state.blocks && state.blocks.updated_at ? new Date(state.blocks.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "?");
         return ot;
       }
       case "r": {

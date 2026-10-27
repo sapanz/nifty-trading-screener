@@ -22,7 +22,8 @@ Day file shape (keys kept short - 500 stocks x 75 slots adds up):
                       "ob": [order blocks that formed that day, F&O stocks only:
                              {"d": "bull"|"bear", "i": block candle slot, "f": slot it formed (structure broke),
                               "lo","hi": zone, "t": first retest slot or null, "x": slot it was stopped through or null,
-                              "imp": thrust in ATRs} - see signals/intraday_blocks.py]}}}
+                              "imp": thrust in ATRs} - see signals/intraday_blocks.py],
+                      "ox","hx","lx": [open / high / low per slot, null where no candle - only with "ob", for the chart]}}}
 Slot i covers 09:15 + 5i minutes .. +5; a closed price is carried forward
 through slots with no trades.
 """
@@ -97,6 +98,11 @@ def build_day(
             blocks = day_blocks(df, day)
             if blocks:
                 stocks[symbol]["ob"] = blocks
+                ox: list = [None] * SLOTS; hx: list = [None] * SLOTS; lx: list = [None] * SLOTS
+                for slot, op, hi, lo in zip(slots, session["open"], session["high"], session["low"]):
+                    if 0 <= slot < SLOTS and pd.notna(op) and pd.notna(hi) and pd.notna(lo):
+                        ox[slot], hx[slot], lx[slot] = round(float(op), 2), round(float(hi), 2), round(float(lo), 2)
+                stocks[symbol]["ox"], stocks[symbol]["hx"], stocks[symbol]["lx"] = ox, hx, lx
         arrays = oi_arrays(futures.get(symbol), day) if futures else None
         if arrays:
             stocks[symbol].update(arrays)

@@ -112,4 +112,8 @@ def test_day_file_carries_order_blocks_for_fo_stocks_only():
     payload = dh.build_day(pd.Timestamp(DAY), intraday, daily, industries, {"S0"})
     blocks = payload["stocks"]["S0"]["ob"]
     assert blocks and {"d", "i", "f", "lo", "hi", "t", "x", "imp"} <= set(blocks[0])
-    assert "ob" not in payload["stocks"]["S1"]
+    assert "ob" not in payload["stocks"]["S1"] and "ox" not in payload["stocks"]["S1"]
+    s0 = payload["stocks"]["S0"]
+    assert len(s0["ox"]) == len(s0["hx"]) == len(s0["lx"]) == 75
+    first = next(i for i, v in enumerate(s0["ox"]) if v is not None)
+    assert s0["lx"][first] <= s0["ox"][first] <= s0["hx"][first]

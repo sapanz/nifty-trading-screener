@@ -162,14 +162,14 @@ def states_at(blocks: list[dict], slot: int) -> list[dict]:
 POOL_TOLERANCE_PCT = 0.15         # swing extremes this close together count as one pool of resting stops ("equal highs/lows")
 
 
-def key_levels(high: np.ndarray, low: np.ndarray, price: float, k: int | None = None) -> dict:
+def key_levels(high: np.ndarray, low: np.ndarray, price: float, k: int | None = None, tol_pct: float | None = None) -> dict:
     """Nearest swing support below and resistance above `price`, and the nearest liquidity pools - two or more swing
     lows (below) / highs (above) within POOL_TOLERANCE_PCT of each other, where stops tend to rest. Swings are
     pivots confirmed by the bars after them, over the candles given (yesterday's tail + today)."""
     k = k or config.OB_SWING_K
     lows = [float(low[i]) for i in _pivots(low, k, False)]
     highs = [float(high[i]) for i in _pivots(high, k, True)]
-    tol = POOL_TOLERANCE_PCT / 100
+    tol = (tol_pct if tol_pct is not None else POOL_TOLERANCE_PCT) / 100
 
     def pool(levels: list[float], below: bool) -> float | None:
         cands = []

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Builds the dashboard's Swing view after the close: R-factor on daily charts
 for the F&O stocks (signals/swing.py), published as swing.json (plus the saved
-OI totals, swing_oi.json) on the `dashboard-swing` branch.
+OI totals, swing_oi.json) on the `dashboard-swing` branch. Each stock also carries its live daily
+order-block zones (signals/swing_blocks.py); swing_candles.json holds the daily candles and levels for
+the stocks that have one (the chart view).
 
 Run nightly by .github/workflows/dashboard_swing.yml. Each run reads the
 previous swing_oi.json from the branch and adds the new totals to it - see
@@ -21,7 +23,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, runtime, swing, universe  # noqa: E402
+from signals import data, runtime, swing, swing_blocks, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -93,7 +95,18 @@ def main() -> None:
     snapshot = swing.build_swing(store, equity, industries, datetime.now(IST))
     if not snapshot["stocks"]:
         raise RuntimeError("Swing snapshot has no stocks - OI or equity data missing")
+    candles = {}
+    for row in snapshot["stocks"]:                                    # daily order blocks (signals/swing_blocks.py)
+        df = equity.get(row["symbol"])
+        zones = swing_blocks.scan_daily(df) if df is not None else []
+        row["zones"] = zones
+        if zones:
+            payload = swing_blocks.chart_payload_daily(df)
+            if payload:
+                candles[row["symbol"]] = payload
+    logger.info("Daily order blocks: %d of %d stocks have a live zone", len(candles), len(snapshot["stocks"]))
     OUT_DIR.mkdir(exist_ok=True)
+    (OUT_DIR / "swing_candles.json").write_text(json.dumps({"asof": snapshot["asof"], "stocks": candles}, separators=(",", ":")))
     (OUT_DIR / "swing.json").write_text(json.dumps(snapshot, separators=(",", ":")))
     (OUT_DIR / "swing_oi.json").write_text(json.dumps(store, separators=(",", ":")))
     top = snapshot["stocks"][:3]

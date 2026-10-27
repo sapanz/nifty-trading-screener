@@ -629,6 +629,16 @@ reliable standalone edge: out-of-sample profit factor 0.90 overall, bullish bloc
 (+0.11% per trade, PF 1.05) but negative in 2022, 2024 and 2026, bearish blocks clearly negative. Treat the column as a way
 to find candidates and place a stop, not as a signal.
 
+**Swing (daily) order blocks and manual backtesting.** The same panel, column, filter and chart exist on the **Swing** tab
+for daily candles (`signals/swing_blocks.py`, built each evening by `scripts/build_dashboard_swing.py`: zones formed in the last
+40 sessions that are still fresh or being retested, scored the same way, "with the trend" meaning the structure-breaking close is
+above / below the close 20 sessions earlier; `swing_candles.json` carries the daily candles and levels for the chart). To check
+what the Bullish / Bearish lists showed at any moment, use **Replay**: pick a date and a 5-minute time (or step with ±5 min) and
+the **Strongest order blocks** panel, the Order block column / filter and the chart tab (candles up to that moment, zone, stop,
+levels from that day's candles) all show what the page would have shown then. The day files carry `ob` plus `ox`/`hx`/`lx`
+(open / high / low per slot) for F&O stocks that had a zone; days built before this show no panel until the history is rebuilt
+(nightly at 17:00 IST, or run "Dashboard history" by hand).
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest
