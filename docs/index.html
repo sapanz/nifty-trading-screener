@@ -425,7 +425,7 @@
     if (latest && list.indexOf(latest) < 0) list.unshift(latest);
     list.forEach(function (d) { var o = el("option", { value: d }, shortDate(d) + " " + d.slice(0, 4) + (d === latest ? " (latest)" : "")); if (d === cur) o.selected = true; sel.appendChild(o); });
     $("sPrev").disabled = !list.length || list.indexOf(cur) === list.length - 1; $("sNext").disabled = !list.length || list.indexOf(cur) <= 0;
-    $("sNote").textContent = !list.length ? "As-of history isn't built yet - the Swing job adds the last 60 closes after the close (the next build will include them)." : state.swingAsof ? "Backtest view: this is what the Swing tab showed after the " + shortDate(state.swingAsof) + " close. R-factor is blank where open interest wasn't saved yet." : "";
+    $("sNote").textContent = !state.swingDates.length ? "As-of history isn't built yet - the Swing job adds the last 60 closes after the close (the next build will include them)." : state.swingAsof ? "Backtest view: this is what the Swing tab showed after the " + shortDate(state.swingAsof) + " close. R-factor is blank where open interest wasn't saved yet." : "";
   }
   function loadSwingDay(date) {
     var latest = state.swingLatest && state.swingLatest.asof;
