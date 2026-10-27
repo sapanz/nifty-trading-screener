@@ -119,6 +119,7 @@ def test_chart_payload_has_todays_candles_and_levels():
 
 
 def test_block_score_orders_sensibly():
-    assert ib.block_score(4, 3, True, True) == 100
+    assert ib.block_score(6, 5, True, True) == 100
+    assert ib.block_score(4, 3, True, True) < 100          # the scale no longer saturates at ordinary strong thrusts
     assert ib.block_score(2, 1, False, False) < ib.block_score(3, 2, True, False)
     assert 0 <= ib.block_score(2, None, False, False) <= 100

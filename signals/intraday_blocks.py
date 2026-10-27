@@ -41,12 +41,12 @@ def block_state(block: OrderBlock, high: np.ndarray, low: np.ndarray, open_: np.
 
 
 def block_score(impulse_atr: float, vol_ratio: float | None, swept: bool, with_day: bool) -> int:
-    """Strength 0-100 of a zone from what is known when it forms: how big the thrust was (40), how much volume drove it
-    (25; neutral if unknown), whether it first took out an earlier swing extreme - a liquidity grab (20), and whether it
+    """Strength 0-100 of a zone from what is known when it forms: how big the thrust was (40, full marks at 6 ATR), how much volume drove it
+    (25, full marks at 5x normal; neutral if unknown), whether it first took out an earlier swing extreme - a liquidity grab (20), and whether it
     goes with the stock's direction on the day (15). The weights are judgement; the backtest reports how well the
     score ranks outcomes (signals/intraday_ob_backtest.py)."""
-    volume = 0.5 if vol_ratio is None else min(vol_ratio / 3, 1.0)
-    return int(round(40 * min(impulse_atr / 4, 1.0) + 25 * volume + 20 * bool(swept) + 15 * bool(with_day)))
+    volume = 0.5 if vol_ratio is None else min(vol_ratio / 5, 1.0)
+    return int(round(40 * min(impulse_atr / 6, 1.0) + 25 * volume + 20 * bool(swept) + 15 * bool(with_day)))
 
 
 def _with_day(direction: str, close_at_formation: float, prev_close: float | None) -> bool:

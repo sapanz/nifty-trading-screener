@@ -158,6 +158,7 @@
     <h2 id="sbH">Strongest order blocks <small id="sbCount"></small></h2>
     <div class="controls">
       <label>R-factor at least <select id="sMinR" aria-label="Minimum R-factor"><option value="0">Any</option><option value="50">50</option><option value="70">70</option><option value="85">85</option></select></label>
+      <label>Max stop <select id="sMaxStop" aria-label="Largest stop distance shown"><option value="auto">Auto (3% intraday, 10% swing)</option><option value="1.5">1.5%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option><option value="12">12%</option><option value="any">Any</option></select></label>
       <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked by strength; uses the sector filter below. Click a stock for the chart.</span>
     </div>
     <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
@@ -260,11 +261,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0 };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto" };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -749,6 +750,10 @@
     return list.filter(function (b) { return b.d === want && (!st || (st === "test" ? b.st === "testing" : b.st === "fresh")); })[0] || null;
   }
   /* ---------- strongest order blocks: ranked cards ---------- */
+  function maxStop() {
+    var v = state.sMaxStop; if (v === "any") return Infinity;
+    return v === "auto" ? (state.mode === "swing" ? 10 : 3) : (parseFloat(v) || Infinity);
+  }
   function strongestList(dir) {
     var out = [];
     state.data.stocks.forEach(function (s) {
@@ -756,6 +761,7 @@
       var b = (s.obs || []).filter(function (x) { return x.d === dir; })[0];
       if (!b || b.sc === undefined || b.sc === null) return;
       if (state.sMinR && !(s.r >= state.sMinR)) return;
+      if (b.sl > maxStop()) return;                                // too far from the stop to be a tight-risk setup
       out.push({ s: s, b: b });
     });
     out.sort(function (x, y) { return y.b.sc - x.b.sc || (y.b.st === "testing") - (x.b.st === "testing") || x.b.sl - y.b.sl; });
@@ -778,13 +784,13 @@
       $("sBull").appendChild(el("p", { "class": "oiNote" }, "Daily order blocks aren't in this swing build yet - the Swing job adds them after the close (the next build will include them)."));
       $("sbCount").textContent = ""; return;
     }
-    $("sMinR").value = String(state.sMinR);
+    $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop;
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
     [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
       var list = strongestList(pair[0]); total += list.length;
       var box = $(pair[1]); box.textContent = "";
-      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone right now." : "None right now."));
+      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone right now." : "None right now" + (maxStop() < Infinity ? " with a stop within " + maxStop() + "% - raise “Max stop” to see farther zones." : ".")));
       list.slice(0, 20).forEach(function (x, i) {
         var s = x.s, b = x.b, bull = b.d === "bull", card = el("div", { "class": "scard", tabindex: "0", role: "button", title: whyText(b) });
         card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
@@ -1172,6 +1178,7 @@
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("sMaxStop").addEventListener("change", function (e) { state.sMaxStop = e.target.value; save(); render(); });
   $("sMinR").addEventListener("change", function (e) { state.sMinR = parseInt(e.target.value, 10); save(); render(); });
   $("obSel").addEventListener("change", function (e) { state.ob = e.target.value; save(); render(); });
   $("lvl").addEventListener("change", function (e) { state.lvl = e.target.value; save(); render(); });
