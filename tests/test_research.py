@@ -23,11 +23,16 @@ def test_events_have_features_labels_and_costs_only_pnl_on_a_random_walk():
     ev = ds.build_events(data, {f"S{k}": "A" for k in range(6)}, processes=1)
     assert len(ev) > 300 and set(ds.ENTRIES) == set(ev["ent"].unique())
     assert all(f in ev.columns for f in ds.FEATURES)
-    for g in range(len(ds.GEOMS)):
-        assert abs(ev[f"pnl_L{g}"].mean() + ds.COST_PCT) < 0.15      # no edge: only the cost remains
-        assert 0 <= ev[f"win_L{g}"].mean() <= 1
-    # a wider stop wins more often than a tighter one at the same target
-    assert ev["win_L1"].mean() >= ev["win_L0"].mean() - 0.02
+    for g, var in enumerate(ds.VARIANTS):
+        for side in "LS":
+            assert abs(ev[f"pnl_{side}{g}"].mean() + ds.COST_PCT) < 0.2      # no edge: only the cost remains
+            assert 0 <= ev[f"win_{side}{g}"].mean() <= 1
+            assert set(ev[f"ex_{side}{g}"].unique()) <= {0.0, 1.0, 2.0, 3.0}
+            cap = ds.CAP_IDX[var["pol"]] - ev["ent"]
+            assert (ev[f"bars_{side}{g}"] <= cap).all()                       # never held past the policy's cap
+    # a flat-12:00 variant is not held past 12:00; the dynamic exit fires sometimes and ends trades earlier on average
+    assert ev["bars_L5"].max() <= 32 - 9
+    assert (ev["ex_L4"] == 2).any() and ev["bars_L4"].mean() < ev["bars_L5"].mean()
 
 
 def test_features_do_not_look_ahead_but_labels_do_depend_on_the_future():

@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from research.dataset import FEATURES, GEOMS
+from research.dataset import EX_REASON, FEATURES, VARIANTS
 
 PARAMS = dict(n_estimators=220, learning_rate=0.04, num_leaves=15, min_child_samples=300, subsample=0.7, subsample_freq=1,
               colsample_bytree=0.7, reg_lambda=5.0, n_jobs=4, verbose=-1)
@@ -31,7 +31,7 @@ def walk_forward(ev: pd.DataFrame, features: list[str] | None = None, sides=("L"
                  params: dict | None = None) -> pd.DataFrame:
     from lightgbm import LGBMClassifier
     features = features or FEATURES
-    geoms = list(range(len(GEOMS))) if geoms is None else geoms
+    geoms = list(range(len(VARIANTS))) if geoms is None else geoms
     dates = sorted(ev["date"].unique())
     out = ev[list(dict.fromkeys(["symbol", "date", "ent", "sector"] + features))].copy()
     first_test = None
@@ -47,8 +47,8 @@ def walk_forward(ev: pd.DataFrame, features: list[str] | None = None, sides=("L"
                 out.loc[test, f"p_{side}{g}"] = model.predict_proba(ev.loc[test, features])[:, 1]
     for side in sides:
         for g in geoms:
-            out[f"win_{side}{g}"] = ev[f"win_{side}{g}"]
-            out[f"pnl_{side}{g}"] = ev[f"pnl_{side}{g}"]
+            for col in ("win", "pnl", "bars", "ex"):
+                out[f"{col}_{side}{g}"] = ev[f"{col}_{side}{g}"]
     return out[out["date"] >= first_test].reset_index(drop=True)
 
 
@@ -60,13 +60,13 @@ def pick_trades(oos: pd.DataFrame, side: str, g: int, threshold: float, k: int, 
         return sel
     sel = sel.assign(p=sel[f"p_{side}{g}"]).sort_values(["date", "p"], ascending=[True, False])
     sel = sel.drop_duplicates(["date", "symbol"]).groupby("date").head(k)
-    return sel.assign(win=sel[f"win_{side}{g}"], pnl=sel[f"pnl_{side}{g}"]).sort_values(["date", "ent"])
+    return sel.assign(win=sel[f"win_{side}{g}"], pnl=sel[f"pnl_{side}{g}"], bars=sel[f"bars_{side}{g}"], ex=sel[f"ex_{side}{g}"]).sort_values(["date", "ent"])
 
 
 def stats(t: pd.DataFrame) -> dict:
     n = len(t)
     if n == 0:
-        return {"n": 0, "win": np.nan, "avg": np.nan, "pf": np.nan, "dd": np.nan, "worst_day": np.nan, "per_day": 0.0, "months_pos": np.nan, "total": 0.0}
+        return {"n": 0, "win": np.nan, "avg": np.nan, "pf": np.nan, "dd": np.nan, "worst_day": np.nan, "per_day": 0.0, "months_pos": np.nan, "total": 0.0, "hold": np.nan, "ex": {}}
     pnl = t["pnl"].to_numpy()
     equity = np.cumsum(pnl)
     dd = float(np.max(np.maximum.accumulate(np.concatenate([[0], equity])) - np.concatenate([[0], equity])))
@@ -75,14 +75,16 @@ def stats(t: pd.DataFrame) -> dict:
     monthly = t.groupby(t["date"].dt.to_period("M"))["pnl"].sum()
     return {"n": n, "win": float(t["win"].mean()), "avg": float(pnl.mean()), "pf": float(gains / losses) if losses > 0 else np.inf,
             "dd": dd, "worst_day": float(daily.min()), "per_day": n / max(t["date"].nunique(), 1), "months_pos": float((monthly > 0).mean()),
-            "total": float(pnl.sum())}
+            "total": float(pnl.sum()), "hold": float((t["bars"].mean() + 1) * 5),
+            "ex": {EX_REASON[int(k)]: float(v) for k, v in t["ex"].value_counts(normalize=True).items()}}
 
 
 def fmt(s: dict) -> str:
     if s["n"] == 0:
         return "n=0"
     return (f"n={s['n']:<5} win {s['win'] * 100:5.1f}%  avg {s['avg']:+.3f}%  PF {s['pf']:.2f}  total {s['total']:+.1f}%  maxDD {s['dd']:.1f}%  "
-            f"worst day {s['worst_day']:+.2f}%  {s['per_day']:.1f}/day  +months {s['months_pos'] * 100:.0f}%")
+            f"worst day {s['worst_day']:+.2f}%  {s['per_day']:.1f}/day  +months {s['months_pos'] * 100:.0f}%  hold {s['hold']:.0f}min  "
+            + "/".join(f"{k} {v * 100:.0f}%" for k, v in sorted(s["ex"].items())))
 
 
 THRESHOLDS = [0.62, 0.66, 0.70, 0.74, 0.78, 0.82, 0.86, 0.90]
@@ -98,11 +100,11 @@ def search(oos: pd.DataFrame, min_n: int = 120, target_win: float = 0.80) -> str
     rows = []
     tried = 0
     for side in ("L", "S"):
-        for g, (tk, sk) in enumerate(GEOMS):
+        for g, var in enumerate(VARIANTS):
             if f"p_{side}{g}" not in oos:
                 continue
             base_sel = sel_part[f"win_{side}{g}"].mean()
-            lines.append(f"  {'long' if side == 'L' else 'short'} geometry {g} (target {tk}x, stop {sk}x ADR): unconditional win {base_sel * 100:.1f}% (sel), "
+            lines.append(f"  {'long' if side == 'L' else 'short'} v{g} {var['name']}: unconditional win {base_sel * 100:.1f}% (sel), "
                          f"{hold_part[f'win_{side}{g}'].mean() * 100:.1f}% (holdout)")
             for thr in THRESHOLDS:
                 for k in TOP_K:
@@ -116,7 +118,7 @@ def search(oos: pd.DataFrame, min_n: int = 120, target_win: float = 0.80) -> str
         lines.append(title)
         for side, g, thr, k, ts in picked:
             hs = stats(pick_trades(hold_part, side, g, thr, k))
-            lines.append(f"  {'long ' if side == 'L' else 'short'} g{g} (T{GEOMS[g][0]}x S{GEOMS[g][1]}x) p>={thr:.2f} top{k}/day")
+            lines.append(f"  {'long ' if side == 'L' else 'short'} v{g} [{VARIANTS[g]['name']}] p>={thr:.2f} top{k}/day")
             lines.append(f"      selection: {fmt(ts)}")
             lines.append(f"      HOLDOUT  : {fmt(hs)}")
     hi_win = sorted([r for r in rows if r[4]["win"] >= target_win], key=lambda r: -r[4]["avg"])[:8]

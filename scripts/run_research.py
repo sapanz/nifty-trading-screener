@@ -6,7 +6,7 @@
 
 The 5-minute candles of the F&O stocks are saved to research_data/intraday_5m.pkl.gz by the fetch step and restored from the
 Actions cache on later runs, so analysis runs don't need an Upstox login. Knobs (env): RESEARCH_MONTHS (default 36),
-RESEARCH_GEOMS ("0,2,5"), RESEARCH_TRAIN_FRAC (0.4), RESEARCH_FEATURES_OFF (comma list of features to drop).
+RESEARCH_GEOMS (variant indices, default all), RESEARCH_TRAIN_FRAC (0.4), RESEARCH_FEATURES_OFF (comma list of features to drop).
 """
 import os
 import sys
@@ -101,7 +101,8 @@ def analyse() -> str:
         lines.append(f"{len(ev)} events (stock x day x entry time 10:00/10:15/10:30) built in {time.time() - t0:.0f}s and saved.")
     lines.append(f"Event days {ev['date'].min().date()} to {ev['date'].max().date()}, {ev['symbol'].nunique()} stocks.")
     log(f"events ready, {mem()}")
-    geoms = [int(x) for x in os.environ.get("RESEARCH_GEOMS", ",".join(str(i) for i in range(len(dataset.GEOMS)))).split(",")]
+    raw = os.environ.get("RESEARCH_GEOMS", "").strip()
+    geoms = [int(x) for x in raw.split(",")] if raw else list(range(len(dataset.VARIANTS)))
     off = {x for x in os.environ.get("RESEARCH_FEATURES_OFF", "").split(",") if x}
     features = [f for f in dataset.FEATURES if f not in off]
     t0 = time.time()
