@@ -55,10 +55,13 @@ def _with_day(direction: str, close_at_formation: float, prev_close: float | Non
     return close_at_formation > prev_close if direction == "bull" else close_at_formation < prev_close
 
 
-def _record(block: OrderBlock, state: str, times, with_day: bool) -> dict:
+def _record(block: OrderBlock, state: str, times, with_day: bool, previous_session: bool = False) -> dict:
+    """"pv" = 1 when the block candle is from the previous session (the thrust came at the open): its time label is
+    then yesterday's, and the chart draws the zone from the left edge."""
     return {"d": block.direction, "st": state, "lo": round(block.low, 2), "hi": round(block.high, 2),
             "t": times[block.idx].strftime("%H:%M"), "imp": round(block.impulse_atr, 1), "sw": int(block.swept),
-            "vr": block.vol_ratio, "wd": int(with_day), "sc": block_score(block.impulse_atr, block.vol_ratio, block.swept, with_day)}
+            "vr": block.vol_ratio, "wd": int(with_day), "sc": block_score(block.impulse_atr, block.vol_ratio, block.swept, with_day),
+            "pv": int(previous_session)}
 
 
 def scan_symbol(candles: pd.DataFrame, day: pd.Timestamp, now: pd.Timestamp | None = None) -> list[dict]:
@@ -84,7 +87,7 @@ def scan_symbol(candles: pd.DataFrame, day: pd.Timestamp, now: pd.Timestamp | No
         state = block_state(block, h, l, o)
         if state is None:
             continue
-        rec = _record(block, state, times, _with_day(block.direction, c[block.formed_idx], prev_close))
+        rec = _record(block, state, times, _with_day(block.direction, c[block.formed_idx], prev_close), block.idx < first_today)
         rank = (state == "testing", block.formed_idx)
         if block.direction not in best or rank > best[block.direction][0]:
             best[block.direction] = (rank, rec)
@@ -128,7 +131,7 @@ def day_blocks(candles: pd.DataFrame, day: pd.Timestamp) -> list[dict]:
             x = _slot(times[t + int(through[0])]) if len(through) else None
         out.append({"d": block.direction, "i": _slot(times[block.idx]), "f": _slot(times[block.formed_idx]), "lo": round(block.low, 2),
                     "hi": round(block.high, 2), "t": None if t is None else _slot(times[t]), "x": x, "imp": round(block.impulse_atr, 1),
-                    "sw": int(block.swept), "vr": block.vol_ratio, "wd": int(_with_day(block.direction, c[block.formed_idx], prev_close)),
+                    "pv": int(block.idx < first_today), "sw": int(block.swept), "vr": block.vol_ratio, "wd": int(_with_day(block.direction, c[block.formed_idx], prev_close)),
                     "sc": block_score(block.impulse_atr, block.vol_ratio, block.swept, _with_day(block.direction, c[block.formed_idx], prev_close))})
     return out
 
@@ -153,7 +156,7 @@ def states_at(blocks: list[dict], slot: int) -> list[dict]:
         if b["d"] not in best or rank > best[b["d"]][0]:
             best[b["d"]] = (rank, {"d": b["d"], "st": state, "lo": b["lo"], "hi": b["hi"],
                                    "t": f"{(SESSION_START_MINUTES + b['i'] * BAR_MINUTES) // 60:02d}:{(SESSION_START_MINUTES + b['i'] * BAR_MINUTES) % 60:02d}",
-                                   "imp": b["imp"], "sw": b["sw"], "vr": b["vr"], "wd": b["wd"], "sc": b["sc"]})
+                                   "imp": b["imp"], "sw": b["sw"], "vr": b["vr"], "wd": b["wd"], "sc": b["sc"], "pv": b.get("pv", 0)})
     return [rec for _, rec in best.values()]
 
 

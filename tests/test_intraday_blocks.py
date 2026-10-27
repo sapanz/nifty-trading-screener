@@ -71,7 +71,7 @@ def test_bearish_mirror_and_too_little_data():
 
 
 def _norm(recs):
-    return sorted((r["d"], r["st"], r["lo"], r["hi"], r["t"], r["imp"], r["sw"], r["vr"], r["wd"], r["sc"]) for r in recs)
+    return sorted((r["d"], r["st"], r["lo"], r["hi"], r["t"], r["imp"], r["sw"], r["vr"], r["wd"], r["sc"], r["pv"]) for r in recs)
 
 
 def test_replay_states_match_the_live_scan_at_every_slot():
