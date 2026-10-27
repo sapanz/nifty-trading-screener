@@ -123,24 +123,42 @@ def _ranks(values: list[float]) -> list[float]:
 
 def build_swing(
     store: dict, equity_daily: dict[str, pd.DataFrame], industries: dict[str, str], now: datetime,
+    allow_missing_oi: bool = False,
 ) -> dict:
+    """The swing snapshot as of the last candle of `equity_daily` (so passing frames cut at an earlier date gives that
+    day's view). With allow_missing_oi a stock without saved open interest for the window still gets a row (price,
+    volume and the order-block zones the caller adds) but no OI fields or R-factor - used for the as-of-date history,
+    where dates older than the saved OI series would otherwise have no rows at all."""
     expiries = [date.fromisoformat(d) for d in store.get("expiries", [])]
     rows = []
-    for symbol, saved in store["oi"].items():
+    symbols = list(equity_daily) if allow_missing_oi else list(store["oi"])
+    for symbol in symbols:
+        saved = store["oi"].get(symbol, {})
         df = equity_daily.get(symbol)
         if df is None or len(df) < WINDOW + 2:
             continue
         dates = [d.date().isoformat() for d in df.index.normalize()]
         t = len(df) - 1
         oi = {d: saved.get(d) for d in dates[max(0, t - CHART_DAYS - 1): t + 1]}
-        if oi.get(dates[t]) is None or oi.get(dates[t - WINDOW]) is None or oi.get(dates[t - 1]) is None:
+        has_oi = not (oi.get(dates[t]) is None or oi.get(dates[t - WINDOW]) is None or oi.get(dates[t - 1]) is None)
+        if not has_oi and not allow_missing_oi:
             continue
         close, volume = df["close"].to_numpy(dtype=float), df["volume"].to_numpy(dtype=float)   # plain floats: the snapshot is saved as JSON
         prior = volume[max(0, t - AVG_DAYS): t]
         if len(prior) < 10 or prior.mean() <= 0 or close[t - 1] <= 0 or close[t - WINDOW] <= 0:
             continue
+        px_chg = float((close[t] / close[t - WINDOW] - 1) * 100)
+        if not has_oi:
+            rows.append({
+                "symbol": symbol, "sector": industries.get(symbol) or "Other", "price": round(float(close[t]), 2),
+                "change_pct": round(float(close[t] / close[t - 1] - 1) * 100, 2), "chg_5d": round(px_chg, 2),
+                "volume": int(volume[t]), "turnover_cr": round(float(close[t] * volume[t]) / CRORE, 2),
+                "vol_vs_avg": round(float(volume[t] / prior.mean()), 2), "oi": None, "oi_1d": None, "oi_chg": None, "bias": None,
+                "roll": False, "fo": True, "series": [], "_px": px_chg,
+            })
+            continue
         oi_t, oi_w, oi_1 = oi[dates[t]], oi[dates[t - WINDOW]], oi[dates[t - 1]]
-        oi_chg, px_chg = float((oi_t / oi_w - 1) * 100), float((close[t] / close[t - WINDOW] - 1) * 100)
+        oi_chg = float((oi_t / oi_w - 1) * 100)
         d0, d1 = date.fromisoformat(dates[t - WINDOW]), date.fromisoformat(dates[t])
         rows.append({
             "symbol": symbol, "sector": industries.get(symbol) or "Other", "price": round(float(close[t]), 2),
@@ -153,12 +171,15 @@ def build_swing(
             "series": [[d, oi[d], round(float(close[dates.index(d)]), 2)] for d in dates[max(0, t - CHART_DAYS + 1): t + 1] if oi.get(d)],
             "_px": px_chg,
         })
-    if len(rows) >= MIN_STOCKS:
-        pv = _ranks([r["vol_vs_avg"] for r in rows])
-        po = _ranks([r["oi_chg"] for r in rows])
-        pp = _ranks([abs(r["_px"]) for r in rows])
-        for r, a, b, c in zip(rows, pv, po, pp):
+    ranked = [r for r in rows if r["oi_chg"] is not None]
+    if len(ranked) >= MIN_STOCKS:
+        pv = _ranks([r["vol_vs_avg"] for r in ranked])
+        po = _ranks([r["oi_chg"] for r in ranked])
+        pp = _ranks([abs(r["_px"]) for r in ranked])
+        for r, a, b, c in zip(ranked, pv, po, pp):
             r["r"] = round((a * b * c) ** (1 / 3)) if r["oi_chg"] > 0 else 0
+        for r in rows:
+            r.setdefault("r", None)
     else:
         for r in rows:
             r["r"] = None

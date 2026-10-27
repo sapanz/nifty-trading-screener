@@ -147,6 +147,12 @@
   <button type="button" class="step" id="rNext" aria-label="Forward 5 minutes">5 min ▶</button>
   <span class="note" id="rNote"></span>
 </div>
+<div id="swingBar" class="replay" hidden>
+  <label>As of <select id="sDate" aria-label="Swing view as of this close"></select></label>
+  <button type="button" class="step" id="sPrev" aria-label="Previous session">◀ day</button>
+  <button type="button" class="step" id="sNext" aria-label="Next session">day ▶</button>
+  <span class="note" id="sNote"></span>
+</div>
 <main>
   <section id="strongest" aria-labelledby="sbH" hidden>
     <h2 id="sbH">Strongest order blocks <small id="sbCount"></small></h2>
@@ -254,7 +260,7 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, tab: "oi", sMinR: 0 };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0 };
 
   function $(id) { return document.getElementById(id); }
   function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
@@ -274,7 +280,8 @@
      rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
      the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
   function liveJson(name, branch) {
-    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : "swing") : srcOverride();
+    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : name.indexOf("swing_days/") === 0 ? "swingdays" : "swing") : srcOverride();
+    if (o && name.indexOf("swing_days/") === 0) return fetchJson(o.replace(/\/?$/, "/") + name.slice(11), true);
     if (o) return fetchJson(branch ? o : (name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name)), true);
     var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=" + (branch || "dashboard-data");
     return fetch(api, { headers: { Accept: "application/vnd.github.raw" }, cache: "no-cache" })
@@ -388,7 +395,7 @@
   function setMode(m) {
     var from = state.mode; state.mode = m; state.data = null;
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing"));
-    $("replay").hidden = m !== "replay";
+    $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
@@ -396,16 +403,45 @@
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
     liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
-      d.market_status = "swing"; d.has_fo = false; state.data = d; render();
+      d.market_status = "swing"; d.has_fo = false; state.swingLatest = d;
+      if (state.swingAsof && state.swingAsof !== d.asof) loadSwingDay(state.swingAsof); else { state.swingAsof = ""; state.data = d; render(); }
+      fillSwingDates();
     }).catch(function (e) {
       if (state.mode !== "swing") return;
       $("pill").className = "pill stale"; $("pill").textContent = "No swing data yet";
       $("empty").hidden = false; $("empty").textContent = "The swing view is built each evening after the close (" + e.message + ").";
     });
   }
-
+  /* Manual backtesting on daily charts: pick any stored close; the page then shows the snapshot as it stood that evening
+     (order-block zones, strongest lists, R-factor where open interest was saved) with the chart cut at that date. */
+  function fillSwingDates() {
+    var sel = $("sDate"); if (!sel) return;
+    var latest = state.swingLatest && state.swingLatest.asof, cur = state.swingAsof || latest || "";
+    sel.textContent = "";
+    var list = state.swingDates.slice().sort().reverse();
+    if (latest && list.indexOf(latest) < 0) list.unshift(latest);
+    list.forEach(function (d) { var o = el("option", { value: d }, shortDate(d) + " " + d.slice(0, 4) + (d === latest ? " (latest)" : "")); if (d === cur) o.selected = true; sel.appendChild(o); });
+    $("sPrev").disabled = !list.length || list.indexOf(cur) === list.length - 1; $("sNext").disabled = !list.length || list.indexOf(cur) <= 0;
+    $("sNote").textContent = state.swingAsof ? "Backtest view: this is what the Swing tab showed after the " + shortDate(state.swingAsof) + " close. R-factor is blank where open interest wasn't saved yet." : "";
+  }
+  function loadSwingDay(date) {
+    var latest = state.swingLatest && state.swingLatest.asof;
+    if (!date || date === latest) { state.swingAsof = ""; if (state.swingLatest) { state.data = state.swingLatest; render(); } fillSwingDates(); return; }
+    state.swingAsof = date; $("sNote").textContent = "Loading " + date + "…";
+    liveJson("swing_days/" + date + ".json", "dashboard-swing").then(function (d) {
+      if (state.mode !== "swing" || state.swingAsof !== date) return;
+      d.market_status = "swing"; d.has_fo = false; state.data = d; render(); fillSwingDates(); if (state.sel) renderOi();
+    }).catch(function (e) { $("sNote").textContent = "Couldn't load " + date + " (" + e.message + ")."; });
+  }
+  function stepSwing(delta) {
+    var list = state.swingDates.slice().sort(), latest = state.swingLatest && state.swingLatest.asof;
+    if (latest && list.indexOf(latest) < 0) list.push(latest);
+    var i = list.indexOf(state.swingAsof || latest), j = i + delta;
+    if (i >= 0 && j >= 0 && j < list.length) loadSwingDay(list[j]);
+  }
   function enterReplay() {
     closeOi(); setMode("replay");
     $("rNote").textContent = "Loading available days…";
@@ -808,9 +844,21 @@
     if (!hs.length) return null;
     return { c: cs, lv: keyLevelsJS(hs, ls, last), replay: true };
   }
+  /* Daily candles of one stock up to the viewed close (latest or an as-of date) with the swing levels worked out from them */
+  function swingChart(sym) {
+    var sc = state.swingCandles, st = sc && sc.stocks && sc.stocks[sym];
+    if (!st || !st.c || !st.c.length || !state.data || !state.data.asof) return null;
+    var i0 = sc.dates.indexOf(st.d0); if (i0 < 0) return null;
+    var dates = sc.dates.slice(i0, i0 + st.c.length), end = -1;
+    for (var i = 0; i < dates.length; i++) if (dates[i] <= state.data.asof) end = i;
+    if (end < 19) return null;
+    var cs = st.c.slice(Math.max(0, end - 89), end + 1), ds = dates.slice(Math.max(0, end - 89), end + 1);
+    var hs = st.c.slice(0, end + 1).map(function (c) { return c[1]; }), ls = st.c.slice(0, end + 1).map(function (c) { return c[2]; });
+    return { c: cs, dates: ds, lv: keyLevelsJS(hs.slice(-160), ls.slice(-160), cs[cs.length - 1][3], 0.4) };
+  }
   function chartFor(sym) {
     if (state.mode === "replay") return replayChart(sym);
-    if (state.mode === "swing") { var sc = state.swingCandles && state.swingCandles.stocks && state.swingCandles.stocks[sym]; return sc && sc.c && sc.c.length ? sc : null; }
+    if (state.mode === "swing") return swingChart(sym);
     var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : null;
   }
   function drawObChart(cd, row) {
@@ -876,7 +924,7 @@
        ["Day's direction", b.wd ? "with it" : "against it"]].forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
       wrap.appendChild(ul);
     });
-    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(state.swingCandles.asof || cd.dates[cd.dates.length - 1]) + " close." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
+    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(cd.dates[cd.dates.length - 1]) + " close" + (state.swingAsof ? " (backtest view)" : "") + "." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
     return wrap;
   }
 
@@ -1054,8 +1102,8 @@
   function renderStatus() {
     var d = state.data, pill = $("pill");
     if (d.market_status === "swing") {
-      pill.className = "pill"; pill.textContent = "Swing · close of " + new Date(d.asof + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-      $("updated").textContent = "Built after the close · F&O stocks · 5-session window";
+      pill.className = "pill"; pill.textContent = (state.swingAsof ? "Swing backtest · " : "Swing · ") + "close of " + new Date(d.asof + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+      $("updated").textContent = state.swingAsof ? "Showing the past, not now" : "Built after the close · F&O stocks · 5-session window";
       $("foOnly").parentNode.hidden = true; return;
     }
     if (d.market_status === "replay") {
@@ -1131,6 +1179,9 @@
   $("modeLive").addEventListener("click", enterLive);
   $("modeReplay").addEventListener("click", enterReplay);
   $("modeSwing").addEventListener("click", enterSwing);
+  $("sDate").addEventListener("change", function (e) { loadSwingDay(e.target.value); });
+  $("sPrev").addEventListener("click", function () { stepSwing(-1); });
+  $("sNext").addEventListener("click", function () { stepSwing(1); });
   $("rDate").addEventListener("change", function (e) { pickDate(e.target.value); });
   $("rTime").addEventListener("change", function (e) { state.slot = parseInt(e.target.value, 10); renderReplay(); });
   $("rPrev").addEventListener("click", function () { if (state.slot > 0) { state.slot--; renderReplay(); } });

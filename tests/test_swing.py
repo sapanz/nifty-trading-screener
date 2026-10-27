@@ -132,3 +132,24 @@ def test_seed_floor_drops_history_before_the_last_expiry_once_and_never_again():
     # a brand-new store only takes dates after the floor
     fresh = swing.update_store(None, {"AAA": series}, set(), None, seed_floor=date(2026, 10, 1))
     assert min(fresh["oi"]["AAA"]) == "2026-10-02"
+
+
+def test_as_of_snapshots_are_causal_and_keep_stocks_without_saved_oi():
+    store, equity, industries, days = _world(sessions=40)
+    cut = days[-8]
+    earlier = {s: df[df.index.normalize() <= cut] for s, df in equity.items()}
+    now_ = swing.build_swing(store, equity, industries, NOW)
+    then = swing.build_swing(store, earlier, industries, NOW)
+    assert then["asof"] == cut.date().isoformat()
+    rt = {r["symbol"]: r for r in then["stocks"]}
+    # later bars do not change the earlier day's numbers
+    again = swing.build_swing(store, {s: df[df.index.normalize() <= cut] for s, df in equity.items()}, industries, NOW)
+    assert {r["symbol"]: r["r"] for r in again["stocks"]} == {s: r["r"] for s, r in rt.items()}
+    # OI saved only for the last 10 sessions: the old date has no rows unless missing OI is allowed
+    for sym in store["oi"]:
+        store["oi"][sym] = {d: v for d, v in store["oi"][sym].items() if d >= days[-10].date().isoformat()}
+    old = {s: df[df.index.normalize() <= days[-20]] for s, df in equity.items()}
+    assert swing.build_swing(store, old, industries, NOW)["stock_count"] == 0
+    loose = swing.build_swing(store, old, industries, NOW, allow_missing_oi=True)
+    assert loose["stock_count"] == 14 and all(r["r"] is None and r["oi_chg"] is None and r["series"] == [] for r in loose["stocks"])
+    assert now_["stock_count"] == 14
