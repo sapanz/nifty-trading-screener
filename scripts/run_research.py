@@ -105,11 +105,17 @@ def analyse() -> str:
     geoms = [int(x) for x in raw.split(",")] if raw else list(range(len(dataset.VARIANTS)))
     off = {x for x in os.environ.get("RESEARCH_FEATURES_OFF", "").split(",") if x}
     features = [f for f in dataset.FEATURES if f not in off]
+    from research import regime
+    if os.environ.get("RESEARCH_REGIME_ONLY", "").lower() == "true":
+        lines.append(regime.regime_report(ev))
+        lines.append(regime.regime_report(ev, variants=(11,), side="S"))
+        return "\n".join(lines)
     t0 = time.time()
     oos = walkforward.walk_forward(ev, features=features, geoms=geoms, train_frac=float(os.environ.get("RESEARCH_TRAIN_FRAC", "0.4")))
     lines.append(f"Walk-forward models fitted in {time.time() - t0:.0f}s ({len(geoms)} geometries x 2 sides), out-of-sample rows {len(oos)}.")
     log(f"walk-forward done, {mem()}")
     lines.append(walkforward.search(oos))
+    lines.append(regime.regime_report(ev))
     return "\n".join(lines)
 
 

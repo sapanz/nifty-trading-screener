@@ -19,6 +19,10 @@ on:
       features_off:
         description: "Features to drop (comma list), for ablations"
         default: ""
+      regime_only:
+        description: "Only the descriptive market-regime tables (no model; fast)"
+        type: boolean
+        default: false
       train_frac:
         description: "Share of the days used as the first training window"
         default: "0.4"
@@ -97,6 +101,7 @@ jobs:
           RESEARCH_GEOMS: ${{ inputs.geoms }}
           RESEARCH_FEATURES_OFF: ${{ inputs.features_off }}
           RESEARCH_TRAIN_FRAC: ${{ inputs.train_frac }}
+          RESEARCH_REGIME_ONLY: ${{ inputs.regime_only }}
         run: python -u scripts/run_research.py
 
       - name: Save the event table to the cache

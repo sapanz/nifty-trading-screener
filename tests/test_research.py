@@ -64,3 +64,12 @@ def test_walk_forward_only_scores_later_days_and_search_reports():
     assert "holdout" in text and "configurations tried" in text
     t = wf.pick_trades(oos, "L", 0, 0.0, 2)
     assert t.groupby("date").size().max() <= 2 and not t.duplicated(["date", "symbol"]).any()
+
+
+def test_regime_report_runs_and_describes_the_dip_subset():
+    from research import regime
+    data = {f"S{k}": _synth(k, days=60) for k in range(8)}
+    ev = ds.build_events(data, None, processes=1)
+    ev["volx"] = ev["volx"].fillna(1.5) + 1.0
+    text = regime.regime_report(ev, variants=(14,))
+    assert "dip subset" in text and "mkt_r1" in text and "quintile" in text
