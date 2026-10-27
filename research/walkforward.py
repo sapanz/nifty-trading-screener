@@ -35,6 +35,7 @@ def walk_forward(ev: pd.DataFrame, features: list[str] | None = None, sides=("L"
     dates = sorted(ev["date"].unique())
     out = ev[list(dict.fromkeys(["symbol", "date", "ent", "sector"] + features))].copy()
     first_test = None
+    importance: dict = {}
     for f_start, f_end in folds(dates, train_frac):
         first_test = f_start if first_test is None else first_test
         train = ev["date"] < f_start - pd.Timedelta(days=1)
@@ -42,14 +43,18 @@ def walk_forward(ev: pd.DataFrame, features: list[str] | None = None, sides=("L"
         for side in sides:
             for g in geoms:
                 y = ev[f"win_{side}{g}"]
-                model = LGBMClassifier(**{**PARAMS, **(params or {})})
+                model = LGBMClassifier(**{**PARAMS, **(params or {})}, importance_type="gain")
                 model.fit(ev.loc[train, features], y[train])
+                gain = pd.Series(model.feature_importances_, index=features)
+                importance[(side, g)] = importance.get((side, g), 0) + gain / max(gain.sum(), 1e-9)
                 out.loc[test, f"p_{side}{g}"] = model.predict_proba(ev.loc[test, features])[:, 1]
     for side in sides:
         for g in geoms:
             for col in ("win", "pnl", "bars", "ex", "rk"):
                 out[f"{col}_{side}{g}"] = ev[f"{col}_{side}{g}"]
-    return out[out["date"] >= first_test].reset_index(drop=True)
+    result = out[out["date"] >= first_test].reset_index(drop=True)
+    result.attrs["importance"] = importance
+    return result
 
 
 def pick_trades(oos: pd.DataFrame, side: str, g: int, threshold: float, k: int, entries=None) -> pd.DataFrame:
@@ -128,8 +133,24 @@ def search(oos: pd.DataFrame, min_n: int = 120, target_win: float = 0.80) -> str
     show(f"Configurations with win rate >= {target_win * 100:.0f}% on the selection days (best expectancy first):", hi_win)
     best = sorted([r for r in rows if r[4]["avg"] > 0], key=lambda r: -(r[4]["r_total"] / max(r[4]["r_dd"], 1.0)))[:8]
     show("Best return / drawdown (measured in R = stop distances) on the selection days (any win rate):", best)
+    accurate = sorted([r for r in rows if r[4]["avg"] > 0 and r[4]["win"] >= 0.62], key=lambda r: -r[4]["win"])[:6]
+    show("Highest win rates among configurations with a positive average on the selection days (win >= 62%):", accurate)
     if best:
         side, g, thr, k, _ = best[0]
+        imp = oos.attrs.get("importance", {}).get((side, g))
+        if imp is not None:
+            top = imp.sort_values(ascending=False).head(10)
+            lines += ["", f"What the best config's model relies on (share of gain, averaged over folds): " + ", ".join(f"{n} {v * 100:.0f}%" for n, v in top.items())]
+        chosen = pick_trades(oos, side, g, thr, k)
+        if len(chosen):
+            cols = [c for c in ("gap", "ret_open", "ret30", "rng_pos", "vwap_dist", "volx", "or_hi", "pdh_dist", "rs_mkt", "rank_ret", "rank_volx",
+                                "r1", "r5", "dist20", "hi52_dist", "adr", "mkt_ret_open", "obb_state", "obr_state") if c in oos]
+            allv = oos[cols].astype(float)
+            sd = allv.std().replace(0, np.nan)
+            z = ((chosen[cols].astype(float).mean() - allv.mean()) / sd).sort_values(key=abs, ascending=False)
+            lines += ["", "Profile of the trades it takes versus all events (standardised difference; + = higher than usual): "
+                      + ", ".join(f"{n} {v:+.2f}" for n, v in z.head(10).items())]
+            lines.append("  typical values taken: " + ", ".join(f"{c} {chosen[c].astype(float).median():+.3f}" for c in cols[:9]))
         lines += ["", f"Best config by quarter ({'long' if side == 'L' else 'short'} v{g} p>={thr:.2f} top{k}/day) over the whole out-of-sample period:"]
         t = pick_trades(oos, side, g, thr, k)
         for q, grp in t.groupby(t["date"].dt.to_period("Q")):
