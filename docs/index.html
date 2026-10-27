@@ -425,7 +425,7 @@
     if (latest && list.indexOf(latest) < 0) list.unshift(latest);
     list.forEach(function (d) { var o = el("option", { value: d }, shortDate(d) + " " + d.slice(0, 4) + (d === latest ? " (latest)" : "")); if (d === cur) o.selected = true; sel.appendChild(o); });
     $("sPrev").disabled = !list.length || list.indexOf(cur) === list.length - 1; $("sNext").disabled = !list.length || list.indexOf(cur) <= 0;
-    $("sNote").textContent = state.swingAsof ? "Backtest view: this is what the Swing tab showed after the " + shortDate(state.swingAsof) + " close. R-factor is blank where open interest wasn't saved yet." : "";
+    $("sNote").textContent = !list.length ? "As-of history isn't built yet - the Swing job adds the last 60 closes after the close (the next build will include them)." : state.swingAsof ? "Backtest view: this is what the Swing tab showed after the " + shortDate(state.swingAsof) + " close. R-factor is blank where open interest wasn't saved yet." : "";
   }
   function loadSwingDay(date) {
     var latest = state.swingLatest && state.swingLatest.asof;
@@ -770,8 +770,14 @@
   }
   function renderStrongest() {
     var sec = $("strongest"), any = state.data.stocks.some(function (s) { return (s.obs || []).some(function (b) { return b.sc !== undefined && b.sc !== null; }); });
-    sec.hidden = !obActive() || !any;
+    var notBuilt = state.mode === "swing" && state.data.stocks.length && !state.data.stocks.some(function (s) { return s.zones !== undefined; });
+    sec.hidden = !obActive() || (!any && !notBuilt);
     if (sec.hidden) return;
+    if (notBuilt) {
+      ["sBull", "sBear"].forEach(function (id) { var b = $(id); b.textContent = ""; });
+      $("sBull").appendChild(el("p", { "class": "oiNote" }, "Daily order blocks aren't in this swing build yet - the Swing job adds them after the close (the next build will include them)."));
+      $("sbCount").textContent = ""; return;
+    }
     $("sMinR").value = String(state.sMinR);
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
