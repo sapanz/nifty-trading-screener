@@ -17,7 +17,20 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DATA = "research_data/intraday_5m.pkl.gz"
+EVENTS = "research_events/events.pkl.gz"
 REPORT = "research_report.txt"
+
+
+def log(msg: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def mem() -> str:
+    try:
+        import resource
+        return f"peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.0f} MB"
+    except Exception:  # noqa: BLE001
+        return "memory n/a"
 
 
 def fetch(months: int) -> None:
@@ -70,19 +83,31 @@ def fetch(months: int) -> None:
 def analyse() -> str:
     from research import dataset, walkforward
 
-    intraday = pd.read_pickle(DATA, compression="gzip")
-    sectors = pd.read_pickle("research_data/sectors.pkl") if os.path.exists("research_data/sectors.pkl") else None
-    first = min(df.index[0] for df in intraday.values()); last = max(df.index[-1] for df in intraday.values())
-    lines = [f"Data: {len(intraday)} F&O stocks, 5-minute candles {first.date()} to {last.date()}; sector map {'yes' if sectors else 'no'}."]
+    lines = []
     t0 = time.time()
-    ev = dataset.build_events(intraday, sectors, processes=int(os.environ.get("RESEARCH_PROCESSES", "4")))
-    lines.append(f"{len(ev)} events (stock x day x entry time 10:00/10:15/10:30) built in {time.time() - t0:.0f}s; days {ev['date'].min().date()} to {ev['date'].max().date()}.")
+    if os.path.exists(EVENTS):
+        ev = pd.read_pickle(EVENTS, compression="gzip")
+        lines.append(f"{len(ev)} events loaded from the cache ({EVENTS}).")
+    else:
+        intraday = pd.read_pickle(DATA, compression="gzip")
+        sectors = pd.read_pickle("research_data/sectors.pkl") if os.path.exists("research_data/sectors.pkl") else None
+        first = min(df.index[0] for df in intraday.values()); last = max(df.index[-1] for df in intraday.values())
+        lines.append(f"Data: {len(intraday)} F&O stocks, 5-minute candles {first.date()} to {last.date()}; sector map {'yes' if sectors else 'no'}.")
+        log(f"data loaded, {mem()}")
+        ev = dataset.build_events(intraday, sectors, processes=int(os.environ.get("RESEARCH_PROCESSES", "3")))
+        del intraday
+        os.makedirs("research_events", exist_ok=True)
+        pd.to_pickle(ev, EVENTS, compression="gzip")
+        lines.append(f"{len(ev)} events (stock x day x entry time 10:00/10:15/10:30) built in {time.time() - t0:.0f}s and saved.")
+    lines.append(f"Event days {ev['date'].min().date()} to {ev['date'].max().date()}, {ev['symbol'].nunique()} stocks.")
+    log(f"events ready, {mem()}")
     geoms = [int(x) for x in os.environ.get("RESEARCH_GEOMS", ",".join(str(i) for i in range(len(dataset.GEOMS)))).split(",")]
     off = {x for x in os.environ.get("RESEARCH_FEATURES_OFF", "").split(",") if x}
     features = [f for f in dataset.FEATURES if f not in off]
     t0 = time.time()
     oos = walkforward.walk_forward(ev, features=features, geoms=geoms, train_frac=float(os.environ.get("RESEARCH_TRAIN_FRAC", "0.4")))
     lines.append(f"Walk-forward models fitted in {time.time() - t0:.0f}s ({len(geoms)} geometries x 2 sides), out-of-sample rows {len(oos)}.")
+    log(f"walk-forward done, {mem()}")
     lines.append(walkforward.search(oos))
     return "\n".join(lines)
 

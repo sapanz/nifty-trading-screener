@@ -36,6 +36,11 @@ jobs:
 
       - run: pip install -r requirements.txt lightgbm scikit-learn
 
+      - name: Add swap (the event table and models are memory-hungry)
+        run: |
+          sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          free -g
+
       - name: Restore cached candles
         id: cache
         if: ${{ !inputs.refetch }}
@@ -77,6 +82,14 @@ jobs:
           path: research_data
           key: research-data-v1-${{ github.run_id }}
 
+      - name: Restore cached event table
+        id: events
+        uses: actions/cache/restore@v4
+        with:
+          path: research_events
+          key: research-events-none
+          restore-keys: research-events-${{ hashFiles('research/dataset.py', 'signals/orderblocks.py', 'signals/intraday_blocks.py', 'signals/config.py') }}-
+
       - name: Research
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -84,7 +97,14 @@ jobs:
           RESEARCH_GEOMS: ${{ inputs.geoms }}
           RESEARCH_FEATURES_OFF: ${{ inputs.features_off }}
           RESEARCH_TRAIN_FRAC: ${{ inputs.train_frac }}
-        run: python scripts/run_research.py
+        run: python -u scripts/run_research.py
+
+      - name: Save the event table to the cache
+        if: ${{ always() && hashFiles('research_events/events.pkl.gz') != '' && steps.events.outputs.cache-matched-key == '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: research_events
+          key: research-events-${{ hashFiles('research/dataset.py', 'signals/orderblocks.py', 'signals/intraday_blocks.py', 'signals/config.py') }}-${{ github.run_id }}
 
       - name: Upload report
         if: always()

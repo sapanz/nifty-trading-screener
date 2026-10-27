@@ -40,6 +40,8 @@ def day_matrices(df: pd.DataFrame) -> tuple[list, np.ndarray, np.ndarray, np.nda
     """Per-session 75-slot arrays (o, h, l, c, v) with missing bars filled (close carried, volume 0); sessions with < 60 bars are dropped."""
     slot = ((df.index.hour * 60 + df.index.minute - START_MIN) // 5).to_numpy()
     ok = (slot >= 0) & (slot < SLOTS)
+    for col in ("open", "high", "low", "close"):                 # bad prints (zero / negative / missing) are dropped
+        ok &= (df[col].to_numpy(dtype=float) > 0)
     df, slot = df[ok], slot[ok]
     days = df.index.normalize()
     cols = [df[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close", "volume")]
@@ -191,7 +193,12 @@ def symbol_events(args) -> pd.DataFrame | None:
             for g in range(len(GEOMS)):
                 row[f"win_L{g}"], row[f"pnl_L{g}"], row[f"win_S{g}"], row[f"pnl_S{g}"] = wl[g], pl[g], ws[g], ps[g]
             rows.append(row)
-    return pd.DataFrame(rows) if rows else None
+    if not rows:
+        return None
+    out = pd.DataFrame(rows)
+    num = out.columns.difference(["symbol", "date"])
+    out[num] = out[num].astype(np.float32).replace([np.inf, -np.inf], np.nan)
+    return out
 
 
 def build_events(intraday: dict[str, pd.DataFrame], sectors: dict[str, str] | None = None, processes: int = 4) -> pd.DataFrame:
@@ -202,6 +209,7 @@ def build_events(intraday: dict[str, pd.DataFrame], sectors: dict[str, str] | No
     else:
         frames = [symbol_events(x) for x in items]
     ev = pd.concat([f for f in frames if f is not None], ignore_index=True)
+    del frames
     ev["sector"] = ev["symbol"].map(sectors or {}).fillna("Other")
     g = ev.groupby(["date", "ent"])
     ev["mkt_ret_open"] = g["ret_open"].transform("mean")
