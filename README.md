@@ -629,6 +629,12 @@ reliable standalone edge: out-of-sample profit factor 0.90 overall, bullish bloc
 (+0.11% per trade, PF 1.05) but negative in 2022, 2024 and 2026, bearish blocks clearly negative. Treat the column as a way
 to find candidates and place a stop, not as a signal.
 
+**Finding setups before the entry.** The panel (and the Order block filter) only lists zones price is *close to*: the **Distance
+to zone** control defaults to within 1.5% intraday / 3% swing (or "in the zone"), because a zone price has already run far
+from is a missed move - e.g. a bearish zone formed ten days ago with price 10% below it. Each card says how far away price is
+and whether it is waiting or retesting; "Rank by: Closest to the zone first" and the table sort "closest to the zone" put the
+imminent setups on top. Raise the distance (or choose Any) to see every zone; the Max stop filter limits the risk.
+
 **Swing (daily) order blocks and manual backtesting.** The same panel, column, filter and chart exist on the **Swing** tab
 for daily candles (`signals/swing_blocks.py`, built each evening by `scripts/build_dashboard_swing.py`: zones formed in the last
 40 sessions that are still fresh or being retested, scored the same way, "with the trend" meaning the structure-breaking close is
