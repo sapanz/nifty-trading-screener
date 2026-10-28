@@ -629,6 +629,15 @@ reliable standalone edge: out-of-sample profit factor 0.90 overall, bullish bloc
 (+0.11% per trade, PF 1.05) but negative in 2022, 2024 and 2026, bearish blocks clearly negative. Treat the column as a way
 to find candidates and place a stop, not as a signal.
 
+**Trendlines and confirmations (Swing).** `signals/swing_trendlines.py` finds, for each stock, the widest *intact* daily
+trendline: a rising **support** line through at least 3 swing lows (or a falling **resistance** line through 3 swing highs),
+20+ sessions wide, no close through it, drawn on the chart. A zone gets **TL ✓** when the line that confirms its direction (support
+for bullish, resistance for bearish) runs through the zone now or within 3 candles. Each card shows three separate confirmations:
+**zone** (strength 60+: price structure), **trendline** (confluence), **flow** (R-factor 50+ with open-interest buildup in the zone's
+direction: money flow). "Rank by: Most confirmations first" (default) sorts by how many agree, then by zone strength; "Zone + trendline
+only" and the table options "Bullish / Bearish zone + trendline" show only the confluence setups. R-factor and zone strength measure
+different things (positioning vs. price structure), so neither replaces the other - they are two independent checks.
+
 **Finding setups before the entry.** The panel (and the Order block filter) only lists zones price is *close to*: the **Distance
 to zone** control defaults to within 1.5% intraday / 3% swing (or "in the zone"), because a zone price has already run far
 from is a missed move - e.g. a bearish zone formed ten days ago with price 10% below it. Each card says how far away price is

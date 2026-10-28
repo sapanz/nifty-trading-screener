@@ -24,7 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, runtime, swing, swing_blocks, universe  # noqa: E402
+from signals import data, runtime, swing, swing_blocks, swing_trendlines, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -101,7 +101,10 @@ def main() -> None:
         n = 0
         for row in snap["stocks"]:                                    # daily order blocks (signals/swing_blocks.py)
             df = frames.get(row["symbol"])
-            row["zones"] = swing_blocks.scan_daily(df) if df is not None else []
+            lines = swing_trendlines.analyze(df) if df is not None else {}
+            row["zones"] = swing_blocks.scan_daily(df, lines) if df is not None else []
+            if lines:
+                row["tl"] = lines                                     # live support / resistance trendlines (the chart draws them)
             n += bool(row["zones"])
         return n
 

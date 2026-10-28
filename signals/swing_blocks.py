@@ -15,16 +15,20 @@ import pandas as pd
 from signals import config
 from signals.intraday_blocks import block_score, key_levels
 from signals.orderblocks import find_order_blocks, first_touch
+from signals.swing_trendlines import analyze as trendlines_daily, confluence
 
 CHART_BARS = 90
 TREND_LOOKBACK = 20
 POOL_TOLERANCE_PCT = 0.4      # daily swing extremes within 0.4% count as one pool of stops
 
 
-def scan_daily(df: pd.DataFrame) -> list[dict]:
-    """Best bullish and best bearish live zone as of the last candle (testing beats fresh, then the most recent)."""
+def scan_daily(df: pd.DataFrame, lines: dict | None = None) -> list[dict]:
+    """Best bullish and best bearish live zone as of the last candle (testing beats fresh, then the most recent). With the
+    stock's live trendlines (signals/swing_trendlines.analyze, computed here if not given) each zone also carries "cf": 1 when
+    the trendline that confirms its direction runs through it."""
     if df is None or len(df) < 40:
         return []
+    lines = trendlines_daily(df) if lines is None else lines
     o, h, l, c = (df[col].to_numpy(dtype=float) for col in ("open", "high", "low", "close"))
     v = df["volume"].to_numpy(dtype=float) if "volume" in df else None
     n = len(c)
@@ -46,6 +50,7 @@ def scan_daily(df: pd.DataFrame) -> list[dict]:
         rec = {"d": b.direction, "st": state, "lo": round(b.low, 2), "hi": round(b.high, 2), "t": df.index[b.idx].strftime("%Y-%m-%d"),
                "imp": round(b.impulse_atr, 1), "sw": int(b.swept), "vr": b.vol_ratio, "wd": int(with_trend),
                "sc": block_score(b.impulse_atr, b.vol_ratio, b.swept, with_trend)}
+        rec["cf"] = int(confluence(rec, lines))
         rank = (state == "testing", b.formed_idx)
         if b.direction not in best or rank > best[b.direction][0]:
             best[b.direction] = (rank, rec)

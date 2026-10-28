@@ -159,9 +159,10 @@
     <div class="controls">
       <label>R-factor at least <select id="sMinR" aria-label="Minimum R-factor"><option value="0">Any</option><option value="50">50</option><option value="70">70</option><option value="85">85</option></select></label>
       <label>Distance to zone <select id="sNear" aria-label="How close price must be to the zone"><option value="auto">Auto (1.5% intraday, 3% swing)</option><option value="inzone">In the zone</option><option value="0.5">within 0.5%</option><option value="1">within 1%</option><option value="2">within 2%</option><option value="3">within 3%</option><option value="5">within 5%</option><option value="10">within 10%</option><option value="any">Any</option></select></label>
-      <label>Rank by <select id="sSort" aria-label="Order of the lists"><option value="strength">Strongest first</option><option value="near">Closest to the zone first</option></select></label>
+      <label>Rank by <select id="sSort" aria-label="Order of the lists"><option value="conf">Most confirmations first</option><option value="strength">Strongest zone first</option><option value="near">Closest to the zone first</option></select></label>
+      <label><input type="checkbox" id="sCf"> Zone + trendline only</label>
       <label>Max stop <select id="sMaxStop" aria-label="Largest stop distance shown"><option value="auto">Auto (3% intraday, 10% swing)</option><option value="1.5">1.5%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option><option value="12">12%</option><option value="any">Any</option></select></label>
-      <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked by strength; uses the sector filter below. Click a stock for the chart.</span>
+      <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked as chosen in “Rank by”; uses the sector filter below. Click a stock for the chart.</span>
     </div>
     <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
   </section>
@@ -193,6 +194,8 @@
         <option value="bear-test">Bearish - retesting now</option>
         <option value="bear-fresh">Bearish - waiting for a bounce</option>
         <option value="bear">Bearish - either</option>
+        <option value="cf-bull">Bullish zone + trendline</option>
+        <option value="cf-bear">Bearish zone + trendline</option>
       </select></label>
       <input type="search" id="q" placeholder="Search symbol" aria-label="Search symbol">
     </div>
@@ -263,11 +266,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "strength" };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -360,7 +363,7 @@
         else if (slot - b.t <= OB_RECENT) st = "testing";
         else return;
         var rank = (st === "testing" ? 1000 : 0) + b.f, m = 9 * 60 + 15 + b.i * 5;
-        if (!best[b.d] || rank > best[b.d].rank) best[b.d] = { rank: rank, rec: { d: b.d, st: st, lo: b.lo, hi: b.hi, t: pad(Math.floor(m / 60)) + ":" + pad(m % 60), imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv } };
+        if (!best[b.d] || rank > best[b.d].rank) best[b.d] = { rank: rank, rec: { d: b.d, st: st, lo: b.lo, hi: b.hi, t: pad(Math.floor(m / 60)) + ":" + pad(m % 60), imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv, cf: b.cf ? 1 : 0 } };
       });
       var recs = Object.keys(best).map(function (k) { return best[k].rec; });
       if (recs.length) out[sym] = recs;
@@ -736,8 +739,11 @@
         var bull = b.d === "bull", stop = bull ? b.lo * (1 - OB_BUFFER) : b.hi * (1 + OB_BUFFER);
         var risk = bull ? (s.price - stop) / s.price * 100 : (stop - s.price) / s.price * 100;
         if (!(risk > 0)) return;                                      // price is already through the stop: the zone has failed
-        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv, sl: r2(risk), stop: stop,
+        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv, cf: b.cf ? 1 : 0, sl: r2(risk), stop: stop,
                     dist: r2(bull ? (s.price / b.hi - 1) * 100 : (b.lo / s.price - 1) * 100), inside: s.price >= b.lo && s.price <= b.hi };
+        var aligned = s.r >= 50 && ((bull && s.bias === "long") || (!bull && s.bias === "short"));
+        rec.flow = aligned ? 1 : 0;
+        rec.conf = (rec.sc >= 60 ? 1 : 0) + rec.cf + rec.flow;       // zone quality, trendline, OI flow - independent confirmations
         s.obs.push(rec);
       });
     });
@@ -749,6 +755,7 @@
       return list[0] || null;
     }
     var parts = mode.split("-"), want = parts[0], st = parts[1];
+    if (want === "cf") return list.filter(function (b) { return b.d === st && b.cf; })[0] || null;
     return list.filter(function (b) { return b.d === want && (!st || (st === "test" ? b.st === "testing" : b.st === "fresh")); })[0] || null;
   }
   /* ---------- strongest order blocks: ranked cards ---------- */
@@ -772,10 +779,12 @@
       if (state.sMinR && !(s.r >= state.sMinR)) return;
       if (b.sl > maxStop()) return;                                // too far from the stop to be a tight-risk setup
       if (!nearOk(b)) return;                                      // price is not close to the zone: nothing to act on yet
+      if (state.cfOnly && !b.cf) return;
       out.push({ s: s, b: b });
     });
     var gapOf = function (b) { return b.inside ? 0 : Math.max(b.dist, 0); };
     if (state.sSort === "near") out.sort(function (x, y) { return gapOf(x.b) - gapOf(y.b) || y.b.sc - x.b.sc; });
+    else if (state.sSort === "conf") out.sort(function (x, y) { return y.b.conf - x.b.conf || y.b.sc - x.b.sc || gapOf(x.b) - gapOf(y.b); });
     else out.sort(function (x, y) { return y.b.sc - x.b.sc || (y.b.st === "testing") - (x.b.st === "testing") || gapOf(x.b) - gapOf(y.b); });
     return out;
   }
@@ -796,7 +805,7 @@
       $("sBull").appendChild(el("p", { "class": "oiNote" }, "Daily order blocks aren't in this swing build yet - the Swing job adds them after the close (the next build will include them)."));
       $("sbCount").textContent = ""; return;
     }
-    $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort;
+    $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort; $("sCf").checked = state.cfOnly;
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
     [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
@@ -811,14 +820,14 @@
         body.appendChild(top);
         var bar = el("div", { "class": "bar" }); bar.appendChild(el("i", { style: "width:" + b.sc + "%;background:" + (bull ? "var(--up)" : "var(--down)") })); body.appendChild(bar);
         var meta = el("div", { "class": "meta" });
-        meta.appendChild(el("span", null, "strength " + b.sc));
+        var pill = function (ok, text, tip) { return el("span", { "class": "obtag" + (ok ? " test" : ""), title: tip }, (ok ? "✓ " : "") + text); };
+        meta.appendChild(pill(b.sc >= 60, "zone " + b.sc, "Zone strength (thrust, volume, liquidity sweep, with the trend) - ticked at 60 or more. A price-structure measure."));
+        if (s.zones !== undefined || state.mode === "swing") meta.appendChild(pill(!!b.cf, "trendline", b.cf ? "A " + (bull ? "support" : "resistance") + " trendline runs through this zone" : "No trendline through this zone"));
+        meta.appendChild(pill(!!b.flow, s.r !== null && s.r !== undefined ? "flow R " + s.r : "flow n/a", "R-factor: volume, open-interest buildup and price move - ticked when R >= 50 and the OI buildup agrees with the zone's direction. A money-flow measure, separate from the zone's strength."));
         meta.appendChild(el("span", null, b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
         meta.appendChild(el("span", null, b.inside ? "in zone" : (b.st === "testing" ? "retesting · " : "waiting · ") + Math.max(b.dist, 0).toFixed(1) + "% away"));
         meta.appendChild(el("span", null, "stop " + b.sl.toFixed(2) + "%"));
-        if (s.r !== null && s.r !== undefined) {
-          var tag = BIAS_TAG[s.bias], aligned = tag && tag[0] && ((bull && s.bias === "long") || (!bull && s.bias === "short"));
-          meta.appendChild(el("span", { title: "R-factor (volume, OI buildup and price move)" + (aligned ? " - OI buildup agrees with this zone" : "") }, "R " + s.r + (aligned ? " ✓" : "")));
-        }
+
         body.appendChild(meta); card.appendChild(body);
         var open = function () { openOi(s.symbol, "chart"); };
         card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
@@ -896,6 +905,12 @@
     add(lv.res, "Resistance", "var(--muted)", "4 3"); add(lv.sup, "Support", "var(--muted)", "4 3");
     add(lv.liq_hi, "Liquidity", "#d99a1e", "2 3"); add(lv.liq_lo, "Liquidity", "#d99a1e", "2 3");
     add(row.pdh, "PD high", "var(--accent)", "6 3"); add(row.pdl, "PD low", "var(--accent)", "6 3");
+    var tlines = [];                                           // live daily trendlines (swing): value v at the last candle, m per candle, over w candles
+    if (daily && row.tl) [["s", "Support TL", "var(--up)"], ["r", "Resist. TL", "var(--down)"]].forEach(function (k) {
+      var t = row.tl[k[0]]; if (!t) return;
+      tlines.push({ t: t, label: k[1] + " ×" + t.n, color: k[2] });
+      if (t.v > lo - span * 0.6 && t.v < hi + span * 0.6) { lo = Math.min(lo, t.v); hi = Math.max(hi, t.v); }
+    });
     lines.forEach(function (l) { lo = Math.min(lo, l.p); hi = Math.max(hi, l.p); });
     var pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
     var y = function (v) { return T + (hi - v) / (hi - lo) * ph; }, x = function (slot) { return L + (slot + 0.5) / N * pw; };
@@ -916,6 +931,12 @@
       svg.appendChild(svgEl("line", { x1: x0, x2: W - R, y1: y(b.stop), y2: y(b.stop), stroke: "var(--down)", "stroke-dasharray": "3 3", "stroke-opacity": "0.8" }));
       lines.push({ p: b.stop, label: "Stop", color: "var(--down)", dash: "", noLine: true });
     });
+    var clip = svgEl("clipPath", { id: "obclip" }); clip.appendChild(svgEl("rect", { x: L, y: T, width: W - R - L, height: ph })); svg.appendChild(clip);
+    tlines.forEach(function (tl) {
+      var t = tl.t, last = cs.length - 1, j0 = Math.max(0, last - t.w), j1 = last + 3;
+      svg.appendChild(svgEl("line", { x1: x(j0), y1: y(t.v + t.m * (j0 - last)), x2: x(j1), y2: y(t.v + t.m * (j1 - last)), stroke: tl.color, "stroke-width": "1.8", "stroke-opacity": "0.9", "clip-path": "url(#obclip)" }));
+      lines.push({ p: t.v + t.m * 3, label: tl.label, color: tl.color, dash: "", noLine: true });
+    });
     var cw = pw / N * 0.62;
     cs.forEach(function (c, i) {
       if (!c) return; var up = c[3] >= c[0], col = up ? "var(--up)" : "var(--down)";
@@ -933,6 +954,13 @@
     });
     return svg;
   }
+  function trendWhy(row, b) {
+    var t = row.tl && row.tl[b.d === "bull" ? "s" : "r"], kind = b.d === "bull" ? "support" : "resistance";
+    if (!row.tl) return [];
+    if (!t) return [["Trendline", "no intact " + kind + " trendline (3+ touches, 20+ days) right now"]];
+    return [["Trendline", kind + " line through " + t.n + " swing " + (b.d === "bull" ? "lows" : "highs") + " over " + t.w + " days (" + (b.d === "bull" ? "rising " : "falling ") + t.mv + "%), now at " +
+      t.v.toLocaleString("en-IN") + ", price " + Math.abs(t.d).toFixed(1) + "% " + (b.d === "bull" ? "above" : "below") + " it" + (b.cf ? " - it runs through this zone, so two separate reasons agree here" : " - it does not pass through this zone")]];
+  }
   function chartView(sym, row) {
     var wrap = el("div"), cd = chartFor(sym);
     if (!cd) { wrap.appendChild(el("p", { "class": "oiNote" }, state.candles ? "No chart for this stock: it has no live order block right now." : "Loading the chart…")); return wrap; }
@@ -945,7 +973,7 @@
       var ul = el("ul", { "class": "whyList" });
       [["Thrust", b.imp + " ATR"], ["Volume of the thrust", b.vr === null || b.vr === undefined ? "not available" : b.vr + "× the average of the 20 candles before"],
        ["Liquidity", b.sw ? "it first took out an earlier swing " + (bull ? "low" : "high") + " (stops grabbed, then reversal)" : "no earlier swing " + (bull ? "low" : "high") + " was taken out"],
-       ["Day's direction", b.wd ? "with it" : "against it"]].forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
+       ["Day's direction", b.wd ? "with it" : "against it"]].concat(trendWhy(row, b)).forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
       wrap.appendChild(ul);
     });
     wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(cd.dates[cd.dates.length - 1]) + " close" + (state.swingAsof ? " (backtest view)" : "") + "." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
@@ -1103,6 +1131,7 @@
         var bull = b.d === "bull";
         ot.appendChild(el("span", { "class": "lvl " + (bull ? "up" : "down") }, (bull ? "▲ " : "▼ ") + b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
         ot.appendChild(el("span", { "class": "obtag" + (b.st === "testing" || b.inside ? " test" : "") }, b.inside ? "in zone" : (b.st === "testing" ? "retesting " : "") + Math.max(b.dist, 0).toFixed(1) + "% away"));
+        if (b.cf) ot.appendChild(el("span", { "class": "obtag test", title: "A " + (bull ? "support" : "resistance") + " trendline runs through this zone" }, "TL ✓"));
         ot.appendChild(el("span", { "class": "mute" }, " stop " + b.sl.toFixed(2) + "%"));
         ot.title = (bull ? "Bullish" : "Bearish") + " order block from " + (b.pv ? "the previous session " : "") + b.t + " (thrust " + b.imp + " ATR). Stop " + b.stop.toLocaleString("en-IN", { maximumFractionDigits: 2 }) +
           " = " + b.sl.toFixed(2) + " % from the live price; price is " + fmtPct(b.dist) + (bull ? " above" : " below") + " the zone. Zones as of " +
@@ -1190,6 +1219,7 @@
   $("foOnly").addEventListener("change", function (e) { state.fo = e.target.checked; save(); render(); });
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
+  $("sCf").addEventListener("change", function (e) { state.cfOnly = e.target.checked; save(); render(); });
   $("sNear").addEventListener("change", function (e) { state.near = e.target.value; save(); render(); });
   $("sSort").addEventListener("change", function (e) { state.sSort = e.target.value; save(); render(); });
   $("sMaxStop").addEventListener("change", function (e) { state.sMaxStop = e.target.value; save(); render(); });
