@@ -84,6 +84,16 @@
   .lvl { font-size: 12px; font-weight: 600; white-space: nowrap; } .lvl.up { color: var(--up); } .lvl.down { color: var(--down); } .lvl.warn { color: #b26a00; } .lvl.mute { color: var(--muted); font-weight: 400; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lvl.warn { color: #e0a64a; } }
   td.rcell { white-space: nowrap; } td.rcell .bias { margin-left: 5px; font-size: 11px; }
+  #lock { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
+  #lock[hidden] { display: none; }
+  #lock form { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: 100%; max-width: 340px; display: grid; gap: 12px; }
+  #lock h2 { margin: 0; font-size: 18px; } #lock p { margin: 0; color: var(--muted); font-size: 13px; }
+  #lock input[type="password"] { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; width: 100%; box-sizing: border-box; }
+  #lock label.keep { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+  #lock button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px; font: inherit; font-weight: 600; cursor: pointer; }
+  #lock button:disabled { opacity: .6; cursor: default; }
+  #lockErr { color: var(--down); font-size: 13px; min-height: 18px; }
+  #lockBtn { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
   .empty { padding: 28px 14px; color: var(--muted); text-align: center; }
 
   tbody tr { cursor: pointer; } tbody tr:hover, tbody tr:focus-visible { background: var(--chip); outline: none; }
@@ -138,8 +148,19 @@
       <button type="button" id="modeSwing" aria-pressed="false">Swing</button>
     </div>
     <span id="pill" class="pill">Loading…</span><span id="updated"></span>
+    <button type="button" id="lockBtn" hidden>Lock</button>
   </div>
 </header>
+<div id="lock" hidden>
+  <form id="lockForm" autocomplete="off">
+    <h2>Market Dashboard</h2>
+    <p>This dashboard is private. Enter the password to unlock it.</p>
+    <input type="password" id="lockPw" placeholder="Password" autocomplete="current-password" aria-label="Password" required>
+    <label class="keep"><input type="checkbox" id="lockKeep"> Keep me signed in on this device</label>
+    <div id="lockErr" role="alert"></div>
+    <button type="submit" id="lockGo">Unlock</button>
+  </form>
+</div>
 <div id="replay" class="replay" hidden>
   <label>Date <input type="date" id="rDate"></label>
   <label>Time <select id="rTime" aria-label="Time (end of 5-minute candle, IST)"></select></label>
@@ -292,6 +313,7 @@
     var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=" + (branch || "dashboard-data");
     return fetch(api, { headers: { Accept: "application/vnd.github.raw" }, cache: "no-cache" })
       .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+      .then(unlock)
       .catch(function () { return fetchJson(rawUrl(name, branch), true); });
   }
 
@@ -373,8 +395,63 @@
 
   function fetchJson(url, bust) {
     return fetch(url + (bust ? "?t=" + Date.now() : ""), bust ? { cache: "no-store" } : undefined)
-      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(unlock);
   }
+
+  /* Login. When the data is published encrypted (DASHBOARD_PASSWORD secret set) every file is an AES-256-GCM
+     envelope; the key is PBKDF2(password) and is derived here, in the browser - the password is never sent or
+     stored. The derived key is kept for the tab (sessionStorage) or, if asked, this device (localStorage). */
+  var sec = { key: null, wait: null };
+  function b64d(t) { var b = atob(t), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+  function b64e(a) { var t = ""; for (var i = 0; i < a.length; i++) t += String.fromCharCode(a[i]); return btoa(t); }
+  function keyStored() { try { return localStorage.getItem("dashKey") || sessionStorage.getItem("dashKey"); } catch (e) { return null; } }
+  function keyForget() { sec.key = null; try { localStorage.removeItem("dashKey"); sessionStorage.removeItem("dashKey"); } catch (e) {} $("lockBtn").hidden = true; }
+  function keyKeep(raw, device) { try { (device ? localStorage : sessionStorage).setItem("dashKey", b64e(raw)); } catch (e) {} }
+  function aesKey(raw) { return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]); }
+  function openEnv(env, key) {
+    return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64d(env.iv) }, key, b64d(env.ct)).then(function (buf) {
+      var text = env.z ? new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("deflate"))).text() : Promise.resolve(new TextDecoder().decode(buf));
+      return text.then(JSON.parse);
+    });
+  }
+  function deriveRaw(pw, env) {
+    return crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]).then(function (base) {
+      return crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: b64d(env.salt), iterations: env.iter }, base, 256);
+    }).then(function (bits) { return new Uint8Array(bits); });
+  }
+  function askPassword(env, stale) {
+    if (sec.wait) return sec.wait;
+    var box = $("lock"), form = $("lockForm"), err = $("lockErr"), go = $("lockGo"), pw = $("lockPw");
+    err.textContent = stale ? "The password has changed - please sign in again." : "";
+    box.hidden = false; pw.value = ""; pw.focus();
+    sec.wait = new Promise(function (resolve) {
+      form.onsubmit = function (ev) {
+        ev.preventDefault(); go.disabled = true; go.textContent = "Checking…"; err.textContent = "";
+        deriveRaw(pw.value, env).then(function (raw) {
+          return aesKey(raw).then(function (k) { return openEnv(env, k).then(function () { return { raw: raw, key: k }; }); });
+        }).then(function (ok) {
+          sec.key = ok.key; keyKeep(ok.raw, $("lockKeep").checked); pw.value = "";
+          box.hidden = true; $("lockBtn").hidden = false; sec.wait = null; resolve(ok.key);
+        }, function () { err.textContent = "Wrong password."; pw.select(); })
+          .then(function () { go.disabled = false; go.textContent = "Unlock"; });
+      };
+    });
+    return sec.wait;
+  }
+  function needKey(env) {
+    if (sec.key) return Promise.resolve(sec.key);
+    var stored = keyStored();
+    if (stored) return aesKey(b64d(stored)).then(function (k) { sec.key = k; $("lockBtn").hidden = false; return k; });
+    return askPassword(env, false);
+  }
+  /* Plain JSON passes straight through (data published without a password). */
+  function unlock(obj) {
+    if (!obj || obj.enc !== 1 || !obj.ct) return obj;
+    return needKey(obj).then(function (k) {
+      return openEnv(obj, k).catch(function () { keyForget(); return askPassword(obj, true).then(function (k2) { return openEnv(obj, k2); }); });
+    });
+  }
+  $("lockBtn").addEventListener("click", function () { keyForget(); location.reload(); });
   function note(text) { $("rNote").textContent = text || ""; }
 
   function dayHasOb(d) { return Object.keys(d.stocks).some(function (k) { return d.stocks[k].ob !== undefined; }); }

@@ -658,6 +658,17 @@ levels from that day's candles) all show what the page would have shown then. Th
 (open / high / low per slot) for F&O stocks that had a zone; days built before this show no panel until the history is rebuilt
 (nightly at 17:00 IST, or run "Dashboard history" by hand).
 
+### Login screen and encrypted data (optional)
+
+The dashboard lives on public GitHub Pages and reads JSON from public branches, so a password form on its own would only hide the page - anyone could still open the data files. Setting one repository secret turns on real protection:
+
+1. Repository -> Settings -> Secrets and variables -> Actions -> **New repository secret**, name `DASHBOARD_PASSWORD`, value a long passphrase (4+ random words; there is no way to rate-limit guesses against downloaded files, so length matters).
+2. Re-run the dashboard, history and swing workflows (the next scheduled runs also pick it up).
+
+From then on every published JSON file (`data.json`, `oi.json`, `blocks.json`, `candles.json`, replay day files, swing files) is an AES-256-GCM envelope; the key comes from PBKDF2-HMAC-SHA256 (600,000 iterations) of the password. The page asks for the password, derives the key in your browser and decrypts locally - the password is never sent anywhere or stored; only the derived key is kept (for the tab, or on the device if you tick "Keep me signed in"). The **Lock** pill forgets it. Changing the secret locks every device out until it signs in again.
+
+What it does and does not protect: the data (prices, screens, order blocks, signals) is unreadable without the password. The page's code, the workflow files and the repo itself stay public (use a private repo if that matters - Pages from a private repo needs a paid plan). Without the secret nothing changes: files are plain JSON and no login shows. Code: `signals/secure.py`; the backtest scripts decrypt too when `DASHBOARD_PASSWORD` is set.
+
 ### OI buildup (click a stock)
 
 Clicking any row opens a panel with that stock's **futures open-interest

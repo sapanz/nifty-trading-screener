@@ -34,7 +34,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import dashboard, data, intraday_blocks, oi, runtime, universe  # noqa: E402
+from signals import dashboard, data, intraday_blocks, oi, runtime, secure, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -70,7 +70,7 @@ def _previous_snapshot(repository: str | None) -> dict | None:
     if not repository:
         return None
     try:
-        return json.load(urllib.request.urlopen(f"https://raw.githubusercontent.com/{repository}/{DATA_BRANCH}/data.json", timeout=30))
+        return secure.loads(urllib.request.urlopen(f"https://raw.githubusercontent.com/{repository}/{DATA_BRANCH}/data.json", timeout=30).read())
     except Exception as exc:  # noqa: BLE001
         logger.info("No previous snapshot to fall back on for previous-day levels: %s", exc)
         return None
@@ -102,7 +102,7 @@ def refresh_oi(access_token: str, futures_map: dict, token, repository) -> None:
     payload = {"updated_at": datetime.now(IST).isoformat(timespec="seconds"), "date": today.date().isoformat(),
                "start": "09:15", "step": 5, "slots": 75, "stocks": stocks}
     with PUBLISH_LOCK:
-        (SITE_DIR / "oi.json").write_text(json.dumps(payload, separators=(",", ":")))
+        secure.write_json(SITE_DIR / "oi.json", payload)
     _publish(token, repository, f"oi {payload['updated_at']}")
     logger.info("OI: %d stocks published", len(stocks))
 
@@ -143,8 +143,8 @@ def refresh_blocks(client: UpstoxClient, keys: dict[str, str], warmup: dict, tok
     payload = {"updated_at": now.isoformat(timespec="seconds"), "date": today.date().isoformat(), "scanned": len(keys), "stocks": stocks}
     chart_payload = {"updated_at": payload["updated_at"], "date": payload["date"], "stocks": {k: v for k, v in charts.items() if v}}
     with PUBLISH_LOCK:
-        (SITE_DIR / "blocks.json").write_text(json.dumps(payload, separators=(",", ":")))
-        (SITE_DIR / "candles.json").write_text(json.dumps(chart_payload, separators=(",", ":")))
+        secure.write_json(SITE_DIR / "blocks.json", payload)
+        secure.write_json(SITE_DIR / "candles.json", chart_payload)
     _publish(token, repository, f"blocks {payload['updated_at']}")
     logger.info("Order blocks: %d of %d stocks have a live zone", len(stocks), len(keys))
 
@@ -249,7 +249,7 @@ def main() -> None:
             for s in snapshot["stocks"]:
                 s.pop("last_trade", None)
             with PUBLISH_LOCK:
-                (SITE_DIR / "data.json").write_text(json.dumps(snapshot, separators=(",", ":")))
+                secure.write_json(SITE_DIR / "data.json", snapshot)
             _publish(token, repository, f"snapshot {snapshot['updated_at']}")
             logger.info("Snapshot: %d stocks, %d sectors, data date %s, previous-day levels for %d",
                         snapshot["stock_count"], len(snapshot["sectors"]), snapshot["data_date"],

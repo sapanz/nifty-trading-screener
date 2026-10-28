@@ -19,7 +19,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import dashboard_history, data, runtime, universe  # noqa: E402
+from signals import dashboard_history, data, runtime, secure, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -91,12 +91,11 @@ def main() -> None:
         if payload is None:
             logger.warning("Skipping %s: too few stocks traded", day.date())
             continue
-        (OUT_DIR / "days" / f"{payload['date']}.json").write_text(json.dumps(payload, separators=(",", ":")))
+        secure.write_json(OUT_DIR / "days" / f"{payload['date']}.json", payload)
         dates.append(payload["date"])
     if not dates:
         raise RuntimeError("No usable trading days built")
-    (OUT_DIR / "index.json").write_text(json.dumps(
-        {"dates": dates, "generated_at": datetime.now(IST).isoformat(timespec="seconds")}, separators=(",", ":")))
+    secure.write_json(OUT_DIR / "index.json", {"dates": dates, "generated_at": datetime.now(IST).isoformat(timespec="seconds")})
     size_mb = sum(f.stat().st_size for f in OUT_DIR.rglob("*.json")) / 1e6
     logger.info("Built %d days (%.1f MB): %s .. %s", len(dates), size_mb, dates[0], dates[-1])
     if token and repository:

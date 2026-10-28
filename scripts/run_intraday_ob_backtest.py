@@ -8,14 +8,13 @@ Run through .github/workflows/intraday_ob_backtest.yml (Upstox TOTP login first)
 """
 import csv
 import dataclasses
-import json
 import os
 import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, intraday_ob_backtest as ib, intraday_ob_rfactor as ibr, runtime  # noqa: E402
+from signals import data, intraday_ob_backtest as ib, intraday_ob_rfactor as ibr, runtime, secure  # noqa: E402
 from signals.telegram import send_message  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -31,8 +30,8 @@ def load_oi_days(repository: str) -> dict:
     """The Replay day files (they hold futures OI per slot for ~20 sessions) - {date: day dict}; {} if unreachable."""
     try:
         base = HISTORY.format(repo=repository)
-        dates = json.load(urllib.request.urlopen(base + "index.json", timeout=60))["dates"]
-        return {d: json.load(urllib.request.urlopen(f"{base}days/{d}.json", timeout=120)) for d in dates}
+        dates = secure.loads(urllib.request.urlopen(base + "index.json", timeout=60).read())["dates"]
+        return {d: secure.loads(urllib.request.urlopen(f"{base}days/{d}.json", timeout=120).read()) for d in dates}
     except Exception as exc:  # noqa: BLE001 - the OI part is optional
         print(f"Replay day files unavailable, skipping the full-R part: {exc}")
         return {}

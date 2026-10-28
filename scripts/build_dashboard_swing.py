@@ -24,7 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, runtime, swing, swing_blocks, swing_trendlines, universe  # noqa: E402
+from signals import data, runtime, secure, swing, swing_blocks, swing_trendlines, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -55,7 +55,7 @@ def _previous_store(repository: str | None) -> dict | None:
         return None
     url = f"https://raw.githubusercontent.com/{repository}/{BRANCH}/swing_oi.json"
     try:
-        return json.load(urllib.request.urlopen(url, timeout=30))
+        return secure.loads(urllib.request.urlopen(url, timeout=30).read())
     except Exception as exc:  # noqa: BLE001 - first run: nothing saved yet
         logger.info("No previous swing_oi.json (%s) - starting a new store", exc)
         return None
@@ -121,8 +121,8 @@ def main() -> None:
         if len(tail) >= 20:
             candles[symbol] = {"c": [[round(float(x), 2) for x in row] for row in tail[["open", "high", "low", "close"]].to_numpy()],
                                "d0": tail.index[0].strftime("%Y-%m-%d")}
-    (OUT_DIR / "swing_candles.json").write_text(json.dumps({"asof": snapshot["asof"], "dates": shared, "stocks": candles}, separators=(",", ":")))
-    (OUT_DIR / "swing.json").write_text(json.dumps(snapshot, separators=(",", ":")))
+    secure.write_json(OUT_DIR / "swing_candles.json", {"asof": snapshot["asof"], "dates": shared, "stocks": candles})
+    secure.write_json(OUT_DIR / "swing.json", snapshot)
     # As-of-date history for manual backtesting: the same snapshot as it stood on each of the last ASOF_DAYS sessions.
     days_dir = OUT_DIR / "swing_days"
     days_dir.mkdir(exist_ok=True)
@@ -134,11 +134,11 @@ def main() -> None:
         if snap["stock_count"] < 50:
             continue
         attach_zones(snap, frames)
-        (days_dir / f"{d.strftime('%Y-%m-%d')}.json").write_text(json.dumps(snap, separators=(",", ":")))
+        secure.write_json(days_dir / f"{d.strftime('%Y-%m-%d')}.json", snap)
         written.append(d.strftime("%Y-%m-%d"))
-    (days_dir / "index.json").write_text(json.dumps({"dates": written}, separators=(",", ":")))
+    secure.write_json(days_dir / "index.json", {"dates": written})
     logger.info("As-of history: %d dates (%s .. %s)", len(written), written[0] if written else None, written[-1] if written else None)
-    (OUT_DIR / "swing_oi.json").write_text(json.dumps(store, separators=(",", ":")))
+    secure.write_json(OUT_DIR / "swing_oi.json", store)
     top = snapshot["stocks"][:3]
     logger.info("Swing snapshot as of %s: %d stocks, %d sectors; top R: %s", snapshot["asof"], snapshot["stock_count"],
                 len(snapshot["sectors"]), [(r["symbol"], r["r"], r["bias"]) for r in top])
