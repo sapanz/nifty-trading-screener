@@ -346,7 +346,7 @@
   }
 
   /* Order blocks as they stood at a replayed moment: the day file stores each block with the slots it formed (f),
-     was first retested (t) and was stopped through (x); this is the JS twin of states_at in signals/intraday_blocks.py
+     was first retested (t) and was closed through (x); this is the JS twin of states_at in signals/intraday_blocks.py
      (a test checks it agrees with the live scan at every slot). Best bullish and best bearish zone per stock:
      retesting beats waiting, then the most recently formed. Slot s = the candle starting 09:15 + 5s. */
   var OB_EXPIRY = 36, OB_RECENT = 3;
@@ -739,7 +739,7 @@
         var bull = b.d === "bull", stop = bull ? b.lo * (1 - OB_BUFFER) : b.hi * (1 + OB_BUFFER);
         var risk = bull ? (s.price - stop) / s.price * 100 : (stop - s.price) / s.price * 100;
         if (!(risk > 0)) return;                                      // price is already through the stop: the zone has failed
-        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv, cf: b.cf ? 1 : 0, sl: r2(risk), stop: stop,
+        var rec = { d: b.d, st: b.st, lo: b.lo, hi: b.hi, t: b.t, imp: b.imp, sc: b.sc, sw: b.sw, vr: b.vr, wd: b.wd, pv: b.pv, cf: b.cf ? 1 : 0, wk: b.wk ? 1 : 0, sl: r2(risk), stop: stop,
                     dist: r2(bull ? (s.price / b.hi - 1) * 100 : (b.lo / s.price - 1) * 100), inside: s.price >= b.lo && s.price <= b.hi };
         var aligned = s.r >= 50 && ((bull && s.bias === "long") || (!bull && s.bias === "short"));
         rec.flow = aligned ? 1 : 0;
@@ -825,7 +825,7 @@
         if (s.zones !== undefined || state.mode === "swing") meta.appendChild(pill(!!b.cf, "trendline", b.cf ? "A " + (bull ? "support" : "resistance") + " trendline runs through this zone" : "No trendline through this zone"));
         meta.appendChild(pill(!!b.flow, s.r !== null && s.r !== undefined ? "flow R " + s.r : "flow n/a", "R-factor: volume, open-interest buildup and price move - ticked when R >= 50 and the OI buildup agrees with the zone's direction. A money-flow measure, separate from the zone's strength."));
         meta.appendChild(el("span", null, b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
-        meta.appendChild(el("span", null, b.inside ? "in zone" : (b.st === "testing" ? "retesting · " : "waiting · ") + Math.max(b.dist, 0).toFixed(1) + "% away"));
+        meta.appendChild(el("span", null, b.inside ? "in zone" : (b.st === "testing" ? (b.wk ? "rejected (wick through) · " : "retesting · ") : "waiting · ") + Math.max(b.dist, 0).toFixed(1) + "% away"));
         meta.appendChild(el("span", null, "stop " + b.sl.toFixed(2) + "%"));
 
         body.appendChild(meta); card.appendChild(body);

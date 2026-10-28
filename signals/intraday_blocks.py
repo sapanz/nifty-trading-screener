@@ -24,7 +24,7 @@ from signals.orderblocks import OrderBlock, _pivots, find_order_blocks, first_to
 BAR_MINUTES = 5
 
 
-def block_state(block: OrderBlock, high: np.ndarray, low: np.ndarray, open_: np.ndarray) -> str | None:
+def block_state(block: OrderBlock, high: np.ndarray, low: np.ndarray, open_: np.ndarray, close: np.ndarray) -> str | None:
     n = len(low)
     expiry, recent = config.INTRADAY_OB_EXPIRY_BARS, config.INTRADAY_OB_RECENT_BARS
     if n - 1 - block.formed_idx > expiry:
@@ -33,9 +33,10 @@ def block_state(block: OrderBlock, high: np.ndarray, low: np.ndarray, open_: np.
     if t is None:
         return "fresh"
     buf = config.OB_STOP_BUFFER_PCT / 100
-    if block.direction == "bull" and (low[t:] <= block.low * (1 - buf)).any():
+    # a candle must CLOSE beyond the far edge to fail the zone; a wick through it that closes back is a rejection - it held
+    if block.direction == "bull" and (close[t:] < block.low * (1 - buf)).any():
         return None
-    if block.direction == "bear" and (high[t:] >= block.high * (1 + buf)).any():
+    if block.direction == "bear" and (close[t:] > block.high * (1 + buf)).any():
         return None
     return "testing" if n - 1 - t <= recent else None
 
@@ -84,7 +85,7 @@ def scan_symbol(candles: pd.DataFrame, day: pd.Timestamp, now: pd.Timestamp | No
     for block in find_order_blocks(o, h, l, c, impulse_atr=config.INTRADAY_OB_IMPULSE_ATR, volume=volume):
         if block.formed_idx < first_today:
             continue
-        state = block_state(block, h, l, o)
+        state = block_state(block, h, l, o, c)
         if state is None:
             continue
         rec = _record(block, state, times, _with_day(block.direction, c[block.formed_idx], prev_close), block.idx < first_today)
@@ -106,7 +107,7 @@ def _slot(ts: pd.Timestamp) -> int:
 
 def day_blocks(candles: pd.DataFrame, day: pd.Timestamp) -> list[dict]:
     """Every order block that formed during `day`, with the slots at which it formed ("f"), was first
-    retested ("t") and was stopped through ("x") - enough for the page to say what each zone looked like
+    retested ("t") and was closed through ("x") - enough for the page to say what each zone looked like
     at any 5-minute mark (states_at / the page's replayBlocksAt). Slot s = the candle starting 09:15 + 5s."""
     if candles is None or candles.empty:
         return []
@@ -127,7 +128,7 @@ def day_blocks(candles: pd.DataFrame, day: pd.Timestamp) -> list[dict]:
         t = first_touch(block, o, h, l, config.INTRADAY_OB_EXPIRY_BARS)
         x = None
         if t is not None:
-            through = np.flatnonzero(l[t:] <= block.low * (1 - buf)) if block.direction == "bull" else np.flatnonzero(h[t:] >= block.high * (1 + buf))
+            through = np.flatnonzero(c[t:] < block.low * (1 - buf)) if block.direction == "bull" else np.flatnonzero(c[t:] > block.high * (1 + buf))
             x = _slot(times[t + int(through[0])]) if len(through) else None
         out.append({"d": block.direction, "i": _slot(times[block.idx]), "f": _slot(times[block.formed_idx]), "lo": round(block.low, 2),
                     "hi": round(block.high, 2), "t": None if t is None else _slot(times[t]), "x": x, "imp": round(block.impulse_atr, 1),

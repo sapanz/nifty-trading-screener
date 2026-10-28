@@ -118,7 +118,7 @@ def _ob_features(o, h, l, c, v, prev, slot):
         if t is None:
             state = 1
         else:
-            thru = (Lw[t:last + 1] <= b.low * (1 - buf)).any() if b.direction == "bull" else (H[t:last + 1] >= b.high * (1 + buf)).any()
+            thru = (C[t:last + 1] < b.low * (1 - buf)).any() if b.direction == "bull" else (C[t:last + 1] > b.high * (1 + buf)).any()
             if thru or last - t > config.INTRADAY_OB_RECENT_BARS:
                 continue
             state = 2

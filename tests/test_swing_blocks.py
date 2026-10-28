@@ -46,3 +46,26 @@ def test_chart_payload():
     assert len(p["c"]) == len(p["dates"]) == min(len(df), sb.CHART_BARS) and len(p["c"][0]) == 4
     assert set(p["lv"]) == {"sup", "res", "liq_lo", "liq_hi"}
     assert sb.chart_payload_daily(df.iloc[:5]) is None
+
+
+def test_wick_through_the_zone_that_closes_back_is_a_rejection_not_a_failure():
+    # bearish zone (mirror of the bullish thrust); price rallies back to it and WICKS through its far edge, but closes below it
+    base = [200 - x for x in CHOP + THRUST]
+    df0 = _daily(base)
+    z0 = [z for z in sb.scan_daily(df0) if z["d"] == "bear"][0]
+    last_close = base[-1]
+    wick_bar = {"open": z0["lo"] - 1, "high": z0["hi"] * 1.01, "low": z0["lo"] - 3, "close": z0["lo"] - 2}
+    idx = pd.bdate_range("2026-01-01", periods=len(df0) + 1)
+    df = pd.concat([df0, pd.DataFrame([{**wick_bar, "volume": 1000.0}], index=[idx[-1]])])
+    zones = [z for z in sb.scan_daily(df) if z["d"] == "bear"]
+    assert zones and zones[0]["st"] == "testing" and zones[0]["wk"] == 1
+    # the same bar but CLOSING above the zone's far edge fails the zone
+    broken = pd.concat([df0, pd.DataFrame([{**wick_bar, "close": z0["hi"] * 1.01, "high": z0["hi"] * 1.02, "volume": 1000.0}], index=[idx[-1]])])
+    assert not [z for z in sb.scan_daily(broken) if z["d"] == "bear" and z["lo"] == z0["lo"]]
+
+
+def test_two_zones_per_direction_are_kept():
+    chop = CHOP
+    series = chop + THRUST + chop[:30] + [99.5, 108, 111, 112, 112.5]
+    zones = [z for z in sb.scan_daily(_daily(series)) if z["d"] == "bull"]
+    assert 1 <= len(zones) <= sb.MAX_ZONES_PER_SIDE

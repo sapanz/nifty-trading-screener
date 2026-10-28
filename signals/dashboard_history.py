@@ -21,7 +21,7 @@ Day file shape (keys kept short - 500 stocks x 75 slots adds up):
                       "p": [futures close per slot, alongside "o"],
                       "ob": [order blocks that formed that day, F&O stocks only:
                              {"d": "bull"|"bear", "i": block candle slot, "f": slot it formed (structure broke),
-                              "lo","hi": zone, "t": first retest slot or null, "x": slot it was stopped through or null,
+                              "lo","hi": zone, "t": first retest slot or null, "x": slot a candle closed through its far edge or null,
                               "imp": thrust in ATRs} - see signals/intraday_blocks.py],
                       "ox","hx","lx": [open / high / low per slot, null where no candle - only with "ob", for the chart]}}}
 Slot i covers 09:15 + 5i minutes .. +5; a closed price is carried forward
