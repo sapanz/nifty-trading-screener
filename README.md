@@ -658,6 +658,20 @@ levels from that day's candles) all show what the page would have shown then. Th
 (open / high / low per slot) for F&O stocks that had a zone; days built before this show no panel until the history is rebuilt
 (nightly at 17:00 IST, or run "Dashboard history" by hand).
 
+### Momentum watchlist (Swing tab)
+
+The Swing tab lists the ten **strongest** and ten **weakest** liquid F&O stocks (₹20 cr+ traded) under a banner that says which side the market favours. Rank = the average of each stock's percentile ranks of its 20- and 60-session returns; the **market switch** is the equal-weight index of those stocks against its own 50-session average (above: the strongest list is the one to use, below: the weakest is the market's direction). Each card shows 5/20/60-day returns, the 14-session daily range (size the stop from it), distance from the 20-day high/low and turnover. It is computed in the browser from the daily candles the page already loads (`signals/momentum.py` is the reference; the page has a JS twin that is checked against it), so change **As of** to see the list on any past close.
+
+How good is it? `python scripts/backtest_momentum.py` (`signals/momentum_backtest.py`) enters at the next open, holds 5 or 10 sessions, charges 0.10% round trip, and measures **accuracy = the share of picks that ended in profit**, against a random pick in the same direction on the same days (23 Jun - 30 Oct 2026, 850 picks per hold):
+
+| | picks' accuracy | random pick, same direction | edge |
+|---|---|---|---|
+| all, 5 sessions | 55% | 52% | +4 pts (90% range -1 to +7) |
+| market up, long strongest, 5 / 10 sessions | 54% / 52% | 45% / 43% | **+9 pts** (range stays above 0) |
+| market down, short weakest, 5 / 10 sessions | 58% / 65% | 61% / 70% | none (-3 / -5 pts) |
+
+So: accuracy is 52-57%, **not 80%**; profit comes from winners (+3.9% to +5.5%) being larger than losers (-3.1% to -3.9%), profit factor 1.5-1.9. The strongest stocks in a rising market beat a random long, but most of that came from one month (29 Jul - 31 Aug; the first half of the up signals showed no accuracy edge) and a 20-day-only rank over a longer sample shrinks it to +3 to +6 points; the weakest stocks did no better than any other short in a falling market (they bounce as often). The history is one up phase and one down phase of ~150 sessions - treat the list as a watchlist to study, not a signal, and re-run the backtest as history grows.
+
 ### Login screen and encrypted data (optional)
 
 The dashboard lives on public GitHub Pages and reads JSON from public branches, so a password form on its own would only hide the page - anyone could still open the data files. Setting one repository secret turns on real protection:

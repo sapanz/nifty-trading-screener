@@ -122,6 +122,12 @@
   details.oiTable th { position: static; cursor: default; }
   .oiNote { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   #strongest { grid-column: 1 / -1; } #strongest[hidden] { display: none; }
+  #momentum { grid-column: 1 / -1; } #momentum[hidden] { display: none; }
+  .momBanner { margin: 10px 14px 0; padding: 8px 12px; font-size: 13px; border-left: 3px solid var(--accent); background: var(--chip); border-radius: 6px; }
+  .momBanner.warn { border-left-color: #b26a00; }
+  #momentum .tag { font-size: 11px; font-weight: 600; margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+  #momentum .tag.use { background: var(--accent); color: #fff; }
+  #momentum .scols > div.dim .scard { opacity: .72; }
   .scols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { .scols { grid-template-columns: 1fr; } }
   .scols h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; } .scols h3.up { color: var(--up); } .scols h3.down { color: var(--down); }
   .scard { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 5px; cursor: pointer; background: var(--bg); }
@@ -186,6 +192,12 @@
       <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked as chosen in “Rank by”; uses the sector filter below. Click a stock for the chart.</span>
     </div>
     <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
+  </section>
+  <section id="momentum" aria-labelledby="momH" hidden>
+    <h2 id="momH">Momentum watchlist <small id="momCount"></small></h2>
+    <div id="momBanner" class="momBanner"></div>
+    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
+    <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
   </section>
   <section aria-labelledby="sh">
     <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
@@ -479,13 +491,14 @@
     var from = state.mode; state.mode = m; state.data = null;
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
+    $("momentum").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
   function enterSwing() {
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
-    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
@@ -914,6 +927,95 @@
     $("sbCount").textContent = total ? total + " zones" : "";
   }
 
+
+  /* ---------- momentum watchlist - the JS twin of momentum_lists in signals/momentum.py ----------
+     Rank = average of the percentile ranks of the 20- and 60-session returns among liquid F&O stocks; the market switch is the
+     equal-weight index of those stocks against its 50-session average. The backtest is in the note under the lists. */
+  var MOM = { minTurn: 20, lb: [20, 60], ma: 50, atrDays: 14, topN: 10 };
+  function pctRanks(vals) {                                       // average rank / n (ties share the mean rank), like pandas rank(pct=True)
+    var idx = vals.map(function (v, i) { return i; }).sort(function (a, b) { return vals[a] - vals[b]; }), out = new Array(vals.length), i = 0;
+    while (i < idx.length) {
+      var j = i; while (j + 1 < idx.length && vals[idx[j + 1]] === vals[idx[i]]) j++;
+      for (var k = i; k <= j; k++) out[idx[k]] = ((i + 1 + j + 1) / 2) / vals.length;
+      i = j + 1;
+    }
+    return out;
+  }
+  function momentumLists(cd, rows, asof) {
+    if (!cd || !cd.dates || !cd.stocks) return null;
+    var dates = cd.dates, last = -1, i;
+    for (i = 0; i < dates.length; i++) if (!asof || dates[i] <= asof) last = i;
+    if (last < MOM.lb[1]) return null;
+    var turn = {}; rows.forEach(function (r) { turn[r.symbol] = r.turnover_cr || 0; });
+    var series = {};
+    Object.keys(cd.stocks).forEach(function (sym) {
+      var st = cd.stocks[sym], start = dates.indexOf(st.d0); if (start < 0) return;
+      var a = new Array(last + 1).fill(null);
+      for (var k = 0; k < st.c.length && start + k <= last; k++) a[start + k] = st.c[k];
+      series[sym] = a;
+    });
+    var uni = Object.keys(series).filter(function (s) { return turn[s] >= MOM.minTurn && series[s][last]; }).sort();
+    if (uni.length < 20) return null;
+    var index = [1], d;
+    for (d = 1; d <= last; d++) {
+      var sum = 0, n = 0;
+      uni.forEach(function (s) { var a = series[s]; if (a[d] && a[d - 1]) { sum += a[d][3] / a[d - 1][3] - 1; n++; } });
+      index.push(index[d - 1] * (1 + (n ? sum / n : 0)));
+    }
+    if (index.length < MOM.ma) return null;
+    var ma = index.slice(-MOM.ma).reduce(function (x, y) { return x + y; }, 0) / MOM.ma, vsMa = (index[last] / ma - 1) * 100;
+    var names = uni.filter(function (s) { var a = series[s]; return a[last - MOM.lb[0]] && a[last - MOM.lb[1]]; });
+    var rk = MOM.lb.map(function (n) { return pctRanks(names.map(function (s) { var a = series[s]; return a[last][3] / a[last - n][3] - 1; })); });
+    var out = names.map(function (s, k) {
+      var a = series[s], px = a[last][3], tr = 0, hi = -Infinity, lo = Infinity, j;
+      for (j = last - MOM.atrDays + 1; j <= last; j++) {
+        var b = a[j], pc = a[j - 1][3]; tr += Math.max(b[1] - b[2], Math.abs(b[1] - pc), Math.abs(b[2] - pc));
+      }
+      for (j = last - 19; j <= last; j++) { hi = Math.max(hi, a[j][1]); lo = Math.min(lo, a[j][2]); }
+      var r1 = function (x) { return Math.round(x * 10) / 10; };
+      return { symbol: s, score: r1(((rk[0][k] + rk[1][k]) / 2) * 100), close: px, m5: r1((px / a[last - 5][3] - 1) * 100), m20: r1((px / a[last - 20][3] - 1) * 100),
+               m60: r1((px / a[last - 60][3] - 1) * 100), atr: r1(tr / MOM.atrDays / px * 100), from_hi20: r1((px / hi - 1) * 100), from_lo20: r1((px / lo - 1) * 100), turnover_cr: turn[s] };
+    });
+    var cmp = function (dir) { return function (x, y) { return dir * (y.score - x.score) || (x.symbol < y.symbol ? -1 : x.symbol > y.symbol ? 1 : 0); }; };
+    return { asof: dates[last], universe: out.length, market: { vs_ma_pct: Math.round(vsMa * 10) / 10, up: index[last] > ma },
+             strong: out.slice().sort(cmp(1)).slice(0, MOM.topN), weak: out.slice().sort(cmp(-1)).slice(0, MOM.topN) };
+  }
+  function renderMomentum() {
+    var sec = $("momentum");
+    var m = state.mode === "swing" && state.data && state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof) : null;
+    sec.hidden = !m; if (!m) return;
+    var up = m.market.up, pct = Math.abs(m.market.vs_ma_pct).toFixed(1);
+    $("momCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks";
+    var banner = $("momBanner"); banner.className = "momBanner" + (up ? "" : " warn");
+    banner.textContent = up
+      ? "The market is " + pct + "% above its 50-day average, so the long side is the one with the market behind it: the strongest stocks are the list to use."
+      : "The market is " + pct + "% below its 50-day average, so shorts have the market behind them - but in the backtest the weakest stocks did NOT beat a random short (they bounce as often as any), and longs lost money in falling markets. Both lists are shown; trade small and be selective.";
+    $("mBullTag").textContent = up ? "use this list" : "against the market"; $("mBullTag").className = "tag" + (up ? " use" : "");
+    $("mBearTag").textContent = up ? "context only" : "market's direction · no edge over random shorts in tests"; $("mBearTag").className = "tag";
+    $("mBullCol").className = up ? "" : "dim"; $("mBearCol").className = up ? "dim" : "";
+    [["strong", "mBull", true], ["weak", "mBear", false]].forEach(function (g) {
+      var box = $(g[1]); box.textContent = "";
+      m[g[0]].forEach(function (x, i) {
+        var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Momentum score " + x.score + " (average percentile of the 20- and 60-session return)" });
+        card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
+        var body = el("div"), top = el("div", { "class": "top" });
+        top.appendChild(el("span", null, x.symbol)); top.appendChild(el("span", { "class": cls(x.m20) }, fmtPct(x.m20) + " · 20d"));
+        body.appendChild(top);
+        var bar = el("div", { "class": "bar" }); bar.appendChild(el("i", { style: "width:" + x.score + "%;background:" + (g[2] ? "var(--up)" : "var(--down)") })); body.appendChild(bar);
+        var meta = el("div", { "class": "meta" });
+        meta.appendChild(el("span", null, "5d " + fmtPct(x.m5) + " · 60d " + fmtPct(x.m60)));
+        meta.appendChild(el("span", { title: "Average daily range over 14 sessions - size the stop from this" }, "range " + x.atr + "%"));
+        meta.appendChild(el("span", null, g[2] ? (x.from_hi20 > -0.05 ? "at 20d high" : Math.abs(x.from_hi20) + "% below 20d high") : (x.from_lo20 < 0.05 ? "at 20d low" : x.from_lo20 + "% above 20d low")));
+        meta.appendChild(el("span", null, "₹" + Math.round(x.turnover_cr).toLocaleString("en-IN") + " cr"));
+        body.appendChild(meta); card.appendChild(body);
+        var open = function () { openOi(x.symbol, "chart"); };
+        card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+        box.appendChild(card);
+      });
+    });
+    $("momNote").textContent = "Rank = average percentile of the 20- and 60-session returns; liquid F&O stocks only (₹20 cr+ traded). Backtest, 23 Jun - 30 Oct 2026 (850 picks, entry at the next open, 0.10% costs): about 55% of picks ended in profit - not 80% - and the money came from winners being larger than losers. Strongest stocks in a rising market beat a random long by about 9 points (54% vs 45% over 5 sessions) but most of that came from one month; the weakest stocks showed no edge over random shorts. A watchlist to study, not a signal. Change \"As of\" above to see any past date.";
+  }
+
   /* ---------- chart: today's 5-minute candles with the zone, stop, support / resistance and liquidity ---------- */
   function loadCandles() {
     liveJson("candles.json").then(function (d) { state.candles = d; if (state.sel && state.tab === "chart") renderOi(); }).catch(function () {});
@@ -1268,6 +1370,7 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
+    renderMomentum();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
