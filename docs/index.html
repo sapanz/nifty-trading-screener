@@ -128,6 +128,9 @@
   #momentum .tag { font-size: 11px; font-weight: 600; margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); }
   #momentum .tag.use { background: var(--accent); color: #fff; }
   #momentum .scols > div.dim .scard { opacity: .72; }
+  #movers { grid-column: 1 / -1; } #movers[hidden] { display: none; }
+  #mvBox { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { #mvBox { grid-template-columns: 1fr; } }
+  #movers .tag { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); } #movers .tag.sq { background: var(--accent); color: #fff; }
   .scols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { .scols { grid-template-columns: 1fr; } }
   .scols h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; } .scols h3.up { color: var(--up); } .scols h3.down { color: var(--down); }
   .scard { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 5px; cursor: pointer; background: var(--bg); }
@@ -198,6 +201,12 @@
     <div id="momBanner" class="momBanner"></div>
     <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
     <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
+  </section>
+  <section id="movers" aria-labelledby="mvH" hidden>
+    <h2 id="mvH">Movers - widest daily range <small id="mvCount"></small></h2>
+    <div id="mvBanner" class="momBanner"></div>
+    <div id="mvBox"></div>
+    <p class="oiNote" id="mvNote" style="padding:0 14px 10px"></p>
   </section>
   <section aria-labelledby="sh">
     <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
@@ -491,14 +500,14 @@
     var from = state.mode; state.mode = m; state.data = null;
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
-    $("momentum").hidden = true;                                   // the Swing render shows it again once data is there
+    $("momentum").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
   function enterSwing() {
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
-    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
@@ -941,19 +950,23 @@
     }
     return out;
   }
+  function alignedSeries(cd, last) {                               // per-stock candles on the shared date axis up to index `last` (null where missing)
+    var series = {};
+    Object.keys(cd.stocks).forEach(function (sym) {
+      var st = cd.stocks[sym], start = cd.dates.indexOf(st.d0); if (start < 0) return;
+      var a = new Array(last + 1).fill(null);
+      for (var k = 0; k < st.c.length && start + k <= last; k++) a[start + k] = st.c[k];
+      series[sym] = a;
+    });
+    return series;
+  }
   function momentumLists(cd, rows, asof) {
     if (!cd || !cd.dates || !cd.stocks) return null;
     var dates = cd.dates, last = -1, i;
     for (i = 0; i < dates.length; i++) if (!asof || dates[i] <= asof) last = i;
     if (last < MOM.lb[1]) return null;
     var turn = {}; rows.forEach(function (r) { turn[r.symbol] = r.turnover_cr || 0; });
-    var series = {};
-    Object.keys(cd.stocks).forEach(function (sym) {
-      var st = cd.stocks[sym], start = dates.indexOf(st.d0); if (start < 0) return;
-      var a = new Array(last + 1).fill(null);
-      for (var k = 0; k < st.c.length && start + k <= last; k++) a[start + k] = st.c[k];
-      series[sym] = a;
-    });
+    var series = alignedSeries(cd, last);
     var uni = Object.keys(series).filter(function (s) { return turn[s] >= MOM.minTurn && series[s][last]; }).sort();
     if (uni.length < 20) return null;
     var index = [1], d;
@@ -1014,6 +1027,58 @@
       });
     });
     $("momNote").textContent = "Rank = average percentile of the 20- and 60-session returns; liquid F&O stocks only (₹20 cr+ traded). Backtest, 23 Jun - 30 Oct 2026 (850 picks, entry at the next open, 0.10% costs): about 55% of picks ended in profit - not 80% - and the money came from winners being larger than losers. Strongest stocks in a rising market beat a random long by about 9 points (54% vs 45% over 5 sessions) but most of that came from one month; the weakest stocks showed no edge over random shorts. A watchlist to study, not a signal. Change \"As of\" above to see any past date.";
+  }
+
+
+  /* ---------- movers watchlist - the JS twin of movers_list in signals/movers.py: the widest daily ranges, either direction ---------- */
+  function moversList(cd, rows, asof) {
+    if (!cd || !cd.dates || !cd.stocks) return null;
+    var dates = cd.dates, last = -1, i;
+    for (i = 0; i < dates.length; i++) if (!asof || dates[i] <= asof) last = i;
+    if (last < 51) return null;
+    var turn = {}; rows.forEach(function (r) { turn[r.symbol] = r.turnover_cr || 0; });
+    var series = alignedSeries(cd, last), out = [], r1 = function (x) { return Math.round(x * 10) / 10; };
+    Object.keys(series).sort().forEach(function (sym) {
+      if (!(turn[sym] >= MOM.minTurn)) return;
+      var a = series[sym], tr = [], j, ok = !!a[last - 20];
+      for (j = last - 50; j <= last && ok; j++) if (!a[j]) ok = false;
+      if (!ok) return;
+      for (j = last - 49; j <= last; j++) { var b = a[j], pc = a[j - 1][3]; tr.push(Math.max(b[1] - b[2], Math.abs(b[1] - pc), Math.abs(b[2] - pc))); }
+      var mean = function (x) { return x.reduce(function (p, q) { return p + q; }, 0) / x.length; };
+      var px = a[last][3], atr14 = mean(tr.slice(-MOM.atrDays)), ratio = mean(tr.slice(-10)) / mean(tr), hi = -Infinity, lo = Infinity;
+      for (j = last - 19; j <= last; j++) { hi = Math.max(hi, a[j][1]); lo = Math.min(lo, a[j][2]); }
+      out.push({ symbol: sym, atr: r1(atr14 / px * 100), close: px, squeeze: Math.round(ratio * 100) / 100, state: ratio <= 0.85 ? "squeezed" : ratio >= 1.15 ? "expanding" : "normal",
+                 m20: r1((px / a[last - 20][3] - 1) * 100), from_hi20: r1((px / hi - 1) * 100), from_lo20: r1((px / lo - 1) * 100), turnover_cr: turn[sym], key: atr14 / px });
+    });
+    if (out.length < 20) return null;
+    out.sort(function (x, y) { return (y.key - x.key) || (x.symbol < y.symbol ? -1 : x.symbol > y.symbol ? 1 : 0); });
+    return { asof: dates[last], universe: out.length, rows: out.slice(0, MOM.topN) };
+  }
+  function renderMovers() {
+    var sec = $("movers");
+    var m = state.mode === "swing" && state.data && state.swingCandles ? moversList(state.swingCandles, state.data.stocks, state.data.asof) : null;
+    sec.hidden = !m; if (!m) return;
+    $("mvCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks";
+    $("mvBanner").textContent = "The stocks with the widest daily ranges - the ones capable of a 10-12% move within about 10 sessions, up or down. This list does not say which direction, or when.";
+    var box = $("mvBox"); box.textContent = ""; var top = m.rows[0].atr;
+    m.rows.forEach(function (x, i) {
+      var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Average daily range over 14 sessions: " + x.atr + "% of price" });
+      card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
+      var body = el("div"), head = el("div", { "class": "top" });
+      head.appendChild(el("span", null, x.symbol)); head.appendChild(el("span", null, "range " + x.atr + "%"));
+      body.appendChild(head);
+      var bar = el("div", { "class": "bar" }); bar.appendChild(el("i", { style: "width:" + Math.round(x.atr / top * 100) + "%;background:var(--accent)" })); body.appendChild(bar);
+      var meta = el("div", { "class": "meta" });
+      meta.appendChild(el("span", { "class": "tag" + (x.state === "squeezed" ? " sq" : ""), title: "Average range of the last 10 sessions / the last 50 (" + x.squeeze + "). Shown for information - ranking by it added nothing in the backtest." }, x.state));
+      meta.appendChild(el("span", null, "20d " + fmtPct(x.m20)));
+      meta.appendChild(el("span", null, x.from_hi20 > -3 ? "near 20d high" : x.from_lo20 < 3 ? "near 20d low" : "mid-range"));
+      meta.appendChild(el("span", null, "₹" + Math.round(x.turnover_cr).toLocaleString("en-IN") + " cr"));
+      body.appendChild(meta); card.appendChild(body);
+      var open = function () { openOi(x.symbol, "chart"); };
+      card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+      box.appendChild(card);
+    });
+    $("mvNote").textContent = "Ranked by the 14-session average daily range (liquid F&O stocks, ₹20 cr+ traded). Backtest, 24 Jun - 14 Oct 2026 (78 signal days, 10 sessions from the next open): these stocks moved 10% or more in either direction 27% of the time against 13% for a typical stock (12% or more: 17% vs 7%) - about twice as often, but roughly three in four still did NOT make a 10% move, and nothing here predicts the direction. A wide range also means a wide stop: size the position from it. The squeeze tag (last 10 sessions' range vs the last 50) is for information; ranking by it added nothing.";
   }
 
   /* ---------- chart: today's 5-minute candles with the zone, stop, support / resistance and liquidity ---------- */
@@ -1370,7 +1435,7 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
-    renderMomentum();
+    renderMomentum(); renderMovers();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();

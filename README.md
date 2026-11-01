@@ -672,6 +672,19 @@ How good is it? `python scripts/backtest_momentum.py` (`signals/momentum_backtes
 
 So: accuracy is 52-57%, **not 80%**; profit comes from winners (+3.9% to +5.5%) being larger than losers (-3.1% to -3.9%), profit factor 1.5-1.9. The strongest stocks in a rising market beat a random long, but most of that came from one month (29 Jul - 31 Aug; the first half of the up signals showed no accuracy edge) and a 20-day-only rank over a longer sample shrinks it to +3 to +6 points; the weakest stocks did no better than any other short in a falling market (they bounce as often). The history is one up phase and one down phase of ~150 sessions - treat the list as a watchlist to study, not a signal, and re-run the backtest as history grows.
 
+### Movers watchlist (Swing tab)
+
+Below the momentum lists, the ten stocks with the **widest daily range** (14-session average high-low range as a % of price, liquid F&O stocks only) - the ones *capable* of a 10-12% move in the next ~10 sessions, up or down. Each card shows the range, a squeeze tag (the last 10 sessions' range against the last 50: `squeezed` / `normal` / `expanding`), the 20-day move, where price sits in its 20-day range and turnover. `signals/movers.py` is the reference (the page has a JS twin checked against it); change **As of** to see any past close.
+
+`python scripts/backtest_movers.py` (`signals/movers_backtest.py`) asks whether the ranking finds big movers: the share of the top ten whose high or low reached the threshold within 10 sessions of the next open, in *either* direction, against all liquid stocks (24 Jun - 14 Oct 2026, 78 signal days):
+
+| move reached | top-10 widest range | typical stock | edge (90% range) |
+|---|---|---|---|
+| 10% or more | 27% | 13% | +14 pts (+8 to +19) |
+| 12% or more | 17% | 7% | +10 pts (+5 to +15) |
+
+So the list finds stocks that move about twice as often, but roughly **three in four picks still do not make a 10% move**, and it says nothing about the direction (a separate walk-forward test of direction found no tradable edge: the picks' hit rates beat the base rate but not the 2-to-1 payoff break-even, and long picks lost money in the falling market of the test). The squeeze reading looked interesting but added nothing over the range itself, so it is shown, not ranked. A wide range also means a wide stop - size the position from it. A candidate list to study, not a signal.
+
 ### Login screen and encrypted data (optional)
 
 The dashboard lives on public GitHub Pages and reads JSON from public branches, so a password form on its own would only hide the page - anyone could still open the data files. Setting one repository secret turns on real protection:
