@@ -658,6 +658,18 @@ levels from that day's candles) all show what the page would have shown then. Th
 (open / high / low per slot) for F&O stocks that had a zone; days built before this show no panel until the history is rebuilt
 (nightly at 17:00 IST, or run "Dashboard history" by hand).
 
+### More zone filters (Swing tab)
+
+The "Strongest order blocks" panel has a second row of filters, all about the zone (they combine, and the settings are remembered):
+
+- **Trendline near the zone** (within 0.5 / 1 / 2 / 3 / 5%) - how far the confirming trendline (support for a bullish zone, resistance for a bearish one) is from the zone, now or up to 3 candles ahead; 0 means it runs through the zone. "Within 1%" is the same test as the **Zone + trendline only** box (`zone_gap_pct` in `signals/swing_trendlines.py` is the reference; the page has a JS twin).
+- **Price near the trendline** (within 1 / 2 / 3 / 5 / 8%) - how far price is from that line.
+- **R-factor at least** 30-90 and **OI flow agrees** (R at least 50 with the open-interest buildup in the zone's direction). R-factor needs saved open interest, so it exists for about the last three weeks only - on older as-of dates these two show nothing.
+- **Zone strength at least**, **Zone test** (fresh / retesting / held after a wick through), **With the trend**, **Liquidity sweep**, **Volume thrust at least 2x**, **Zone formed within** 1 week / 2 weeks / 1 month.
+- **Rank by** also offers highest R-factor, trendline closest to the zone, price closest to the trendline, and newest zone. Each card shows the line's distance from the zone, the price's distance from the line, and the zone's age. **Reset filters** clears everything.
+
+Narrowing the list is not the same as improving it: in the backtests, zone strength, trendline confluence and the other zone filters did not add a measurable edge over trading in the market's direction (see the swing backtests above), so use these to find setups that fit your plan, not as proof a setup is better.
+
 ### Momentum watchlist (Swing tab)
 
 The Swing tab lists the ten **strongest** and ten **weakest** liquid F&O stocks (₹20 cr+ traded) under a banner that says which side the market favours. Rank = the average of each stock's percentile ranks of its 20- and 60-session returns; the **market switch** is the equal-weight index of those stocks against its own 50-session average (above: the strongest list is the one to use, below: the weakest is the market's direction). Each card shows 5/20/60-day returns, the 14-session daily range (size the stop from it), distance from the 20-day high/low and turnover. It is computed in the browser from the daily candles the page already loads (`signals/momentum.py` is the reference; the page has a JS twin that is checked against it), so change **As of** to see the list on any past close.

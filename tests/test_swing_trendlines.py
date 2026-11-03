@@ -52,3 +52,24 @@ def test_confluence_and_scan_flag():
     assert zones and all("cf" in z for z in zones)
     forced = sb.scan_daily(_frame(chop + [99, 108, 111, 112, 112.5]), {"s": {"v": 99.0, "m": 0.0}})
     assert [z["cf"] for z in forced if z["d"] == "bull"] == [1]
+
+
+def test_zone_gap_matches_confluence_and_is_zero_inside():
+    import numpy as np
+    from signals.swing_trendlines import CONFLUENCE_TOL_PCT, confluence, zone_gap_pct
+
+    rng = np.random.default_rng(4)
+    for _ in range(500):
+        lo = float(rng.uniform(50, 500)); hi = lo * float(rng.uniform(1.005, 1.06))
+        zone = {"d": "bull" if rng.random() < 0.5 else "bear", "lo": lo, "hi": hi}
+        key = "s" if zone["d"] == "bull" else "r"
+        lines = {key: {"v": float(rng.uniform(lo * 0.9, hi * 1.1)), "m": float(rng.uniform(-0.01, 0.01)) * lo}}
+        gap = zone_gap_pct(zone, lines)
+        assert gap >= 0
+        if abs(gap - CONFLUENCE_TOL_PCT) > 1e-6:                     # away from the exact tolerance edge the two agree
+            assert confluence(zone, lines) == (gap <= CONFLUENCE_TOL_PCT)
+    inside = {"d": "bull", "lo": 100.0, "hi": 104.0}
+    assert zone_gap_pct(inside, {"s": {"v": 102.0, "m": 0.0}}) == 0.0
+    assert abs(zone_gap_pct(inside, {"s": {"v": 98.0, "m": 0.0}}) - 2.0) < 1e-9            # 2% below the zone's low
+    assert abs(zone_gap_pct(inside, {"s": {"v": 98.0, "m": 1.0}}) - 0.0) < 1e-9 or zone_gap_pct(inside, {"s": {"v": 98.0, "m": 1.0}}) < 2.0   # a rising line closes in
+    assert zone_gap_pct(inside, {}) is None and zone_gap_pct({"d": "bear", "lo": 100.0, "hi": 104.0}, {"s": {"v": 99.0, "m": 0.0}}) is None

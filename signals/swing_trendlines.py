@@ -95,3 +95,17 @@ def confluence(zone: dict, lines: dict) -> bool:
         return False
     lo, hi = zone["lo"] * (1 - CONFLUENCE_TOL_PCT / 100), zone["hi"] * (1 + CONFLUENCE_TOL_PCT / 100)
     return any(lo <= line["v"] + line["m"] * j <= hi for j in range(PROJECT_BARS + 1))
+
+
+def zone_gap_pct(zone: dict, lines: dict) -> float | None:
+    """How far the confirming trendline is from the zone, in % of the zone edge it would have to reach (0 when the line runs through the zone), at
+    the closest of now and PROJECT_BARS candles ahead - the same geometry as `confluence`, which is True exactly when this is within
+    CONFLUENCE_TOL_PCT. None when the stock has no line in the zone's direction. The Swing tab's "trendline near the zone" filter is its JS twin."""
+    line = lines.get("s" if zone["d"] == "bull" else "r")
+    if not line:
+        return None
+    gaps = []
+    for j in range(PROJECT_BARS + 1):
+        x = line["v"] + line["m"] * j
+        gaps.append((zone["lo"] - x) / zone["lo"] * 100 if x < zone["lo"] else (x - zone["hi"]) / zone["hi"] * 100 if x > zone["hi"] else 0.0)
+    return min(gaps)

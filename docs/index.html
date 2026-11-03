@@ -123,6 +123,8 @@
   .oiNote { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
   #strongest { grid-column: 1 / -1; } #strongest[hidden] { display: none; }
   #momentum { grid-column: 1 / -1; } #momentum[hidden] { display: none; }
+  #strongest .controls [hidden] { display: none !important; }
+  .sbtn { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; } .sbtn:hover { border-color: var(--accent); }
   .momBanner { margin: 10px 14px 0; padding: 8px 12px; font-size: 13px; border-left: 3px solid var(--accent); background: var(--chip); border-radius: 6px; }
   .momBanner.warn { border-left-color: #b26a00; }
   #momentum .tag { font-size: 11px; font-weight: 600; margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); }
@@ -187,12 +189,24 @@
   <section id="strongest" aria-labelledby="sbH" hidden>
     <h2 id="sbH">Strongest order blocks <small id="sbCount"></small></h2>
     <div class="controls">
-      <label>R-factor at least <select id="sMinR" aria-label="Minimum R-factor"><option value="0">Any</option><option value="50">50</option><option value="70">70</option><option value="85">85</option></select></label>
+      <label title="R-factor needs saved open interest, so it only exists for the last few weeks of history - on older dates this shows nothing">R-factor at least <select id="sMinR" aria-label="Minimum R-factor"><option value="0">Any</option><option value="30">30</option><option value="40">40</option><option value="50">50</option><option value="60">60</option><option value="70">70</option><option value="80">80</option><option value="90">90</option></select></label>
       <label>Distance to zone <select id="sNear" aria-label="How close price must be to the zone"><option value="auto">Auto (1.5% intraday, 3% swing)</option><option value="inzone">In the zone</option><option value="0.5">within 0.5%</option><option value="1">within 1%</option><option value="2">within 2%</option><option value="3">within 3%</option><option value="5">within 5%</option><option value="10">within 10%</option><option value="any">Any</option></select></label>
-      <label>Rank by <select id="sSort" aria-label="Order of the lists"><option value="conf">Most confirmations first</option><option value="strength">Strongest zone first</option><option value="near">Closest to the zone first</option></select></label>
+      <label>Rank by <select id="sSort" aria-label="Order of the lists"><option value="conf">Most confirmations first</option><option value="strength">Strongest zone first</option><option value="near">Closest to the zone first</option><option value="rfac">Highest R-factor first</option><option value="tlgap">Trendline closest to the zone first</option><option value="tlpx">Price closest to the trendline first</option><option value="newest">Newest zone first</option></select></label>
       <label><input type="checkbox" id="sCf"> Zone + trendline only</label>
       <label>Max stop <select id="sMaxStop" aria-label="Largest stop distance shown"><option value="auto">Auto (3% intraday, 10% swing)</option><option value="1.5">1.5%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option><option value="12">12%</option><option value="any">Any</option></select></label>
       <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked as chosen in “Rank by”; uses the sector filter below. Click a stock for the chart.</span>
+    </div>
+    <div class="controls" id="sMore">
+      <label>Zone strength at least <select id="sMinSc" aria-label="Minimum zone strength"><option value="0">Any</option><option value="40">40</option><option value="50">50</option><option value="60">60</option><option value="70">70</option></select></label>
+      <label>Zone test <select id="sState" aria-label="Whether price has come back to the zone"><option value="any">Any</option><option value="fresh">Fresh (not touched yet)</option><option value="retest">Retesting</option><option value="held">Held after a wick through</option></select></label>
+      <label class="swingOnly">Trendline near the zone <select id="sTlGap" aria-label="How close the confirming trendline is to the zone"><option value="any">Any</option><option value="0.5">within 0.5%</option><option value="1">within 1% (confirmed)</option><option value="2">within 2%</option><option value="3">within 3%</option><option value="5">within 5%</option></select></label>
+      <label class="swingOnly">Price near the trendline <select id="sTlPx" aria-label="How close price is to the confirming trendline"><option value="any">Any</option><option value="1">within 1%</option><option value="2">within 2%</option><option value="3">within 3%</option><option value="5">within 5%</option><option value="8">within 8%</option></select></label>
+      <label class="swingOnly">Zone formed within <select id="sAge" aria-label="Age of the zone"><option value="any">Any</option><option value="7">1 week</option><option value="14">2 weeks</option><option value="30">1 month</option></select></label>
+      <label title="R-factor needs saved open interest, so it only exists for the last few weeks of history - on older dates this shows nothing"><input type="checkbox" id="sFlow"> OI flow agrees (R ≥ 50)</label>
+      <label><input type="checkbox" id="sWd"> With the trend</label>
+      <label><input type="checkbox" id="sSw"> Liquidity sweep</label>
+      <label><input type="checkbox" id="sVol"> Volume thrust ≥ 2×</label>
+      <button type="button" class="sbtn" id="sReset">Reset filters</button>
     </div>
     <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
   </section>
@@ -308,11 +322,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any" };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -842,6 +856,16 @@
                     dist: r2(bull ? (s.price / b.hi - 1) * 100 : (b.lo / s.price - 1) * 100), inside: s.price >= b.lo && s.price <= b.hi };
         var aligned = s.r >= 50 && ((bull && s.bias === "long") || (!bull && s.bias === "short"));
         rec.flow = aligned ? 1 : 0;
+        /* distance to the trendline that confirms this zone's direction (swing): the JS twin of zone_gap_pct in signals/swing_trendlines.py -
+           how far the line is from the zone, now or up to 3 candles ahead, and how far price is from the line */
+        var line = state.mode === "swing" && s.tl ? s.tl[bull ? "s" : "r"] : null;
+        rec.tlgap = null; rec.tlpx = null;
+        if (line) {
+          var gmin = Infinity;
+          for (var j = 0; j <= 3; j++) { var x = line.v + line.m * j; gmin = Math.min(gmin, x < b.lo ? (b.lo - x) / b.lo * 100 : x > b.hi ? (x - b.hi) / b.hi * 100 : 0); }
+          rec.tlgap = r2(gmin); rec.tlpx = r2(Math.abs(line.d));
+        }
+        rec.age = state.mode === "swing" && b.t && b.t.length === 10 ? Math.round((new Date(d.asof + "T00:00:00") - new Date(b.t + "T00:00:00")) / 86400000) : null;
         rec.conf = (rec.sc >= 60 ? 1 : 0) + rec.cf + rec.flow;       // zone quality, trendline, OI flow - independent confirmations
         s.obs.push(rec);
       });
@@ -879,10 +903,27 @@
       if (b.sl > maxStop()) return;                                // too far from the stop to be a tight-risk setup
       if (!nearOk(b)) return;                                      // price is not close to the zone: nothing to act on yet
       if (state.cfOnly && !b.cf) return;
+      if (state.sFlow && !b.flow) return;                          // OI buildup agrees with the zone's direction and R >= 50
+      if (state.sMinSc && b.sc < state.sMinSc) return;
+      if (state.sState === "fresh" && b.st !== "fresh") return;
+      if (state.sState === "retest" && b.st !== "testing") return;
+      if (state.sState === "held" && !(b.st === "testing" && b.wk)) return;
+      if (state.sWd && !b.wd) return;
+      if (state.sSw && !b.sw) return;
+      if (state.sVol && !(b.vr >= 2)) return;
+      if (state.mode === "swing") {
+        if (state.sTlGap !== "any" && !(b.tlgap !== null && b.tlgap <= parseFloat(state.sTlGap))) return;
+        if (state.sTlPx !== "any" && !(b.tlpx !== null && b.tlpx <= parseFloat(state.sTlPx))) return;
+        if (state.sAge !== "any" && !(b.age !== null && b.age <= parseInt(state.sAge, 10))) return;
+      }
       out.push({ s: s, b: b });
     });
     var gapOf = function (b) { return b.inside ? 0 : Math.max(b.dist, 0); };
     if (state.sSort === "near") out.sort(function (x, y) { return gapOf(x.b) - gapOf(y.b) || y.b.sc - x.b.sc; });
+    else if (state.sSort === "rfac") out.sort(function (x, y) { return ((y.s.r === null || y.s.r === undefined ? -1 : y.s.r) - (x.s.r === null || x.s.r === undefined ? -1 : x.s.r)) || y.b.sc - x.b.sc || gapOf(x.b) - gapOf(y.b); });
+    else if (state.sSort === "tlgap") out.sort(function (x, y) { return (x.b.tlgap === null ? 1e9 : x.b.tlgap) - (y.b.tlgap === null ? 1e9 : y.b.tlgap) || y.b.sc - x.b.sc || gapOf(x.b) - gapOf(y.b); });
+    else if (state.sSort === "tlpx") out.sort(function (x, y) { return (x.b.tlpx === null ? 1e9 : x.b.tlpx) - (y.b.tlpx === null ? 1e9 : y.b.tlpx) || y.b.sc - x.b.sc || gapOf(x.b) - gapOf(y.b); });
+    else if (state.sSort === "newest") out.sort(function (x, y) { return (x.b.age === null ? (x.b.t < y.b.t ? 1 : x.b.t > y.b.t ? -1 : 0) : x.b.age - y.b.age) || y.b.sc - x.b.sc; });
     else if (state.sSort === "conf") out.sort(function (x, y) { return y.b.conf - x.b.conf || y.b.sc - x.b.sc || gapOf(x.b) - gapOf(y.b); });
     else out.sort(function (x, y) { return y.b.sc - x.b.sc || (y.b.st === "testing") - (x.b.st === "testing") || gapOf(x.b) - gapOf(y.b); });
     return out;
@@ -905,12 +946,14 @@
       $("sbCount").textContent = ""; return;
     }
     $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort; $("sCf").checked = state.cfOnly;
+    $("sFlow").checked = state.sFlow; $("sMinSc").value = String(state.sMinSc); $("sState").value = state.sState; $("sTlGap").value = state.sTlGap; $("sTlPx").value = state.sTlPx; $("sWd").checked = state.sWd; $("sSw").checked = state.sSw; $("sVol").checked = state.sVol; $("sAge").value = state.sAge;
+    Array.prototype.forEach.call(document.querySelectorAll("#strongest .swingOnly"), function (e) { e.hidden = state.mode !== "swing"; });
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
     [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
       var list = strongestList(pair[0]); total += list.length;
       var box = $(pair[1]); box.textContent = "";
-      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone right now." : "None right now" + (nearLimit() < Infinity ? " with price within " + (nearLimit() || "the") + (nearLimit() ? "% of the zone" : " zone") : "") + (maxStop() < Infinity ? " and a stop within " + maxStop() + "%" : "") + " - widen “Distance to zone” or “Max stop” to see more."));
+      if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone matches these filters - loosen one (the default \"Distance to zone\" hides zones more than 3% away) or press “Reset filters”." : "None right now" + (nearLimit() < Infinity ? " with price within " + (nearLimit() || "the") + (nearLimit() ? "% of the zone" : " zone") : "") + (maxStop() < Infinity ? " and a stop within " + maxStop() + "%" : "") + " - widen “Distance to zone” or “Max stop” to see more."));
       list.slice(0, 20).forEach(function (x, i) {
         var s = x.s, b = x.b, bull = b.d === "bull", card = el("div", { "class": "scard", tabindex: "0", role: "button", title: whyText(b) });
         card.appendChild(el("div", { "class": "rk" }, String(i + 1)));
@@ -923,6 +966,8 @@
         meta.appendChild(pill(b.sc >= 60, "zone " + b.sc, "Zone strength (thrust, volume, liquidity sweep, with the trend) - ticked at 60 or more. A price-structure measure."));
         if (s.zones !== undefined || state.mode === "swing") meta.appendChild(pill(!!b.cf, "trendline", b.cf ? "A " + (bull ? "support" : "resistance") + " trendline runs through this zone" : "No trendline through this zone"));
         meta.appendChild(pill(!!b.flow, s.r !== null && s.r !== undefined ? "flow R " + s.r : "flow n/a", "R-factor: volume, open-interest buildup and price move - ticked when R >= 50 and the OI buildup agrees with the zone's direction. A money-flow measure, separate from the zone's strength."));
+        if (b.tlgap !== null && b.tlgap !== undefined) meta.appendChild(el("span", { title: "Distance from the confirming " + (bull ? "support" : "resistance") + " trendline to the zone (now or up to 3 candles ahead), and from price to the line" }, "line " + (b.tlgap === 0 ? "through the zone" : b.tlgap.toFixed(1) + "% from zone") + " · price " + b.tlpx.toFixed(1) + "% from line"));
+        if (b.age !== null && b.age !== undefined) meta.appendChild(el("span", { title: "When the zone formed: " + b.t }, "formed " + (b.age === 0 ? "today" : b.age + "d ago")));
         meta.appendChild(el("span", null, b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
         meta.appendChild(el("span", null, b.inside ? "in zone" : (b.st === "testing" ? (b.wk ? "rejected (wick through) · " : "retesting · ") : "waiting · ") + Math.max(b.dist, 0).toFixed(1) + "% away"));
         meta.appendChild(el("span", null, "stop " + b.sl.toFixed(2) + "%"));
@@ -1465,6 +1510,14 @@
   $("topN").addEventListener("change", function (e) { state.topN = parseInt(e.target.value, 10); save(); render(); });
   $("dir").addEventListener("change", function (e) { state.dir = e.target.value; save(); render(); });
   $("sCf").addEventListener("change", function (e) { state.cfOnly = e.target.checked; save(); render(); });
+  [["sFlow", "sFlow", "checked"], ["sWd", "sWd", "checked"], ["sSw", "sSw", "checked"], ["sVol", "sVol", "checked"], ["sState", "sState", "value"], ["sTlGap", "sTlGap", "value"], ["sTlPx", "sTlPx", "value"], ["sAge", "sAge", "value"]].forEach(function (c) {
+    $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target[c[2]]; save(); render(); });
+  });
+  $("sMinSc").addEventListener("change", function (e) { state.sMinSc = parseInt(e.target.value, 10); save(); render(); });
+  $("sReset").addEventListener("click", function () {
+    state.sMinR = 0; state.sMaxStop = "auto"; state.near = "auto"; state.sSort = "conf"; state.cfOnly = false; state.sFlow = false; state.sMinSc = 0; state.sState = "any";
+    state.sTlGap = "any"; state.sTlPx = "any"; state.sWd = false; state.sSw = false; state.sVol = false; state.sAge = "any"; save(); render();
+  });
   $("sNear").addEventListener("change", function (e) { state.near = e.target.value; save(); render(); });
   $("sSort").addEventListener("change", function (e) { state.sSort = e.target.value; save(); render(); });
   $("sMaxStop").addEventListener("change", function (e) { state.sMaxStop = e.target.value; save(); render(); });
