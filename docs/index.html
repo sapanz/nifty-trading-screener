@@ -131,6 +131,10 @@
   #momentum .tag.use { background: var(--accent); color: #fff; }
   #momentum .scols > div.dim .scard { opacity: .72; }
   #movers { grid-column: 1 / -1; } #movers[hidden] { display: none; }
+  #momNear { grid-column: 1 / -1; } #momNear[hidden] { display: none; }
+  #mnTable tbody tr { cursor: pointer; } #mnTable tbody tr:hover { background: var(--chip); }
+  #mnTable th, #mnTable td { text-align: right; } #mnTable th:nth-child(-n+2), #mnTable td:nth-child(-n+2) { text-align: left; } #mnTable th { cursor: default; position: static; }
+  #mnTable td.mute { color: var(--muted); }
   #mvBox { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { #mvBox { grid-template-columns: 1fr; } }
   #movers .tag { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); } #movers .tag.sq { background: var(--accent); color: #fff; }
   .scols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { .scols { grid-template-columns: 1fr; } }
@@ -215,6 +219,21 @@
     <div id="momBanner" class="momBanner"></div>
     <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
     <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
+  </section>
+  <section id="momNear" aria-labelledby="mnH" hidden>
+    <h2 id="mnH">Momentum stocks near a zone or trendline <small id="mnCount"></small></h2>
+    <div class="controls">
+      <label>List <select id="mnSide" aria-label="Which momentum list"><option value="auto">Market's side</option><option value="strong">Strongest (long)</option><option value="weak">Weakest (short)</option></select></label>
+      <label>Momentum pool <select id="mnPool" aria-label="How many top momentum stocks to look through"><option value="20">top 20</option><option value="30">top 30</option><option value="50">top 50</option></select></label>
+      <label>Sort by <select id="mnSort" aria-label="Order of the table"><option value="zone">Nearest zone</option><option value="tl">Nearest trendline (price to line)</option><option value="mom">Momentum rank</option></select></label>
+      <label>Zone within <select id="mnZone" aria-label="Largest distance to the zone"><option value="any">Any</option><option value="1">1%</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
+      <label>Trendline within <select id="mnTl" aria-label="Largest distance from price to the trendline"><option value="any">Any</option><option value="1">1%</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
+    </div>
+    <div class="tablewrap"><table id="mnTable">
+      <thead><tr><th>#</th><th>Stock</th><th>Momentum</th><th>20d</th><th>Zone</th><th>Zone test</th><th>Zone gap</th><th>Stop</th><th>Strength</th><th>Price to line</th><th>Line to zone</th><th>R</th><th>Range</th></tr></thead>
+      <tbody id="mnRows"></tbody>
+    </table></div>
+    <p class="oiNote" id="mnNote" style="padding:8px 14px 10px"></p>
   </section>
   <section id="movers" aria-labelledby="mvH" hidden>
     <h2 id="mvH">Movers - widest daily range <small id="mvCount"></small></h2>
@@ -322,11 +341,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any" };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any" };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -514,14 +533,14 @@
     var from = state.mode; state.mode = m; state.data = null;
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
-    $("momentum").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
+    $("momentum").hidden = true; $("momNear").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
   function enterSwing() {
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
-    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMomNear(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
@@ -1005,7 +1024,7 @@
     });
     return series;
   }
-  function momentumLists(cd, rows, asof) {
+  function momentumLists(cd, rows, asof, topN) {
     if (!cd || !cd.dates || !cd.stocks) return null;
     var dates = cd.dates, last = -1, i;
     for (i = 0; i < dates.length; i++) if (!asof || dates[i] <= asof) last = i;
@@ -1036,7 +1055,7 @@
     });
     var cmp = function (dir) { return function (x, y) { return dir * (y.score - x.score) || (x.symbol < y.symbol ? -1 : x.symbol > y.symbol ? 1 : 0); }; };
     return { asof: dates[last], universe: out.length, market: { vs_ma_pct: Math.round(vsMa * 10) / 10, up: index[last] > ma },
-             strong: out.slice().sort(cmp(1)).slice(0, MOM.topN), weak: out.slice().sort(cmp(-1)).slice(0, MOM.topN) };
+             strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN), weak: out.slice().sort(cmp(-1)).slice(0, topN || MOM.topN) };
   }
   function renderMomentum() {
     var sec = $("momentum");
@@ -1074,6 +1093,57 @@
     $("momNote").textContent = "Rank = average percentile of the 20- and 60-session returns; liquid F&O stocks only (₹20 cr+ traded). Backtest, 23 Jun - 30 Oct 2026 (850 picks, entry at the next open, 0.10% costs): about 55% of picks ended in profit - not 80% - and the money came from winners being larger than losers. Strongest stocks in a rising market beat a random long by about 9 points (54% vs 45% over 5 sessions) but most of that came from one month; the weakest stocks showed no edge over random shorts. A watchlist to study, not a signal. Change \"As of\" above to see any past date.";
   }
 
+
+
+  /* ---------- momentum stocks near a zone or trendline: the momentum pool joined with each stock's nearest zone in the trade's direction
+     (the same zone numbers the Strongest order blocks panel uses) and the trendline that confirms it ---------- */
+  function renderMomNear() {
+    var sec = $("momNear");
+    var pool = state.mnPool, m = state.mode === "swing" && state.data && state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, pool) : null;
+    sec.hidden = !m; if (!m) return;
+    var long = state.mnSide === "auto" ? m.market.up : state.mnSide === "strong", dir = long ? "bull" : "bear", list = long ? m.strong : m.weak;
+    var bySym = {}; state.data.stocks.forEach(function (s) { bySym[s.symbol] = s; });
+    var zoneMax = state.mnZone === "any" ? Infinity : parseFloat(state.mnZone), tlMax = state.mnTl === "any" ? Infinity : parseFloat(state.mnTl);
+    var gapOf = function (b) { return b.inside ? 0 : Math.max(b.dist, 0); };
+    var rows = [];
+    list.forEach(function (x, i) {
+      var s = bySym[x.symbol]; if (!s) return;
+      var zs = (s.obs || []).filter(function (b) { return b.d === dir; }).sort(function (a, b) { return gapOf(a) - gapOf(b) || b.sc - a.sc; }), b = zs[0] || null;
+      var line = s.tl ? s.tl[long ? "s" : "r"] : null, px = line ? r2(Math.abs(line.d)) : null;
+      if (zoneMax !== Infinity && !(b && gapOf(b) <= zoneMax)) return;
+      if (tlMax !== Infinity && !(px !== null && px <= tlMax)) return;
+      rows.push({ x: x, rank: i + 1, s: s, b: b, px: px });
+    });
+    var key = { zone: function (r) { return r.b ? gapOf(r.b) : 1e9; }, tl: function (r) { return r.px === null ? 1e9 : r.px; }, mom: function (r) { return r.rank; } }[state.mnSort];
+    rows.sort(function (p, q) { return key(p) - key(q) || p.rank - q.rank; });
+    $("mnSide").value = state.mnSide; $("mnPool").value = String(state.mnPool); $("mnSort").value = state.mnSort; $("mnZone").value = state.mnZone; $("mnTl").value = state.mnTl;
+    $("mnCount").textContent = (long ? "strongest" : "weakest") + " " + pool + " of " + m.universe + " liquid F&O stocks · as of the " + shortDate(m.asof) + " close · " + rows.length + " shown";
+    var body = $("mnRows"); body.textContent = "";
+    if (!rows.length) {
+      var tr = el("tr"), td = el("td", { colspan: "13", "class": "mute" }, "No stock in this momentum pool matches - widen “Zone within” / “Trendline within”, or raise the pool size."); tr.appendChild(td); body.appendChild(tr);
+    }
+    rows.forEach(function (r, i) {
+      var b = r.b, tr = el("tr", { tabindex: "0", role: "button", title: "Open the chart" });
+      var cell = function (text, mute) { return el("td", mute ? { "class": "mute" } : null, text); };
+      tr.appendChild(cell(String(i + 1), true));
+      tr.appendChild(el("td", { style: "font-weight:700" }, r.x.symbol));
+      tr.appendChild(cell("#" + r.rank + " · " + r.x.score));
+      tr.appendChild(el("td", { "class": cls(r.x.m20) }, fmtPct(r.x.m20)));
+      tr.appendChild(b ? cell(b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")) : cell("no zone", true));
+      tr.appendChild(b ? cell(b.st === "testing" ? (b.wk ? "held (wick)" : "retesting") : "fresh") : cell("-", true));
+      tr.appendChild(b ? cell(b.inside ? "in zone" : Math.max(b.dist, 0).toFixed(1) + "% away") : cell("-", true));
+      tr.appendChild(b ? cell(b.sl.toFixed(1) + "%") : cell("-", true));
+      tr.appendChild(b ? cell(String(b.sc)) : cell("-", true));
+      tr.appendChild(r.px !== null ? cell(r.px.toFixed(1) + "%") : cell("no line", true));
+      tr.appendChild(b && b.tlgap !== null && b.tlgap !== undefined ? cell(b.tlgap === 0 ? "through" : b.tlgap.toFixed(1) + "%") : cell("-", true));
+      tr.appendChild(r.s.r !== null && r.s.r !== undefined && r.s.r > 0 ? cell(String(r.s.r)) : cell("-", true));
+      tr.appendChild(cell(r.x.atr + "%"));
+      var open = function () { openOi(r.x.symbol, "chart"); };
+      tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+      body.appendChild(tr);
+    });
+    $("mnNote").textContent = "How to use it: pick the pool of strongest (or weakest) stocks, then sort by the nearest zone or trendline to find the ones close to a defined entry and stop. Zone gap = distance from price to the zone's near edge; Stop = distance to the stop beyond its far edge; Price to line = distance to the confirming trendline (support for longs, resistance for shorts); Line to zone = how far that line is from the zone. Evidence is thin: zone setups whose stock's momentum pointed the same way averaged +0.69R (20 trades) against +0.33R for the middle (180) and +0.09R when it pointed against (24) - small samples; few strong stocks sit near a support line (they run away from it); and waiting for pullbacks in leaders did not beat simply buying them. Narrowing is a way to find setups quickly, not proof they are better.";
+  }
 
   /* ---------- movers watchlist - the JS twin of movers_list in signals/movers.py: the widest daily ranges, either direction ---------- */
   function moversList(cd, rows, asof) {
@@ -1480,7 +1550,7 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
-    renderMomentum(); renderMovers();
+    renderMomentum(); renderMomNear(); renderMovers();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
@@ -1513,6 +1583,8 @@
   [["sFlow", "sFlow", "checked"], ["sWd", "sWd", "checked"], ["sSw", "sSw", "checked"], ["sVol", "sVol", "checked"], ["sState", "sState", "value"], ["sTlGap", "sTlGap", "value"], ["sTlPx", "sTlPx", "value"], ["sAge", "sAge", "value"]].forEach(function (c) {
     $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target[c[2]]; save(); render(); });
   });
+  [["mnSide", "mnSide"], ["mnSort", "mnSort"], ["mnZone", "mnZone"], ["mnTl", "mnTl"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target.value; save(); renderMomNear(); }); });
+  $("mnPool").addEventListener("change", function (e) { state.mnPool = parseInt(e.target.value, 10); save(); renderMomNear(); });
   $("sMinSc").addEventListener("change", function (e) { state.sMinSc = parseInt(e.target.value, 10); save(); render(); });
   $("sReset").addEventListener("click", function () {
     state.sMinR = 0; state.sMaxStop = "auto"; state.near = "auto"; state.sSort = "conf"; state.cfOnly = false; state.sFlow = false; state.sMinSc = 0; state.sState = "any";
