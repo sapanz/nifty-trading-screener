@@ -40,7 +40,7 @@ def main() -> None:
     summary = bt.summarize(frames, side)
     print(f"\n=== {TITLE} ===\n{summary}")
     try:
-        send_message(runtime.get_env("TELEGRAM_BOT_TOKEN"), runtime.get_env("TELEGRAM_CHAT_ID"), f"{EMOJI} <b>{TITLE}</b>\n<pre>{html.escape(summary)}</pre>"[:4000])
+        send_message(runtime.get_env("TELEGRAM_BOT_TOKEN"), runtime.get_env("TELEGRAM_CHAT_ID"), f"{EMOJI} <b>{TITLE}</b>\n<pre>{html.escape(summary[:3300])}</pre>")
     except Exception as exc:  # noqa: BLE001 - the log has the full summary; a Telegram hiccup must not fail the run
         print(f"telegram skipped: {exc}")
     trades = bt.run(frames, bt.Params(side=side))
