@@ -42,6 +42,9 @@ def test_momentum_lists_carry_vt_and_filter_on_it():
     kept = mom.momentum_lists(cd, turnover, top_n=40, min_thrust=1.5)
     assert kept["strong"] and all(r["vt"] >= 1.5 for r in kept["strong"] + kept["weak"])
     assert [r["symbol"] for r in kept["strong"]] == [r["symbol"] for r in res["strong"] if r["vt"] >= 1.5]    # same order: the ranking is unchanged
+    top10 = mom.momentum_lists(cd, turnover, top_n=10)["strong"]
+    sub = mom.momentum_lists(cd, turnover, top_n=10, min_thrust=1.5)["strong"]
+    assert [r["symbol"] for r in sub] == [r["symbol"] for r in top10 if r["vt"] >= 1.5]    # confirmation is applied after taking the top N, never deeper
     for s in stocks.values():
         del s["v"]
     assert all(r["vt"] is None for r in mom.momentum_lists(cd, turnover)["strong"])

@@ -71,7 +71,8 @@ def _aligned_volume(candles: dict) -> dict[str, np.ndarray]:
 def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None = None, top_n: int = TOP_N, min_thrust: float | None = None) -> dict | None:
     """{"asof", "universe", "market": {"vs_ma_pct", "up"}, "strong": [...], "weak": [...]} as of the close of `asof` (default: the last
     candle), or None when there is too little history. `turnover` is crore rupees traded on that day, by symbol. Every row has "vt", its
-    volume thrust (None when the candles carry no volume); `min_thrust` keeps only rows at or above it (the ranking itself is unchanged)."""
+    volume thrust (None when the candles carry no volume). `min_thrust` is a confirmation applied AFTER taking the top `top_n` (so "top 30 with
+    thrust >= 1.5" is a subset of the top 30 - the same meaning as in signals/momentum_zone_backtest.py)."""
     dates, series = _aligned(candles)
     volume = _aligned_volume(candles)
     last = len(dates) - 1 if asof is None else max((i for i, d in enumerate(dates) if d <= asof), default=-1)
@@ -111,9 +112,9 @@ def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None =
         })
     rows.sort(key=lambda r: (-r["score"], r["symbol"]))
     keep = (lambda r: True) if min_thrust is None else (lambda r: r["vt"] is not None and r["vt"] >= min_thrust)
-    weak = [r for r in sorted(rows, key=lambda r: (r["score"], r["symbol"])) if keep(r)][:top_n]
+    weak = [r for r in sorted(rows, key=lambda r: (r["score"], r["symbol"]))[:top_n] if keep(r)]
     return {"asof": dates[last], "universe": len(rows), "market": {"vs_ma_pct": round(float(vs_ma), 1), "up": bool(index[-1] > ma)},
-            "strong": [r for r in rows if keep(r)][:top_n], "weak": weak}
+            "strong": [r for r in rows[:top_n] if keep(r)], "weak": weak}
 
 
 def _vt(volume: np.ndarray | None, last: int) -> float | None:

@@ -121,6 +121,8 @@ def main() -> None:
         if len(tail) >= 20:
             candles[symbol] = {"c": [[round(float(x), 2) for x in row] for row in tail[["open", "high", "low", "close"]].to_numpy()],
                                "d0": tail.index[0].strftime("%Y-%m-%d")}
+            if "volume" in tail:                                      # shares traded - the momentum tables' volume-thrust filter reads it
+                candles[symbol]["v"] = [0 if pd.isna(x) else int(x) for x in tail["volume"]]
     secure.write_json(OUT_DIR / "swing_candles.json", {"asof": snapshot["asof"], "dates": shared, "stocks": candles})
     secure.write_json(OUT_DIR / "swing.json", snapshot)
     # As-of-date history for manual backtesting: the same snapshot as it stood on each of the last ASOF_DAYS sessions.
