@@ -1,0 +1,67 @@
+name: Research data
+
+# Manual: download daily / futures (OI) / 30-minute history and publish it to the temporary `research-data` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Years of daily history"
+        type: number
+        default: 6
+      intraday_quarters:
+        description: "Quarters of 30-minute candles (0 = skip)"
+        type: number
+        default: 8
+      symbol_limit:
+        description: "Only the first N F&O symbols (0 = all)"
+        type: number
+        default: 0
+
+permissions:
+  contents: write   # to publish to the research-data branch
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium (for automated Upstox login)
+        run: playwright install --with-deps chromium
+
+      - name: Log in to Upstox (TOTP)
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/login_upstox.py
+
+      - name: Upload login failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstox-login-failure
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
+          if-no-files-found: ignore
+
+      - name: Download and publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RD_YEARS: ${{ inputs.years }}
+          RD_INTRADAY_QUARTERS: ${{ inputs.intraday_quarters }}
+          RD_SYMBOL_LIMIT: ${{ inputs.symbol_limit }}
+        run: python scripts/fetch_research_data.py
