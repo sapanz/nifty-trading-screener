@@ -1,0 +1,69 @@
+name: Momentum zone backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Years of daily history (6 covers rising and falling markets)"
+        type: number
+        default: 6
+      symbol_limit:
+        description: "Only the first N F&O symbols (0 = all) - e.g. 10 for a quick smoke test"
+        type: number
+        default: 0
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium (for automated Upstox login)
+        run: playwright install --with-deps chromium
+
+      - name: Log in to Upstox (TOTP)
+        env:
+          UPSTOX_CLIENT_ID: ${{ secrets.UPSTOX_CLIENT_ID }}
+          UPSTOX_CLIENT_SECRET: ${{ secrets.UPSTOX_CLIENT_SECRET }}
+          UPSTOX_REDIRECT_URI: ${{ secrets.UPSTOX_REDIRECT_URI }}
+          UPSTOX_MOBILE_NUMBER: ${{ secrets.UPSTOX_MOBILE_NUMBER }}
+          UPSTOX_TOTP_SECRET: ${{ secrets.UPSTOX_TOTP_SECRET }}
+          UPSTOX_PIN: ${{ secrets.UPSTOX_PIN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/login_upstox.py
+
+      - name: Upload login failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstox-login-failure
+          path: |
+            upstox_login_failure.png
+            upstox_login_failure.html
+          if-no-files-found: ignore
+
+      - name: Run the momentum x zone backtest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MZ_YEARS: ${{ inputs.years }}
+          MZ_SYMBOL_LIMIT: ${{ inputs.symbol_limit }}
+        run: python scripts/run_momentum_zone_backtest.py
+
+      - name: Upload summary and setups
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: momentum-zone-backtest
+          path: |
+            momentum_zone_summary.txt
+            momentum_zone_events.csv.gz
+          if-no-files-found: ignore

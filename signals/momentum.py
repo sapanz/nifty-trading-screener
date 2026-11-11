@@ -21,6 +21,19 @@ LOOKBACKS = (20, 60)
 MA_DAYS = 50
 ATR_DAYS = 14
 TOP_N = 10
+VOL_RECENT, VOL_BASE = 3, 20       # volume thrust = the last 3 sessions' average volume / the average of the 20 sessions before those
+
+
+def volume_thrust(volume) -> float:
+    """Average volume of the last VOL_RECENT sessions over the average of the VOL_BASE sessions before them (NaN when it cannot be told).
+    1.0 = normal volume; 1.5 = the recent sessions traded half as much again as usual - participation behind the move."""
+    v = np.asarray(volume, dtype=float)
+    if len(v) < VOL_RECENT + VOL_BASE:
+        return float("nan")
+    recent, base = v[-VOL_RECENT:], v[-VOL_RECENT - VOL_BASE:-VOL_RECENT]
+    if np.isnan(recent).any() or np.isnan(base).sum() > VOL_BASE // 4 or not np.nanmean(base) > 0:
+        return float("nan")
+    return float(recent.mean() / np.nanmean(base))
 
 
 def _aligned(candles: dict) -> tuple[list[str], dict[str, np.ndarray]]:
@@ -39,10 +52,28 @@ def _aligned(candles: dict) -> tuple[list[str], dict[str, np.ndarray]]:
     return dates, out
 
 
-def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None = None, top_n: int = TOP_N) -> dict | None:
+def _aligned_volume(candles: dict) -> dict[str, np.ndarray]:
+    """Per-stock volume (n,) on the shared date axis; stocks whose candles carry no "v" are left out."""
+    dates = candles["dates"]
+    index = {d: i for i, d in enumerate(dates)}
+    out = {}
+    for symbol, s in candles["stocks"].items():
+        start = index.get(s["d0"])
+        if start is None or not s.get("v"):
+            continue
+        arr = np.full(len(dates), np.nan)
+        data = np.asarray(s["v"], dtype=float)[: len(dates) - start]
+        arr[start:start + len(data)] = data
+        out[symbol] = arr
+    return out
+
+
+def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None = None, top_n: int = TOP_N, min_thrust: float | None = None) -> dict | None:
     """{"asof", "universe", "market": {"vs_ma_pct", "up"}, "strong": [...], "weak": [...]} as of the close of `asof` (default: the last
-    candle), or None when there is too little history. `turnover` is crore rupees traded on that day, by symbol."""
+    candle), or None when there is too little history. `turnover` is crore rupees traded on that day, by symbol. Every row has "vt", its
+    volume thrust (None when the candles carry no volume); `min_thrust` keeps only rows at or above it (the ranking itself is unchanged)."""
     dates, series = _aligned(candles)
+    volume = _aligned_volume(candles)
     last = len(dates) - 1 if asof is None else max((i for i, d in enumerate(dates) if d <= asof), default=-1)
     if last < max(LOOKBACKS):
         return None
@@ -74,11 +105,19 @@ def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None =
         rows.append({
             "symbol": symbol, "score": round(float(score[k]) * 100, 1), "close": round(float(px), 2),
             "m5": round(float(px / a[-6, 3] - 1) * 100, 1), "m20": round(float(px / a[-21, 3] - 1) * 100, 1), "m60": round(float(px / a[-61, 3] - 1) * 100, 1),
-            "atr": round(float(tr.mean() / px) * 100, 1),
+            "atr": round(float(tr.mean() / px) * 100, 1), "vt": _vt(volume.get(symbol), last),
             "from_hi20": round(float(px / np.nanmax(a[-20:, 1]) - 1) * 100, 1), "from_lo20": round(float(px / np.nanmin(a[-20:, 2]) - 1) * 100, 1),
             "turnover_cr": turnover.get(symbol),
         })
     rows.sort(key=lambda r: (-r["score"], r["symbol"]))
-    weak = sorted(rows, key=lambda r: (r["score"], r["symbol"]))[:top_n]
+    keep = (lambda r: True) if min_thrust is None else (lambda r: r["vt"] is not None and r["vt"] >= min_thrust)
+    weak = [r for r in sorted(rows, key=lambda r: (r["score"], r["symbol"])) if keep(r)][:top_n]
     return {"asof": dates[last], "universe": len(rows), "market": {"vs_ma_pct": round(float(vs_ma), 1), "up": bool(index[-1] > ma)},
-            "strong": rows[:top_n], "weak": weak}
+            "strong": [r for r in rows if keep(r)][:top_n], "weak": weak}
+
+
+def _vt(volume: np.ndarray | None, last: int) -> float | None:
+    if volume is None:
+        return None
+    x = volume_thrust(volume[: last + 1])
+    return None if np.isnan(x) else round(x, 2)
