@@ -1,0 +1,126 @@
+"""The dashboard's Price action list: today's setups (signals/price_action.py) with their plan, probability and chart data.
+
+`build(frames, ...)` is pure: daily candles in, two JSON-ready dicts out (the list and the candles for the charts). The probability comes
+from signals/price_action_model.py - fitted on this same history, recent setups weighted more, then scaled by how far its walk-forward
+predictions were from what happened (`calibration`), so it is not allowed to promise more than the past delivered.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+
+from signals import price_action as pa
+from signals import price_action_model as pm
+
+FRESH_DAYS = 4            # a trigger stays on the list this many sessions, while the plan still holds from the current price
+CHART_BARS = 330          # daily candles per chart: enough to see a 65-week cup
+
+
+def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5) -> dict | None:
+    """What open interest did over the last `sessions` against price: long buildup / short covering / short buildup / long unwinding."""
+    series = ((store or {}).get("oi") or {}).get(symbol)
+    if not series:
+        return None
+    dates = sorted(series)
+    if len(dates) <= sessions or len(close) <= sessions:
+        return None
+    oi_now, oi_then = series[dates[-1]], series[dates[-1 - sessions]]
+    if not oi_then or not oi_now:
+        return None
+    oi_chg, px_chg = oi_now / oi_then - 1, float(close.iloc[-1] / close.iloc[-1 - sessions] - 1)
+    if abs(oi_chg) > 0.5:                                         # a rollover step, not positioning
+        return None
+    tag = ("long buildup" if oi_chg > 0 else "short covering") if px_chg > 0 else ("short buildup" if oi_chg > 0 else "long unwinding")
+    return {"tag": tag, "oi_chg": round(oi_chg * 100, 1), "px_chg": round(px_chg * 100, 1), "for": tag in ("long buildup", "short covering")}
+
+
+def _calibration(v: dict | None) -> float:
+    """Actual hits / predicted hits over the walk-forward test, kept within 0.5-1: the model may be scaled down, never up."""
+    if not v:
+        return 1.0
+    pred = sum(r["predicted"] * r["n"] for r in v["table"])
+    act = sum(r["actual"] * r["n"] for r in v["table"])
+    return float(min(1.0, max(0.5, act / pred))) if pred > 0 else 1.0
+
+
+def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, calibration: float) -> dict:
+    def stat(g: pd.DataFrame) -> dict:
+        r = g["R"].to_numpy()
+        wins, losses = r[r > 0].sum(), -r[r <= 0].sum()
+        return {"n": int(len(g)), "hit": round(float(g["hit"].mean()) * 100, 1), "avg_r": round(float(r.mean()), 2), "pf": round(float(wins / losses), 2) if losses > 0 else None,
+                "rr": round(float(g["rr"].median()), 1)}
+    out = {"n": int(len(listed)), "calibration": round(calibration, 2)}
+    if not len(listed):
+        return out
+    out.update(all=stat(listed), first=listed["date"].min().strftime("%Y-%m-%d"), last=listed["date"].max().strftime("%Y-%m-%d"), stocks=int(listed["symbol"].nunique()),
+               by_kind=[{"kind": k, "name": pa.KIND_NAMES[k], **stat(listed[listed["kind"] == k])} for k in pa.KINDS if (listed["kind"] == k).any()],
+               by_year=[{"year": int(y), **stat(g)} for y, g in listed.groupby(listed["date"].dt.year)])
+    if model:
+        out.update(base_rate=round(model["base_rate"] * 100, 1), miss_r=round(model["miss_r"], 2), weights={f: round(b, 2) for f, b in zip(model["features"], model["beta"][1:])})
+    if v:
+        out["walk"] = {"n": v["test_n"], "from": v["test_from"], "rows": [{"predicted": round(r["predicted"] * 100), "actual": round(r["actual"] * 100), "avg_r": round(r["avg_r"], 2), "n": r["n"]}
+                                                                           for r in v["table"]]}
+    return out
+
+
+def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: dict[str, str] | None = None, oi_store: dict | None = None,
+          now: datetime | None = None, p: pa.Params = pa.Params()) -> tuple[dict, dict]:
+    """-> (setups.json payload, setups_candles.json payload)."""
+    fo, sectors = fo or set(), sectors or {}
+    ctx = pm.context(frames)
+    ev, scans = pm.collect(frames, ctx, p)
+    listed = pm.closed(ev, p.min_rr)
+    model = pm.fit(listed) if len(listed) else None
+    v = pm.validate(listed) if len(listed) else None
+    calibration = _calibration(v)
+    asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
+    rows, candles = [], {}
+    for symbol, (triggers, pending) in scans.items():
+        df = frames[symbol]
+        dates = pd.DatetimeIndex(df.index).normalize()
+        n = len(dates)
+        if dates[-1] != asof:                                      # a stock that stopped trading: nothing to act on
+            continue
+        close, lows, highs = df["close"].to_numpy(float), df["low"].to_numpy(float), df["high"].to_numpy(float)
+        last = close[-1]
+        found = []
+        for t in triggers:
+            age = n - 1 - t["i"]
+            if age > FRESH_DAYS:
+                continue
+            if age and (lows[t["i"] + 1:].min() <= t["stop"] or highs[t["i"] + 1:].max() >= t["target"]):
+                continue                                           # already stopped or already there
+            risk = last - t["stop"]
+            if not risk > 0 or not (p.min_risk_pct <= risk / last * 100 <= p.max_risk_pct) or t["target"] <= last:
+                continue
+            found.append({**t, "status": "triggered", "age": age, "entry": last, "risk_pct": risk / last * 100, "reward_pct": (t["target"] / last - 1) * 100,
+                          "rr": (t["target"] - last) / risk, "trigger_date": dates[t["i"]].strftime("%Y-%m-%d")})
+        found += [{**t, "status": "pending", "age": None, "trigger_date": None} for t in pending]
+        added = False
+        for t in found:
+            if t["rr"] < p.min_rr:
+                continue
+            added = True
+            feat = pd.DataFrame([pm._row(symbol, t, dates[-1], ctx)])
+            prob = float(pm.predict(model, feat)[0]) * calibration if model else None
+            miss = model["miss_r"] if model else -1.0
+            f = t["f"]
+            rows.append({
+                "symbol": symbol, "fo": symbol in fo, "sector": sectors.get(symbol), "kind": t["kind"], "name": f"{t['geo']['shape']} triangle breakout" if t["kind"] == "triangle" else pa.KIND_NAMES[t["kind"]], "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
+                "reason": t["reason"], "price": round(float(last), 2), "entry": round(float(t["entry"]), 2), "stop": round(float(t["stop"]), 2), "target": round(float(t["target"]), 2),
+                "target_kind": t["target_kind"], "risk_pct": round(float(t["risk_pct"]), 2), "reward_pct": round(float(t["reward_pct"]), 2), "rr": round(float(t["rr"]), 2),
+                "p": round(prob * 100, 1) if prob is not None else None, "breakeven": round(-miss / (t["rr"] - miss) * 100, 1),
+                "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
+                "mom": None if np.isnan(feat["mom"].iloc[0]) else round(float(feat["mom"].iloc[0]) * 100), "market_up": bool(feat["mkt50"].iloc[0]),
+                "oi": oi_tag(oi_store, symbol, df["close"]) if symbol in fo else None, "geo": t["geo"]})
+        if added:
+            tail = df.tail(CHART_BARS)
+            candles[symbol] = {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(tail.index).normalize()],
+                               "c": [[round(float(x), 2) for x in row] for row in tail[["open", "high", "low", "close"]].to_numpy()]}
+    rows.sort(key=lambda r: (-r["rr"], r["risk_pct"], r["symbol"]))
+    now = now or datetime.now()
+    payload = {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(timespec="seconds"), "universe": len(frames), "fo_count": sum(1 for s in frames if s in fo),
+               "min_rr": p.min_rr, "market_up": bool(ctx["mkt50"].iloc[-1]), "model": _model_summary(listed, model, v, calibration), "setups": rows}
+    return payload, {"asof": payload["asof"], "stocks": candles}

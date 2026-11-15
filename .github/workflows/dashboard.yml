@@ -93,6 +93,7 @@ jobs:
       - name: Run dashboard refresher
         if: steps.gate.outputs.run == 'true'
         env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}   # the step that WRITES the files needs it: they are encrypted only when it is set here
           # UPSTOX_ACCESS_TOKEN is already in the job environment here,
           # written by the login step above via $GITHUB_ENV.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
