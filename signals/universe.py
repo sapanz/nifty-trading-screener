@@ -38,6 +38,24 @@ def fetch_nifty500_symbols() -> list[str]:
     return sorted(fetch_nifty500_constituents())
 
 
+def fetch_nifty500_names() -> dict[str, str]:
+    """{NSE symbol: company name} from the same constituent list ("Company Name" column) - used to search the news. {} if no source answers."""
+    session = requests.Session()
+    try:
+        session.get("https://www.nseindia.com", headers=_HEADERS, timeout=20)
+    except requests.RequestException:
+        pass
+    for url in config.NSE_INDEX_LIST_URLS:
+        try:
+            rows = csv.DictReader(io.StringIO(_fetch_csv_text(session, url)))
+            names = {r["Symbol"].strip(): (r.get("Company Name") or "").strip() for r in rows if r.get("Symbol")}
+            if len(names) >= 400:
+                return names
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Company names from %s failed: %s", url, exc)
+    return {}
+
+
 def fetch_nifty500_constituents() -> dict[str, str]:
     """Return {NSE symbol: industry} for Nifty 500, the industry taken from
     the constituent list's own "Industry" column (e.g. "Capital Goods",

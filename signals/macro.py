@@ -68,6 +68,15 @@ def _stooq(symbol: str, session: requests.Session) -> pd.Series | None:
     return s if len(s) >= 60 else None
 
 
+def fetch_ticker(symbol: str, session: requests.Session | None = None) -> pd.Series | None:
+    """One Yahoo ticker's daily closes (a year), or None - never raises. Used for the global sector funds and peer companies."""
+    try:
+        return _yahoo(symbol, session or requests.Session())
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Ticker %s unavailable: %s", symbol, type(exc).__name__)
+        return None
+
+
 def fetch_global() -> tuple[dict[str, pd.Series], dict[str, str]]:
     """({factor: closes}, {factor: where it came from or why it is missing}). Never raises."""
     session = requests.Session()

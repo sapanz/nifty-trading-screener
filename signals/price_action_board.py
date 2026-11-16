@@ -12,9 +12,11 @@ import numpy as np
 import pandas as pd
 
 from signals import macro as macro_ctx
+from signals import peers as peers_mod
 from signals import price_action as pa
 from signals import price_action_model as pm
 from signals import stock_context as sc
+from signals import stock_macro
 
 FRESH_DAYS = 4            # a trigger stays on the list this many sessions, while the plan still holds from the current price
 CHART_BARS = 330          # daily candles per chart: enough to see a 65-week cup
@@ -129,12 +131,36 @@ def history_candles(df: pd.DataFrame) -> dict:
 
 def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: dict[str, str] | None = None, oi_store: dict | None = None,
           now: datetime | None = None, p: pa.Params = pa.Params(), macro_factors: dict | None = None, events: tuple | None = None,
-          collected: tuple | None = None) -> tuple[dict, dict]:
+          collected: tuple | None = None, news_fn=None, names: dict[str, str] | None = None, global_fn=None) -> tuple[dict, dict]:
     """-> (setups.json payload, setups_candles.json payload). `macro_factors` = signals.macro.readings(...) and `events` = (board meetings,
     corporate actions, calendar readable?) are optional context for the selected stock; without them those sections say there is no data."""
     fo, sectors = fo or set(), sectors or {}
     macro_factors = macro_factors or {}
     meetings, actions, calendar_ok = events or ({}, {}, False)
+    names, news_cache, world_cache = names or {}, {}, {}
+
+    def news_for(symbol: str):
+        """Headlines for one listed stock, fetched on demand (news_fn(symbol, company name) -> (items, source)) and kept for its other setups."""
+        if news_fn is None:
+            return None
+        if symbol not in news_cache:
+            try:
+                news_cache[symbol] = news_fn(symbol, names.get(symbol, symbol))
+            except Exception:                                      # noqa: BLE001 - optional context
+                news_cache[symbol] = ([], "failed")
+        return news_cache[symbol]
+
+    def world_for(symbol: str, sector: str | None):
+        """The global peer / sector-fund series for the stock's group (global_fn(symbol, sector) -> {ticker: closes}), once per group."""
+        if global_fn is None:
+            return None
+        k = peers_mod.group_of(symbol, sector)["key"] or sector
+        if k not in world_cache:
+            try:
+                world_cache[k] = global_fn(symbol, sector)
+            except Exception:                                      # noqa: BLE001
+                world_cache[k] = {}
+        return world_cache[k]
     flows = sc.sector_flows(frames, sectors)
     ctx, ev, scans = collected or collect(frames, p)
     listed = pm.closed(ev, p.min_rr)
@@ -192,7 +218,8 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
                 "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
                 "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get(("candle", t["side"], t["geo"].get("candle"))) if t["kind"] == "candle" else record.get((t["kind"], t["side"])),
-                "macro": macro_ctx.assess(sectors.get(symbol), t["side"], macro_factors), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
+                "macro": stock_macro.assess_stock(symbol, sectors.get(symbol), t["side"], macro_factors, world_for(symbol, sectors.get(symbol)), frames, sectors,
+                                                  news_for(symbol), asof.date()), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
                 "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "geo": t["geo"]})
         if added:
             tail = df.tail(CHART_BARS)

@@ -14,6 +14,18 @@ for key in macro.SOURCES:
     print(f"macro {key:<7} {status.get(key):<28} " + (f"{len(s)} closes, last {s.index[-1].date()} {s.iloc[-1]:.2f}" if s is not None else ""))
 for key, r in macro.readings(series).items():
     print("  ", r["text"])
+from signals import news, peers, universe  # noqa: E402
+
+for t in ("XLK", "KBE", "ACN", "JPM", "SLX", "PPH", "CARZ", "IYZ"):
+    ser = macro.fetch_ticker(t)
+    print(f"global ticker {t:<5}", f"{len(ser)} closes, last {ser.index[-1].date()} {ser.iloc[-1]:.2f}" if ser is not None else "NO DATA")
+names = universe.fetch_nifty500_names()
+print("company names:", len(names), {k: names.get(k) for k in ("INFY", "SBIN", "TATASTEEL", "ETERNAL", "HDFCBANK")})
+for sym in ("INFY", "SBIN", "TATASTEEL"):
+    items, source = news.fetch(names.get(sym, sym), sym, date.today())
+    print(f"news {sym}: {source}, {len(items)} relevant headlines")
+    for it in items[:3]:
+        c = news.classify(it["title"]); print(f"    {it['date']} [{c['score']:+d} {c['cue']}] {it['title'][:90]}")
 meetings, actions, st = nse_events.fetch(date.today())
 print("nse", st)
 today = date.today()

@@ -20,7 +20,11 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, macro, nse_events, price_action_board, runtime, secure, universe  # noqa: E402
+import time  # noqa: E402
+
+import requests  # noqa: E402
+
+from signals import data, macro, news, nse_events, peers, price_action_board, runtime, secure, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -77,9 +81,39 @@ def main() -> None:
     meetings, actions, event_status = nse_events.fetch(datetime.now(IST).date())
     logger.info("Macro sources: %s", macro_status)
     logger.info("NSE events: %s", event_status)
+    # Stock-specific context: company names for the news search, and fetchers that run only for the stocks that end up on the list.
+    try:
+        names = universe.fetch_nifty500_names()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Company names failed (%s) - the news search will use symbols", exc)
+        names = {}
+    session, ticker_cache, today = requests.Session(), {"^GSPC": series.get("spx")}, datetime.now(IST).date()
+    stats = {"tickers": 0, "tickers_ok": 0, "news": 0, "news_ok": 0}
+
+    def global_fn(symbol: str, sector: str | None) -> dict:
+        out = {}
+        for t in peers.tickers_for(symbol, sector) + ["^GSPC"]:
+            if t not in ticker_cache:
+                stats["tickers"] += 1
+                ticker_cache[t] = macro.fetch_ticker(t, session)
+                stats["tickers_ok"] += ticker_cache[t] is not None
+                time.sleep(0.2)
+            if ticker_cache[t] is not None:
+                out["SPX" if t == "^GSPC" else t] = ticker_cache[t]
+        return out
+
+    def news_fn(symbol: str, name: str):
+        stats["news"] += 1
+        time.sleep(0.4)
+        items, source = news.fetch(name, symbol, today, session)
+        stats["news_ok"] += bool(items)
+        return items, source
+
     collected = price_action_board.collect(frames)
     payload, candles = price_action_board.build(frames, fo=fo, sectors=sectors, oi_store=_oi_store(repository), now=datetime.now(IST),
-                                                macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)), collected=collected)
+                                                macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)), collected=collected,
+                                                news_fn=news_fn, names=names, global_fn=global_fn)
+    logger.info("Stock-specific context: %s; %d company names", stats, len(names))
     past = price_action_board.history(collected[1], fo=fo, sectors=sectors)
     m = payload["model"]
     logger.info("As of %s: %d setups from %d stocks. History: %s", payload["asof"], len(payload["setups"]), payload["universe"], json.dumps({k: m.get(k) for k in ("n", "all", "calibration", "base_rate")}))
