@@ -11,8 +11,10 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from signals import macro as macro_ctx
 from signals import price_action as pa
 from signals import price_action_model as pm
+from signals import stock_context as sc
 
 FRESH_DAYS = 4            # a trigger stays on the list this many sessions, while the plan still holds from the current price
 CHART_BARS = 330          # daily candles per chart: enough to see a 65-week cup
@@ -78,9 +80,13 @@ def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, cal
 
 
 def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: dict[str, str] | None = None, oi_store: dict | None = None,
-          now: datetime | None = None, p: pa.Params = pa.Params()) -> tuple[dict, dict]:
-    """-> (setups.json payload, setups_candles.json payload)."""
+          now: datetime | None = None, p: pa.Params = pa.Params(), macro_factors: dict | None = None, events: tuple | None = None) -> tuple[dict, dict]:
+    """-> (setups.json payload, setups_candles.json payload). `macro_factors` = signals.macro.readings(...) and `events` = (board meetings,
+    corporate actions, calendar readable?) are optional context for the selected stock; without them those sections say there is no data."""
     fo, sectors = fo or set(), sectors or {}
+    macro_factors = macro_factors or {}
+    meetings, actions, calendar_ok = events or ({}, {}, False)
+    flows = sc.sector_flows(frames, sectors)
     ctx = pm.context(frames)
     ev, scans = pm.collect(frames, ctx, p)
     listed = pm.closed(ev, p.min_rr)
@@ -136,7 +142,9 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 "p": round(prob * 100, 1) if prob is not None else None, "breakeven": round(-miss / (t["rr"] - miss) * 100, 1),
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
                 "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
-                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])), "geo": t["geo"]})
+                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])),
+                "macro": macro_ctx.assess(sectors.get(symbol), t["side"], macro_factors), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
+                "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "geo": t["geo"]})
         if added:
             tail = df.tail(CHART_BARS)
             candles[symbol] = {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(tail.index).normalize()],
@@ -144,5 +152,6 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     rows.sort(key=lambda r: (-r["rr"], r["risk_pct"], r["symbol"]))
     now = now or datetime.now()
     payload = {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(timespec="seconds"), "universe": len(frames), "fo_count": sum(1 for s in frames if s in fo),
-               "min_rr": p.min_rr, "market_up": bool(ctx["mkt50"].iloc[-1]), "model": summary, "setups": rows}
+               "min_rr": p.min_rr, "market_up": bool(ctx["mkt50"].iloc[-1]), "model": summary,
+               "context": {"macro": list(macro_factors.values()), "sectors": flows, "calendar": bool(calendar_ok)}, "setups": rows}
     return payload, {"asof": payload["asof"], "stocks": candles}

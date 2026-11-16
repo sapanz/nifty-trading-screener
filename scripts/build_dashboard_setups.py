@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signals import data, price_action_board, runtime, secure, universe  # noqa: E402
+from signals import data, macro, nse_events, price_action_board, runtime, secure, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -66,7 +66,19 @@ def main() -> None:
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
-    payload, candles = price_action_board.build(frames, fo=fo, sectors=sectors, oi_store=_oi_store(repository), now=datetime.now(IST))
+    # Optional context for the selected stock - each source fails soft and the page says what is missing.
+    series, macro_status = macro.fetch_global()
+    for key, index_key in (("nifty", "NSE_INDEX|Nifty 50"), ("vix", "NSE_INDEX|India VIX")):
+        try:
+            series[key] = client.get_daily_history(index_key, years=1)["close"]
+            macro_status[key] = "upstox"
+        except Exception as exc:  # noqa: BLE001
+            macro_status[key] = f"upstox: {type(exc).__name__}"
+    meetings, actions, event_status = nse_events.fetch(datetime.now(IST).date())
+    logger.info("Macro sources: %s", macro_status)
+    logger.info("NSE events: %s", event_status)
+    payload, candles = price_action_board.build(frames, fo=fo, sectors=sectors, oi_store=_oi_store(repository), now=datetime.now(IST),
+                                                macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)))
     m = payload["model"]
     logger.info("As of %s: %d setups from %d stocks. History: %s", payload["asof"], len(payload["setups"]), payload["universe"], json.dumps({k: m.get(k) for k in ("n", "all", "calibration", "base_rate")}))
     for row in m.get("by_kind", []):

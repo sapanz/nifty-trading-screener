@@ -44,25 +44,31 @@ def parse_actions(rows: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
-def fetch() -> tuple[dict[str, list[dict]], dict[str, list[dict]], dict[str, str]]:
-    """(board meetings by symbol, corporate actions by symbol, {source: status}). Never raises."""
+def fetch(today: date | None = None, ahead: int = 21, back: int = 7) -> tuple[dict[str, list[dict]], dict[str, list[dict]], dict[str, str]]:
+    """(board meetings by symbol, corporate actions by symbol, {source: status}) for `back` days ago to `ahead` days from now. Never raises.
+    Each list is asked for that date range first; if the exchange refuses the range, its default (shorter) list is used."""
     session = requests.Session()
     status = {}
+    lo, hi = window(today or date.today(), ahead, back)
+    rng = f"from_date={lo.strftime('%d-%m-%Y')}&to_date={hi.strftime('%d-%m-%Y')}"
     try:
         session.get("https://www.nseindia.com", headers=HEADERS, timeout=20)
     except requests.RequestException as exc:
         logger.warning("NSE cookies: %s", exc)
     results = []
     for name, url, parse in (("calendar", CALENDAR_URL, parse_calendar), ("actions", ACTIONS_URL, parse_actions)):
-        try:
-            resp = session.get(url, headers=HEADERS, timeout=25)
-            resp.raise_for_status()
-            parsed = parse(resp.json())
-            status[name] = f"ok: {sum(len(v) for v in parsed.values())} rows, {len(parsed)} symbols"
-            results.append(parsed)
-        except Exception as exc:  # noqa: BLE001
-            status[name] = f"failed: {type(exc).__name__} {str(exc)[:80]}"
-            results.append({})
+        parsed, note = {}, ""
+        for attempt in (url + ("&" if "?" in url else "?index=equities&") + rng, url):
+            try:
+                resp = session.get(attempt, headers=HEADERS, timeout=25)
+                resp.raise_for_status()
+                got = parse(resp.json())
+                if len(got) > len(parsed):
+                    parsed, note = got, "range" if attempt != url else "default list"
+            except Exception as exc:  # noqa: BLE001
+                note = note or f"failed: {type(exc).__name__} {str(exc)[:80]}"
+        status[name] = f"ok ({note}): {sum(len(v) for v in parsed.values())} rows, {len(parsed)} symbols" if parsed else (note or "failed: empty")
+        results.append(parsed)
     return results[0], results[1], status
 
 
