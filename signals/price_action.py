@@ -32,11 +32,11 @@ import pandas as pd
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup", "multiyear", "double", "hs", "triple", "flag")
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "double", "hs", "triple", "flag", "candle")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
          ("multiyear", "long"): "Multi-year breakout", ("double", "long"): "W pattern (double bottom)", ("double", "short"): "M pattern (double top)",
          ("hs", "long"): "Inverse head and shoulders", ("hs", "short"): "Head and shoulders", ("triple", "long"): "Triple bottom", ("triple", "short"): "Triple top",
-         ("flag", "long"): "Bull flag", ("flag", "short"): "Bear flag"}
+         ("flag", "long"): "Bull flag", ("flag", "short"): "Bear flag", ("candle", "long"): "Candle at weekly support", ("candle", "short"): "Candle at weekly resistance"}
 KIND_NAMES = {k: NAMES[(k, "long")] for k in KINDS}                # the long-side name of each kind
 
 
@@ -55,6 +55,9 @@ class Params:
     range_min_width: float = 0.05
     touch_tol: float = 0.03
     cooldown_days: int = 20             # one trigger per stock and kind in this many sessions
+    candle_cooldown: int = 10           # a candle signal at the same zone is not repeated within this many sessions
+    candle_min_range_atr: float = 0.6   # the signal candle's range must be this many ATRs (a doji in a tight range is noise)
+    candle_arrive_back: int = 6         # the zone must have been reached from outside: the close this many sessions earlier was beyond it
     zone_impulse_atr: float = 2.0
     zone_expiry_weeks: int = 104
     near_pct: float = 3.0               # "pending": the close is within this % below the breakout level
@@ -321,6 +324,84 @@ def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Param
     return found
 
 
+# ---------------------------------------------------------------- reversal candles at a zone
+CANDLE_NAMES = {"long": {"hammer": "Hammer", "engulfing": "Bullish engulfing", "piercing": "Piercing line", "star": "Morning star"},
+                "short": {"hammer": "Shooting star", "engulfing": "Bearish engulfing", "piercing": "Dark cloud cover", "star": "Evening star"}}
+
+
+def reversal_candle(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, i: int, atr: float, min_range_atr: float = 0.6, side: str = "long") -> dict | None:
+    """The bullish reversal candle that ends at session i, or None: hammer, bullish engulfing, piercing line or morning star (the first that applies).
+    The bearish ones are the same function on NEGATED prices (open, close -> -open, -close; high, low -> -low, -high), so every wick and body
+    keeps its size and the two sides are exact mirrors. `side` only words the explanation for the real chart. Returns {"kind", "low" (the lowest
+    low of the candles in the pattern, in the mirrored world), "why"}."""
+    short = side == "short"
+    up, down, wick, color, pcolor = ("lower", "upper", "lower wick", "green", "red") if not short else ("upper", "lower", "upper wick", "red", "green")
+    rng = h[i] - l[i]
+    if i < 3 or not rng > 0 or not atr > 0 or rng < min_range_atr * atr:
+        return None
+    body, lower, upper = abs(c[i] - o[i]), min(o[i], c[i]) - l[i], h[i] - max(o[i], c[i])
+    p_body = abs(c[i - 1] - o[i - 1])
+    p_red, p_green = c[i - 1] < o[i - 1], c[i] > o[i]
+    # engulfing: a red candle with a real body, then a green one whose body covers it
+    if p_red and c[i] > o[i] and p_body >= 0.3 * atr and o[i] <= c[i - 1] and c[i] >= o[i - 1] and body > p_body:
+        return {"kind": "engulfing", "low": float(min(l[i], l[i - 1])), "why": f"its {color} body ({body:,.2f}) swallowed the previous {pcolor} one ({p_body:,.2f})"}
+    # piercing line: red candle with a real body, opens below its close, closes back through its midpoint without passing its open
+    mid = (o[i - 1] + c[i - 1]) / 2
+    if p_red and p_green and p_body >= 0.5 * atr and o[i] < c[i - 1] and mid < c[i] < o[i - 1]:
+        return {"kind": "piercing", "low": float(min(l[i], l[i - 1])), "why": (f"it opened {'above' if short else 'below'} the previous close and closed back {'below' if short else 'above'} that {pcolor} candle's midpoint ({abs(mid):,.2f})")}
+    # morning star: long red, a small candle below it, then a green close back above the red one's midpoint
+    mid1 = (o[i - 2] + c[i - 2]) / 2
+    if (c[i - 2] < o[i - 2] and abs(c[i - 2] - o[i - 2]) >= 0.5 * atr and abs(c[i - 1] - o[i - 1]) <= 0.4 * abs(c[i - 2] - o[i - 2])
+            and max(o[i - 1], c[i - 1]) <= c[i - 2] + 0.1 * atr and p_green and c[i] > mid1):
+        return {"kind": "star", "low": float(min(l[i], l[i - 1], l[i - 2])), "why": f"a long {pcolor} candle, a small candle {'above' if short else 'below'} it, then a {color} close back {'below' if short else 'above'} the first one's midpoint"}
+    # hammer: a small body in the top third of the range, a lower wick at least twice the body, almost no upper wick
+    if lower >= 2 * max(body, 0.05 * rng) and upper <= 0.35 * lower and min(o[i], c[i]) >= l[i] + 0.55 * rng:
+        return {"kind": "hammer", "low": float(l[i]), "why": f"{'an' if short else 'a'} {wick} of {lower:,.2f} against a body of {body:,.2f}: {'buyers pushed it up and sellers' if short else 'sellers pushed it down and buyers'} took all of it back"}
+    return None
+
+
+def candle_triggers(d: dict, zones: list[dict], dates: pd.DatetimeIndex, wk_of: np.ndarray, wH: np.ndarray, wL: np.ndarray, side: str, p: Params) -> list[dict]:
+    """Reversal candles that form as price reaches a live weekly zone of the side (demand for a long, supply for a short). The mirror is exact:
+    for a short everything is negated, which turns a supply zone into a demand zone and a bearish candle into a bullish one."""
+    sg, buf, n = (1 if side == "long" else -1), p.stop_buffer_pct / 100, len(dates)
+    o, h, l, c = (sg * d["o"], sg * d["h"], sg * d["l"], sg * d["c"]) if sg == 1 else (-d["o"], -d["l"], -d["h"], -d["c"])
+    tr = np.maximum(h - l, np.maximum(np.abs(h - np.r_[c[0], c[:-1]]), np.abs(l - np.r_[c[0], c[:-1]])))
+    atr = pd.Series(tr).rolling(14).mean().to_numpy()
+    out = []
+    for z in zones:
+        lo, hi = (z["lo"], z["hi"]) if sg == 1 else (-z["hi"], -z["lo"])            # in the mirrored world the zone is always a demand zone: lo < hi
+        start = int(dates.searchsorted(z["known"], side="right"))
+        end = min(n, int(dates.searchsorted(z["known"] + pd.Timedelta(weeks=p.zone_expiry_weeks), side="right")))
+        shown = {"from": z["formed"].strftime("%Y-%m-%d"), "to": None, "level": round(max(z["hi"], z["lo"]), 2), "base": round(min(z["hi"], z["lo"]), 2)}
+        for i in range(max(start, 260, p.candle_arrive_back + 1), end):
+            if c[i] < lo - abs(lo) * buf:
+                break                                                                 # a close beyond the far edge: the zone failed
+            if not (l[i] <= hi and h[i] >= lo and c[i] >= lo):                        # the candle must reach the zone and not close under it
+                continue
+            if not c[i - p.candle_arrive_back] > hi:                                  # it must have come from outside: a pullback to the zone
+                continue
+            sig = reversal_candle(o, h, l, c, i, float(atr[i]), p.candle_min_range_atr, side)
+            if sig is None:
+                continue
+            stop_m = sig["low"] - abs(sig["low"]) * buf                               # just beyond the pattern's extreme (mirrored world)
+            name = CANDLE_NAMES[side][sig["kind"]]
+            w = int(wk_of[i])
+            if w < 40:
+                continue
+            real_low = sg * stop_m if sg == 1 else -stop_m                            # back to real prices
+            out.append({"i": i, "w": w, "zone": z, "name": name, "kind_code": sig["kind"], "stop": float(real_low), "level": float(shown["level"] if sg == 1 else shown["base"]),
+                        "geo": {**shown, "candle": name, "candle_date": dates[i].strftime("%Y-%m-%d")},
+                        "why": f"{name} at the weekly {'support' if sg == 1 else 'resistance'} zone {shown['base']:,.1f}-{shown['level']:,.1f} (formed {z['formed'].strftime('%d %b %Y')}, thrust {z['impulse']:.1f} ATR): "
+                               f"{sig['why']}; the day {'low' if sg == 1 else 'high'} reached the zone and it closed {d['c'][i]:,.1f}"})
+    out.sort(key=lambda t: (t["i"], t["zone"]["formed"]))                           # the cooldown is applied in date order, whatever order the zones came in
+    kept, last = [], -10 ** 9
+    for t in out:
+        if t["i"] - last >= p.candle_cooldown:
+            kept.append(t)
+            last = t["i"]
+    return kept
+
+
 # ---------------------------------------------------------------- resistance and the plan
 def next_resistance(wH: np.ndarray, w: int, above: float, p: Params) -> float | None:
     """The lowest weekly resistance above `above`, known at week w: confirmed swing highs of the last res_lookback_weeks and the last few weeks' high."""
@@ -485,5 +566,17 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             if pl is not None:
                 pending.append({"kind": "zone", "side": "long", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
                                 "reason": f"{why}; price is in the zone since {dates[entered].strftime('%d %b')} - buy on a daily close back above {hi:,.1f}"})
+    # --- reversal candles at a weekly zone: demand zones give longs, supply zones give shorts
+    for side in ("long", "short"):
+        zs = find_zones(df.set_axis(dates), ZoneParams(side=side, impulse_atr=p.zone_impulse_atr, expiry_weeks=p.zone_expiry_weeks))
+        for t in candle_triggers(d, zs, dates, wk_of, wH, wL, side, p):
+            i, long = t["i"], side == "long"
+            c = d["c"][i]
+            height = abs(t["zone"]["hi"] - t["zone"]["lo"])
+            pl = plan(c, t["stop"], wH, t["w"], height, t["level"], p, side, wL)
+            if pl is None:
+                continue
+            triggers.append({"kind": "candle", "side": side, "i": i, "w": t["w"], "level": t["level"], **pl, "geo": t["geo"], "f": {**_features(d, i), "impulse": t["zone"]["impulse"]},
+                             "reason": t["why"]})
     triggers.sort(key=lambda t: t["i"])
     return triggers, pending

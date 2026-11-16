@@ -276,7 +276,7 @@
     <div id="paHistStats" class="momBanner histOnly" hidden></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
-      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="double">W / M pattern</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option></select></label>
+      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="double">W / M pattern</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="candle">Candle at support / resistance</option></select></label>
       <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
       <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
@@ -1933,10 +1933,10 @@
     }
     for (var sl = Math.floor(m / 12); sl < m; sl += Math.ceil(m / 6)) svg.appendChild(svgEl("text", { x: x(sl), y: H - 8, "text-anchor": "middle" }, shortDate(dd[sl]) + " " + dd[sl].slice(2, 4)));
     var acc = "var(--accent)";
-    if (s.kind === "zone") {                                         // the weekly support zone, from the week it formed to the right edge
-      var zx = x(xi(g.from)) - pw / N * 0.5;
+    if (s.kind === "zone" || s.kind === "candle") {                  // the weekly zone, from the week it formed to the right edge
+      var zx = x(xi(g.from)) - pw / N * 0.5, zshort = s.side === "short";
       svg.appendChild(svgEl("rect", { x: zx, y: y(g.level), width: right - zx, height: Math.max(y(g.base) - y(g.level), 2), fill: acc, "fill-opacity": "0.16", stroke: acc, "stroke-opacity": "0.7" }));
-      svg.appendChild(svgEl("text", { x: zx + 4, y: y(g.base) + 12, style: "fill:" + acc + ";font-weight:600" }, "Weekly support zone " + paPx(g.base) + "–" + paPx(g.level)));
+      svg.appendChild(svgEl("text", { x: zx + 4, y: zshort ? y(g.level) - 5 : y(g.base) + 12, style: "fill:" + acc + ";font-weight:600" }, "Weekly " + (zshort ? "resistance" : "support") + " zone " + paPx(g.base) + "–" + paPx(g.level)));
     } else if (s.kind === "range") {
       var rx0 = x(xi(g.from)) - pw / N * 0.5, rx1 = x(xi(g.to)) + pw / N * 0.5;
       svg.appendChild(svgEl("rect", { x: rx0, y: y(g.level), width: rx1 - rx0, height: Math.max(y(g.base) - y(g.level), 2), fill: acc, "fill-opacity": "0.08", stroke: acc, "stroke-dasharray": "5 3" }));
@@ -1973,8 +1973,16 @@
       svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
       svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
     });
+    if (g.candle_date) {                                             // the signal candle: a marker and its name
+      var ci = xi(g.candle_date), cc = cs[ci], cshort = s.side === "short";
+      if (cc) {
+        var cx = x(ci), cy = cshort ? y(cc[1]) - 7 : y(cc[2]) + 7, tri = cshort ? [cx - 5, cy - 7, cx + 5, cy - 7, cx, cy] : [cx - 5, cy + 7, cx + 5, cy + 7, cx, cy];
+        svg.appendChild(svgEl("polygon", { points: tri.join(","), fill: acc }));
+        svg.appendChild(svgEl("text", { x: Math.min(cx, right - 80), y: cshort ? cy - 11 : cy + 20, "text-anchor": cx > right - 100 ? "end" : "middle", style: "fill:" + acc + ";font-weight:700;font-size:11px" }, g.candle));
+      }
+    }
     var labels = [{ p: s.target, t: "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
-    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "zone" ? "Zone top" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
+    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "candle" ? "Zone edge" : s.kind === "zone" ? "Zone top" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
     if (hist) {                                                     // where the trade ended
       var ec = hist.R > 0 ? "var(--up)" : "var(--down)", ex = x(xi(hist.exit_date)), ey = y(hist.exit);
       svg.appendChild(svgEl("circle", { cx: ex, cy: ey, r: "5", fill: "var(--panel)", stroke: ec, "stroke-width": "2.5" }));

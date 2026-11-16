@@ -693,6 +693,7 @@ Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov 
 | Triple bottom / **triple top (short)** | three swing lows (highs) within 4% | a close through the neckline |
 | Inverse head and shoulders / **head and shoulders (short)** | a head 3% or more beyond two shoulders that are within 8% of each other; the neckline joins the two rebounds | a close through the neckline |
 | Bull flag / **bear flag (short)** | a pole of 20% or more in 8 weeks or fewer, then 2-6 weeks giving back 3% to half of it | a close through the pole's end |
+| **Candle at weekly support** / **candle at weekly resistance (short)** | a live weekly demand (supply) zone that price has pulled back to from outside, within 6 sessions of arriving | a hammer, bullish engulfing, piercing line or morning star (shooting star, bearish engulfing, dark cloud cover or evening star for a short) whose low (high) reaches the zone and which does not close beyond it |
 
 The bearish shapes are the same detectors run on inverted prices, so the two sides cannot drift apart; a short's stop is above the level, its target the next weekly *support* (or the pattern's height projected down), and shorts are listed only for F&O stocks because a cash short cannot be carried overnight. A head and shoulders outranks a triple, and a triple a double, so the same swing points are named once.
 
@@ -702,6 +703,21 @@ Each row gives the **reason** in words, the entry (the latest close once trigger
 
 **Backtest: past setups.** The Price action tab has a second view, **Backtest: past setups**, for going through history by hand. It lists every setup that would have been on the list in the past (planned reward : risk of 1.5 or more, 2021 on), each traded by the same rule as the statistics above - entry at the next session's open, the planned stop and target (the stop counts if one candle touches both), an exit at the close after 60 sessions if neither is reached, 0.10% round-trip costs - with how it ended and the result in R (1R = the amount risked). Pick a **year** (or all), a **kind of setup**, **direction**, **F&O only**, **reward : risk**, **risk**, and a **result** (target hit, stopped, time exit, profit, loss, still open); the line above the table gives the result of exactly the trades you selected (hit rate, share in profit, average R, total R, profit factor, sessions held), so you can compare kinds, years and directions yourself. Open any row for the daily chart cut a few sessions after the exit - the structure, the entry, the stop and target and a ring where the trade ended - with a Daily / Weekly toggle, the reason it was listed and what happened, and **Previous / Next** (or the arrow keys) to step through the list. The data is `setups_hist/<year>.json` plus one small candle file per stock (`setups_hist/c/<symbol>.json`, loaded when a row is opened) on the `dashboard-setups` branch, built nightly by `price_action_board.history`. Only stocks listed today are in it (survivorship bias flatters longs and works against shorts).
 
+**Candles at support.** A reversal candle at a live weekly zone is a classic confirmation, so it is tested like everything else. The signal candle must form as price pulls back to a weekly demand zone (supply zone for a short) from outside it, reach the zone without closing beyond its far edge, and be big enough to matter (a range of at least 0.6 ATR); the stop goes just beyond the candle's extreme, the target is the next weekly resistance (support for a short), and the chart marks the candle with a triangle and its name. The bearish candles are the bullish ones run on negated prices, so the two sides are exact mirrors, and a cooldown of 10 sessions keeps one signal per stretch. Result over the same history:
+
+| Candle | Trades | Reached target | Average per trade | PF |
+|---|---|---|---|---|
+| Hammer | 469 | 31% | +0.01R | 1.01 |
+| Piercing line | 66 | 41% | +0.13R | 1.19 |
+| Bullish engulfing | 62 | 39% | +0.09R | 1.15 |
+| Morning star | 26 | 35% | -0.36R | 0.68 |
+| Shooting star (short) | 454 | 26% | +0.02R | 1.02 |
+| Dark cloud cover (short) | 124 | 23% | -0.20R | 0.75 |
+| Bearish engulfing (short) | 114 | 23% | -0.30R | 0.62 |
+| Evening star (short) | 46 | 33% | -0.02R | 0.97 |
+
+So a reversal candle at weekly support is **not an edge on its own**: all candles at support together made +0.02R a trade, the plain hammer (the most common signal) +0.01R, the better-looking piercing line and bullish engulfing +0.13R and +0.09R on only 66 and 62 trades, and the morning star lost. Candles at resistance for shorts did worse. A candle is best read as one more tag on a setup you already like, with its own record shown on the row. (A first run showed candles at support at +0.10R; that came from a bug that dropped signals depending on the order zones were processed in, found and fixed before release, and the corrected figure is the one above.)
+
 **Context when you open a stock** - three blocks under the chart, each line with its reason, none of them inside the probability:
 
 - **Global macro** (`signals/macro.py`): S&P 500, Nasdaq 100, US 10-year yield, Dollar index, Brent crude and USD/INR (daily closes from Yahoo's chart API, Stooq as a fallback) plus Nifty 50 and India VIX from Upstox. A factor is rising when it is above its 50-session average and higher than 20 sessions ago, falling when both are the other way, otherwise sideways. Five factors apply to every stock (global equities, the dollar, US yields, the Indian market, India VIX) and each sector adds its own with the reason - IT and pharma bill in dollars so a weaker rupee helps; crude is a cost for autos, FMCG, chemicals, cement and logistics; metals are priced in dollars; lenders and property are rate-sensitive; for oil and gas crude cuts both ways and is not counted. The verdict is Supportive / Mixed / Against by how many factors are with the trade (flipped for a short). These are rules of thumb, not backtested.
@@ -710,25 +726,27 @@ Each row gives the **reason** in words, the entry (the latest close once trigger
 
 Every source fails soft (a missing factor shows as "no data" and counts neither way); `scripts/probe_context_sources.py` (workflow **Context sources probe**, no login) reports which ones answer.
 
-What the history says (F&O stocks, Dec 2021 - Nov 2026, 3,092 setups with reward : risk of 1.5 or more, costs included): **-0.01R a trade, profit factor 0.99** overall - longs +0.04R (2,534), **shorts -0.23R (558)**.
+What the history says (F&O stocks, Dec 2021 - Nov 2026, 4,453 setups with reward : risk of 1.5 or more, costs included): **-0.02R a trade, profit factor 0.98** overall - longs +0.03R (3,157), **shorts -0.14R (1,296)**.
 
 | Setup | Trades | Reached target | Average per trade | PF |
 |---|---|---|---|---|
-| Multi-year breakout | 164 | 9% | **+0.33R** | 1.43 |
+| Multi-year breakout | 164 | 9% | +0.33R | 1.43 |
 | Weekly support zone | 92 | 43% | +0.11R | 1.15 |
 | Triangle breakout | 275 | 32% | +0.10R | 1.14 |
 | Bull flag | 416 | 16% | +0.07R | 1.08 |
 | Weekly range breakout | 1,093 | 23% | +0.03R | 1.04 |
-| Cup and handle | 189 | 17% | 0.00R | 1.00 |
-| M pattern (short) | 258 | 22% | -0.05R | 0.94 |
+| Candle at weekly support | 623 | 33% | +0.02R | 1.02 |
+| Cup and handle | 189 | 17% | +0.00R | 1.00 |
+| M pattern (double top) (short) | 258 | 22% | -0.05R | 0.94 |
+| Candle at weekly resistance (short) | 738 | 26% | -0.07R | 0.91 |
 | Triple top (short) | 82 | 18% | -0.10R | 0.87 |
-| W pattern | 200 | 27% | -0.15R | 0.79 |
+| W pattern (double bottom) | 200 | 27% | -0.15R | 0.79 |
 | Inverse head and shoulders | 36 | 19% | -0.21R | 0.76 |
 | Triple bottom | 69 | 20% | -0.31R | 0.61 |
 | Bear flag (short) | 183 | 13% | -0.46R | 0.49 |
 | Head and shoulders (short) | 35 | 11% | -0.67R | 0.33 |
 
-By year: 2022 -0.11R, **2023 +0.61R**, 2024 -0.22R, 2025 -0.30R, 2026 -0.21R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short lost - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout reaches its far target only 9% of the time; its result comes from trades that were closed in profit at the 60-session time exit. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
+By year: 2021 -0.30R, 2022 -0.07R, 2023 +0.41R, 2024 -0.18R, 2025 -0.17R, 2026 -0.15R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short type lost or only broke even - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout reaches its far target only 9% of the time; its result comes from trades that were closed in profit at the 60-session time exit. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
 
 ### What the 6-year research found (Nov 2026)
 

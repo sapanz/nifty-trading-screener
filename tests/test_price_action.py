@@ -190,7 +190,10 @@ def test_trigger_is_a_close_above_the_level_with_the_stop_under_it():
             sg = 1 if t["side"] == "long" else -1
             assert sg * (c[i] - t["stop"]) > 0 and sg * (t["target"] - c[i]) > 0 and P.min_risk_pct <= t["risk_pct"] <= P.max_risk_pct
             assert abs(t["rr"] - (t["target"] - c[i]) / (c[i] - t["stop"])) < 1e-9 and (t["kind"], t["side"]) in pa.NAMES
-            if t["side"] == "short":
+            if t["kind"] == "candle":
+                assert (t["stop"] < l[i]) if t["side"] == "long" else (t["stop"] > h[i])                      # beyond the signal candle's extreme
+                assert t["geo"]["candle"] and t["geo"]["candle_date"] == df.index[i].strftime("%Y-%m-%d") and t["reason"].startswith(t["geo"]["candle"])
+            elif t["side"] == "short":
                 assert c[i] < t["level"] and t["stop"] >= max(t["level"], h[i])
             elif t["kind"] != "zone":
                 assert c[i] > t["level"] and t["stop"] <= min(t["level"], l[i])
@@ -203,7 +206,7 @@ def test_one_trigger_per_kind_inside_the_cooldown():
     for seed in range(6):
         last = {}
         for t in pa.scan_stock(_daily(seed))[0]:
-            assert t["i"] - last.get((t["kind"], t["side"]), -10 ** 9) >= P.cooldown_days
+            assert t["i"] - last.get((t["kind"], t["side"]), -10 ** 9) >= (P.candle_cooldown if t["kind"] == "candle" else P.cooldown_days)
             last[(t["kind"], t["side"])] = t["i"]
 
 
@@ -509,3 +512,87 @@ def test_history_candles_are_compact_and_decode_to_the_same_dates():
     decoded = [(pb.EPOCH + pd.Timedelta(days=d)).strftime("%Y-%m-%d") for d in h["o"]]
     assert decoded == [d.strftime("%Y-%m-%d") for d in df.index]
     assert h["c"][0] == [round(float(x), 2) for x in df[["open", "high", "low", "close"]].iloc[0]]
+
+
+# ---------------------------------------------------------------- reversal candles at a zone
+def _candles(rows):
+    a = np.array(rows, float)
+    return a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+
+
+BASE = [[100, 101, 99, 99.5]] * 5                                    # quiet candles: ATR 2
+
+
+def _sig(extra, i=None, side="long"):
+    o, h, l, c = _candles(BASE + extra)
+    return pa.reversal_candle(o, h, l, c, (len(c) - 1) if i is None else i, 2.0, 0.6, side)
+
+
+def test_hammer_has_a_long_lower_wick_a_top_third_body_and_no_upper_wick():
+    r = _sig([[96, 96.3, 92, 96.2]])                                 # body 0.2, lower wick 4.0, upper 0.1
+    assert r["kind"] == "hammer" and r["low"] == 92 and "lower wick of 4.00 against a body of 0.20" in r["why"]
+    assert _sig([[96, 100, 92, 96.2]]) is None                        # a long upper wick: not a hammer
+    assert _sig([[93, 93.2, 92.2, 93.1]]) is None                     # range 1.0 < 0.6 ATR (1.2): too small to matter
+    assert _sig([[95, 96, 92, 93]]) is None                           # body in the bottom of the range: no rejection of lower prices
+
+
+def test_bullish_engulfing_needs_a_real_red_candle_covered_by_a_bigger_green_body():
+    r = _sig([[100, 100.5, 96, 96.5], [96, 102, 95.5, 101]])         # red body 3.5, then green 96 -> 101 covers 100 -> 96.5
+    assert r["kind"] == "engulfing" and r["low"] == 95.5 and "swallowed" in r["why"]
+    assert _sig([[100, 100.5, 96, 96.5], [97, 101, 96.5, 99]]) is None or _sig([[100, 100.5, 96, 96.5], [97, 101, 96.5, 99]])["kind"] != "engulfing"   # closes inside the red body
+    assert _sig([[100, 100.1, 99.9, 99.95], [99.9, 102, 99.5, 101]]) is None or _sig([[100, 100.1, 99.9, 99.95], [99.9, 102, 99.5, 101]])["kind"] != "engulfing"   # the red candle was a doji
+
+
+def test_piercing_line_and_morning_star():
+    r = _sig([[102, 102.5, 97.5, 98], [97, 101.5, 96.5, 100.5]])     # red 102 -> 98 (mid 100), opens below 98, closes 100.5: through the midpoint, under the open
+    assert r["kind"] == "piercing" and "midpoint (100.00)" in r["why"]
+    s = _sig([[104, 104.2, 99.8, 100], [99.2, 99.6, 98.6, 99.0], [99.5, 103.5, 99.3, 103]])      # long red, small star below, green back above the midpoint (102)
+    assert s["kind"] == "star" and s["low"] == 98.6
+
+
+def test_bearish_candles_are_exact_mirrors_in_the_real_chart():
+    def flip(rows):                                                   # a real bearish chart is the bullish one with prices negated (high / low swap)
+        return [[-o, -l, -h, -c] for o, h, l, c in rows]
+    cases = {"hammer": [[96, 96.3, 92, 96.2]], "engulfing": [[100, 100.5, 96, 96.5], [96, 102, 95.5, 101]], "piercing": [[102, 102.5, 97.5, 98], [97, 101.5, 96.5, 100.5]]}
+    for kind, rows in cases.items():
+        bull = _sig(rows)
+        o, h, l, c = _candles([[-x for x in b] for b in flip(BASE)] + flip(rows))                        # the mirrored chart seen from the short side
+        bear = pa.reversal_candle(-o, -l, -h, -c, len(c) - 1, 2.0, 0.6, "short")                          # the function negates it back: same pattern
+        assert bear["kind"] == bull["kind"] == kind and abs(bear["low"] - bull["low"]) < 1e-9
+    assert "upper wick" in bear["why"] or kind != "hammer"
+    o, h, l, c = _candles([[100, 101, 99, 100.5]] * 5 + [[104, 108.3, 103.8, 104.2]])                   # shooting star: long UPPER wick, small body at the bottom
+    s = pa.reversal_candle(-o, -l, -h, -c, 5, 2.0, 0.6, "short")
+    assert s["kind"] == "hammer" and "upper wick of 4.10" in s["why"] and "buyers pushed it up and sellers took all of it back" in s["why"]
+    assert pa.CANDLE_NAMES["short"]["hammer"] == "Shooting star" and pa.CANDLE_NAMES["long"]["engulfing"] == "Bullish engulfing"
+
+
+def test_candle_triggers_need_a_live_zone_a_pullback_and_respect_the_cooldown_in_date_order():
+    n = 330
+    idx = pd.bdate_range("2023-01-02", periods=n)
+    c = np.full(n, 120.0)
+    c[:] = np.concatenate([np.full(230, 120.0), np.linspace(120, 101, 40), np.full(n - 270, 101.0)])      # a slow pullback that arrives at the zone around session 262
+    o, h, l = c.copy(), c + 1.0, c - 1.0
+    for k in (272, 275):                                              # two hammers 3 sessions apart at the zone
+        o[k], h[k], l[k], c[k] = 100.4, 100.7, 96.0, 100.6
+    d = {"o": o, "h": h, "l": l, "c": c}
+    zones = [{"lo": 97.0, "hi": 102.0, "known": idx[100], "formed": idx[95], "impulse": 3.0}, {"lo": 98.0, "hi": 103.0, "known": idx[120], "formed": idx[110], "impulse": 2.0}]
+    wk_of = np.maximum(np.arange(n) // 5 - 1, 0)
+    wH = np.full(n // 5 + 2, 130.0)
+    out = pa.candle_triggers(d, zones, idx, wk_of, wH, wH - 2, "long", P)
+    assert [t["i"] for t in out] == [272]                              # the second hammer is inside the cooldown, and two zones do not double count
+    assert out[0]["name"] == "Hammer" and out[0]["stop"] < 96.0 and out[0]["geo"]["candle_date"] == idx[272].strftime("%Y-%m-%d")
+    assert pa.candle_triggers(d, zones[::-1], idx, wk_of, wH, wH - 2, "long", P)[0]["i"] == 272      # zone order does not matter
+    c2 = c.copy(); c2[268] = 94.0                                      # a close under the far edge first: the zone has failed
+    assert pa.candle_triggers({**d, "c": c2}, zones[:1], idx, wk_of, wH, wH - 2, "long", P) == []
+    flat = {**d, "c": np.full(n, 101.0), "o": np.full(n, 101.0), "h": np.full(n, 102.0), "l": np.full(n, 100.0)}
+    assert pa.candle_triggers({**flat, "l": np.where(np.arange(n) == 272, 96.0, 100.0)}, zones[:1], idx, wk_of, wH, wH - 2, "long", P) == []        # never came from outside the zone
+
+
+def test_candle_kind_flows_through_the_model_and_board():
+    assert "candle" in pa.KINDS and ("candle", "long") in pa.NAMES and ("candle", "short") in pa.NAMES and "is_candle" in pm.FEATURES
+    frames = {f"S{k:02d}": _daily(k) for k in range(14)}
+    _, ev, _ = pb.collect(frames)
+    if len(ev) and (ev["kind"] == "candle").any():
+        c = ev[ev["kind"] == "candle"]
+        assert c["candle"].notna().all() and set(c["candle"]) <= {n for side in pa.CANDLE_NAMES.values() for n in side.values()}
+        assert ev[ev["kind"] != "candle"]["candle"].isna().all()

@@ -28,6 +28,15 @@ def weekly_chart(df: pd.DataFrame) -> dict:
     return {"d": [d.strftime("%Y-%m-%d") for d in wk.index], "c": [[round(float(x), 2) for x in row] for row in wk[["open", "high", "low", "close"]].to_numpy()]}
 
 
+def setup_name(kind: str, side: str, geo: dict) -> str:
+    """The setup's name as shown: a triangle says which, a candle says which candle and where."""
+    if kind == "triangle":
+        return f"{geo['shape']} triangle breakout"
+    if kind == "candle":
+        return f"{geo['candle']} at weekly {'support' if side == 'long' else 'resistance'}"
+    return pa.NAMES[(kind, side)]
+
+
 def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5, side: str = "long") -> dict | None:
     """What open interest did over the last `sessions` against price: long buildup / short covering / short buildup / long unwinding. "for" says
     whether that agrees with the trade's side."""
@@ -70,6 +79,7 @@ def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, cal
                by_kind=[{"kind": k, "side": sd, "name": name, **stat(listed[(listed["kind"] == k) & (listed["side"] == sd)])}
                         for (k, sd), name in pa.NAMES.items() if ((listed["kind"] == k) & (listed["side"] == sd)).any()],
                by_side=[{"side": sd, **stat(listed[listed["side"] == sd])} for sd in ("long", "short") if (listed["side"] == sd).any()],
+               by_candle=[{"side": sd, "candle": nm, **stat(g)} for (sd, nm), g in listed[listed["kind"] == "candle"].groupby(["side", "candle"])],
                by_year=[{"year": int(y), **stat(g)} for y, g in listed.groupby(listed["date"].dt.year)])
     if model:
         out.update(base_rate=round(model["base_rate"] * 100, 1), miss_r=round(model["miss_r"], 2), weights={f: round(b, 2) for f, b in zip(model["features"], model["beta"][1:])})
@@ -101,7 +111,7 @@ def history(ev: pd.DataFrame, fo: set[str] | None = None, sectors: dict[str, str
     for r in ev[ev["rr"] >= min_rr].sort_values(["date", "symbol"]).itertuples():
         sg = -1 if r.side == "short" else 1
         row = {"symbol": r.symbol, "fo": r.symbol in fo, "sector": sectors.get(r.symbol), "kind": r.kind, "side": r.side,
-               "name": f"{r.geo['shape']} triangle breakout" if r.kind == "triangle" else pa.NAMES[(r.kind, r.side)],
+               "name": setup_name(r.kind, r.side, r.geo),
                "date": day(r.date), "entry_date": day(r.entry_date), "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2), "target": round(float(r.target), 2),
                "target_kind": r.target_kind, "rr": round(float(r.rr), 2), "rr_entry": round(float(r.rr_actual), 2), "risk_pct": round(float(sg * (r.entry - r.stop) / r.entry * 100), 2),
                "reward_pct": round(float(sg * (r.target / r.entry - 1) * 100), 2), "out": r.reason, "exit_date": day(r.exit_date), "exit": round(float(r.exit), 2),
@@ -134,6 +144,7 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
     summary = _model_summary(listed, model, v, calibration)
     record = {(r["kind"], r["side"]): {"n": r["n"], "hit": r["hit"], "avg_r": r["avg_r"]} for r in summary.get("by_kind", [])}     # each type's own past result
+    record.update({("candle", r["side"], r["candle"]): {"n": r["n"], "hit": r["hit"], "avg_r": r["avg_r"]} for r in summary.get("by_candle", [])})     # a candle: its own
     rows, candles = [], {}
     for symbol, (triggers, pending) in scans.items():
         df = frames[symbol]
@@ -174,13 +185,13 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 continue
             rows.append({
                 "symbol": symbol, "fo": symbol in fo, "sector": sectors.get(symbol), "kind": t["kind"], "side": t["side"],
-                "name": f"{t['geo']['shape']} triangle breakout" if t["kind"] == "triangle" else pa.NAMES[(t["kind"], t["side"])], "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
+                "name": setup_name(t["kind"], t["side"], t["geo"]), "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
                 "reason": t["reason"], "price": round(float(last), 2), "entry": round(float(t["entry"]), 2), "stop": round(float(t["stop"]), 2), "target": round(float(t["target"]), 2),
                 "target_kind": t["target_kind"], "risk_pct": round(float(t["risk_pct"]), 2), "reward_pct": round(float(t["reward_pct"]), 2), "rr": round(float(t["rr"]), 2),
                 "p": round(prob * 100, 1) if prob is not None else None, "breakeven": round(-miss / (t["rr"] - miss) * 100, 1),
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
                 "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
-                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])),
+                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get(("candle", t["side"], t["geo"].get("candle"))) if t["kind"] == "candle" else record.get((t["kind"], t["side"])),
                 "macro": macro_ctx.assess(sectors.get(symbol), t["side"], macro_factors), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
                 "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "geo": t["geo"]})
         if added:
