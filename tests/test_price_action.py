@@ -332,3 +332,14 @@ def test_board_payload_is_sorted_serialisable_and_consistent():
             assert r["entry"] > r["price"] * 0.999 and r["age"] is None
     assert set(candles["stocks"]) == {r["symbol"] for r in rows}
     assert all(len(v["d"]) == len(v["c"]) <= pb.CHART_BARS for v in candles["stocks"].values())
+    for sym, v in candles["stocks"].items():                                        # the weekly series: Fridays, the forming week last, same last close
+        w = v["w"]
+        assert len(w["d"]) == len(w["c"]) <= pb.WEEKLY_BARS and w["d"] == sorted(w["d"]) and all(pd.Timestamp(d).weekday() == 4 for d in w["d"])
+        assert w["c"][-1][3] == v["c"][-1][3] and w["d"][-1] >= v["d"][-1]
+
+
+def test_weekly_chart_aggregates_days_into_weeks():
+    idx = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-09", "2026-01-12", "2026-01-13"])      # Mon, Tue, Fri | Mon, Tue (week still forming)
+    df = pd.DataFrame({"open": [10, 11, 12, 13, 14], "high": [12, 15, 13, 14, 16], "low": [9, 10, 11, 12, 13], "close": [11, 12, 12.5, 13.5, 15]}, index=idx)
+    w = pb.weekly_chart(df)
+    assert w["d"] == ["2026-01-09", "2026-01-16"] and w["c"] == [[10.0, 15.0, 9.0, 12.5], [13.0, 16.0, 12.0, 15.0]]

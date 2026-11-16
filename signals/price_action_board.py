@@ -16,6 +16,14 @@ from signals import price_action_model as pm
 
 FRESH_DAYS = 4            # a trigger stays on the list this many sessions, while the plan still holds from the current price
 CHART_BARS = 330          # daily candles per chart: enough to see a 65-week cup
+WEEKLY_BARS = 160         # weekly candles per chart: the three years the resistance levels are taken from
+
+
+def weekly_chart(df: pd.DataFrame) -> dict:
+    """Weekly candles for the chart, stamped with their Friday, the week still forming included (the last bar)."""
+    idx = pd.DatetimeIndex(df.index).normalize()
+    wk = df.set_axis(idx).resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna(subset=["close"]).tail(WEEKLY_BARS)
+    return {"d": [d.strftime("%Y-%m-%d") for d in wk.index], "c": [[round(float(x), 2) for x in row] for row in wk[["open", "high", "low", "close"]].to_numpy()]}
 
 
 def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5) -> dict | None:
@@ -118,7 +126,7 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
         if added:
             tail = df.tail(CHART_BARS)
             candles[symbol] = {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(tail.index).normalize()],
-                               "c": [[round(float(x), 2) for x in row] for row in tail[["open", "high", "low", "close"]].to_numpy()]}
+                               "c": [[round(float(x), 2) for x in row] for row in tail[["open", "high", "low", "close"]].to_numpy()], "w": weekly_chart(df)}
     rows.sort(key=lambda r: (-r["rr"], r["risk_pct"], r["symbol"]))
     now = now or datetime.now()
     payload = {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(timespec="seconds"), "universe": len(frames), "fo_count": sum(1 for s in frames if s in fo),
