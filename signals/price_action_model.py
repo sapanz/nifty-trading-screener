@@ -19,7 +19,8 @@ from signals import price_action as pa
 MAX_HOLD = 60
 COST_PCT = 0.10
 HALF_LIFE_DAYS = 365        # in the fit a setup from a year ago counts half as much as one from today: hit rates drift with the market
-FEATURES = ["log_rr", "risk_pct", "log_vol", "mkt50", "mkt200", "above200", "mom", "off_high", "is_range", "is_triangle", "is_cup"]
+KIND_FLAGS = [k for k in pa.KINDS if k != "zone"]                  # the zone is the baseline kind
+FEATURES = ["log_rr", "risk_pct", "log_vol", "mkt50", "mkt200", "above200", "mom", "off_high", "is_short"] + [f"is_{k}" for k in KIND_FLAGS]
 
 
 # ---------------------------------------------------------------- context shared by all stocks
@@ -32,43 +33,50 @@ def context(frames: dict[str, pd.DataFrame]) -> dict:
 
 
 def _row(symbol: str, t: dict, date: pd.Timestamp, ctx: dict) -> dict:
+    """Features as the trade sees them: for a short the market / trend / momentum columns are flipped, so "1" always means "with the trade" and
+    off_high is the distance from the 52-week extreme behind it (the low for a short)."""
     f = t["f"]
+    short = t.get("side", "long") == "short"
+    flip = (lambda x: 1.0 - x) if short else (lambda x: x)
     mom = ctx["mom"][symbol].get(date, np.nan) if symbol in ctx["mom"] else np.nan
-    return {"symbol": symbol, "kind": t["kind"], "date": date, "rr": t["rr"], "risk_pct": t["risk_pct"], "reward_pct": t["reward_pct"], "target_kind": t["target_kind"],
-            "log_rr": float(np.log(max(t["rr"], 0.05))), "log_vol": float(np.log(np.clip(f["vol"], 0.2, 8))) if not np.isnan(f["vol"]) else np.nan,
-            "vol": f["vol"], "mkt50": float(bool(ctx["mkt50"].get(date, False))), "mkt200": float(bool(ctx["mkt200"].get(date, False))),
-            "above200": f["above200"], "mom": float(mom), "off_high": f["off_high"],
-            "is_range": float(t["kind"] == "range"), "is_triangle": float(t["kind"] == "triangle"), "is_cup": float(t["kind"] == "cup")}
+    row = {"symbol": symbol, "kind": t["kind"], "side": "short" if short else "long", "date": date, "rr": t["rr"], "risk_pct": t["risk_pct"], "reward_pct": t["reward_pct"],
+           "target_kind": t["target_kind"], "log_rr": float(np.log(max(t["rr"], 0.05))), "log_vol": float(np.log(np.clip(f["vol"], 0.2, 8))) if not np.isnan(f["vol"]) else np.nan,
+           "vol": f["vol"], "mkt50": flip(float(bool(ctx["mkt50"].get(date, False)))), "mkt200": flip(float(bool(ctx["mkt200"].get(date, False)))),
+           "above200": flip(f["above200"]), "mom": flip(float(mom)), "off_high": -f["off_low"] if short else f["off_high"], "is_short": float(short)}
+    row.update({f"is_{k}": float(t["kind"] == k) for k in KIND_FLAGS})
+    return row
 
 
 # ---------------------------------------------------------------- one trade
-def outcome(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, i: int, stop: float, target: float, p: pa.Params) -> dict | None:
+def outcome(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, i: int, stop: float, target: float, p: pa.Params, side: str = "long") -> dict | None:
     """Entry at the open of i+1 with the stop and target planned at the close of i. None when the open leaves no trade (already beyond the
-    target or the stop, or the risk from that open is outside the limits)."""
+    target or the stop, or the risk from that open is outside the limits). A short is the mirror (stop above, target below)."""
     n = len(c)
     if i + 1 >= n:
         return None
+    sg = -1 if side == "short" else 1
     entry = o[i + 1]
-    risk = entry - stop
-    if not risk > 0 or entry >= target or not (p.min_risk_pct <= risk / entry * 100 <= p.max_risk_pct):
+    risk = sg * (entry - stop)
+    if not risk > 0 or sg * (target - entry) <= 0 or not (p.min_risk_pct <= risk / entry * 100 <= p.max_risk_pct):
         return None
     last = min(i + 1 + MAX_HOLD, n - 1)
     exit_px, reason, j = c[last], "time" if last == i + 1 + MAX_HOLD else "open", last
     for k in range(i + 1, last + 1):
-        if k > i + 1 and o[k] <= stop:
+        worst, best = (l[k], h[k]) if sg == 1 else (h[k], l[k])
+        if k > i + 1 and sg * (o[k] - stop) <= 0:
             exit_px, reason, j = o[k], "stop", k
             break
-        if l[k] <= stop:
+        if sg * (worst - stop) <= 0:
             exit_px, reason, j = stop, "stop", k
             break
-        if k > i + 1 and o[k] >= target:
+        if k > i + 1 and sg * (o[k] - target) >= 0:
             exit_px, reason, j = o[k], "target", k
             break
-        if h[k] >= target:
+        if sg * (best - target) >= 0:
             exit_px, reason, j = target, "target", k
             break
-    return {"entry": float(entry), "exit": float(exit_px), "R": float((exit_px - entry) / risk - COST_PCT / 100 * entry / risk), "hit": reason == "target", "reason": reason,
-            "bars": j - (i + 1), "rr_actual": float((target - entry) / risk), "entry_i": i + 1, "exit_i": j}
+    return {"entry": float(entry), "exit": float(exit_px), "R": float(sg * (exit_px - entry) / risk - COST_PCT / 100 * entry / risk), "hit": reason == "target", "reason": reason,
+            "bars": j - (i + 1), "rr_actual": float(sg * (target - entry) / risk), "entry_i": i + 1, "exit_i": j}
 
 
 def collect(frames: dict[str, pd.DataFrame], ctx: dict | None = None, p: pa.Params = pa.Params()) -> tuple[pd.DataFrame, dict[str, tuple[list, list]]]:
@@ -84,7 +92,7 @@ def collect(frames: dict[str, pd.DataFrame], ctx: dict | None = None, p: pa.Para
         dates = pd.DatetimeIndex(df.index).normalize()
         o, h, l, c = (df[x].to_numpy(float) for x in ("open", "high", "low", "close"))
         for t in triggers:
-            res = outcome(o, h, l, c, t["i"], t["stop"], t["target"], p)
+            res = outcome(o, h, l, c, t["i"], t["stop"], t["target"], p, t.get("side", "long"))
             if res is None:
                 continue
             rows.append({**_row(symbol, t, dates[t["i"]], ctx), **res, "exit_date": dates[res["exit_i"]], "entry_date": dates[res["entry_i"]]})
@@ -182,19 +190,23 @@ def summarize(ev: pd.DataFrame, p: pa.Params = pa.Params()) -> str:
     done = closed(ev)
     if not len(done):
         return "no setups"
-    lines = [f"Price-action setups (weekly structure, daily trigger, long side). {done['symbol'].nunique()} stocks, {done['date'].min().date()} to {done['date'].max().date()}.",
+    lines = [f"Price-action setups (weekly structure, daily trigger; bullish shapes long, bearish shapes short). {done['symbol'].nunique()} stocks, {done['date'].min().date()} to {done['date'].max().date()}.",
              "Entry at the next open, stop below the zone / back inside the pattern, target = next weekly resistance (or a measured move), 60-session time exit, 0.10% cost.",
              "", "ALL setups:", "  " + _stat(done), f"\nListed setups only (planned reward:risk >= {p.min_rr:g}):"]
     listed = closed(ev, p.min_rr)
     lines.append("  " + _stat(listed))
-    for kind in pa.KINDS:
-        lines.append(f"  {pa.KIND_NAMES[kind]:<24} " + _stat(listed[listed["kind"] == kind]))
+    for (kind, side), name in pa.NAMES.items():
+        g = listed[(listed["kind"] == kind) & (listed["side"] == side)]
+        if len(g):
+            lines.append(f"  {name + (' [short]' if side == 'short' else ''):<34} " + _stat(g))
+    lines.append("  " + "all longs".ljust(34) + " " + _stat(listed[listed["side"] == "long"]))
+    lines.append("  " + "all shorts".ljust(34) + " " + _stat(listed[listed["side"] == "short"]))
     lines.append("\nBy planned reward:risk (all setups):")
     for lo, hi in ((0, 1), (1, 1.5), (1.5, 2.5), (2.5, 4), (4, 99)):
         lines.append(f"  RR {lo:g}-{hi:g}".ljust(26) + _stat(done[(done["rr"] >= lo) & (done["rr"] < hi)]))
     lines.append("\nBy market (listed setups):")
-    lines.append("  market above its 50d avg".ljust(26) + _stat(listed[listed["mkt50"] == 1]))
-    lines.append("  market below its 50d avg".ljust(26) + _stat(listed[listed["mkt50"] == 0]))
+    lines.append("  market with the trade".ljust(26) + _stat(listed[listed["mkt50"] == 1]))
+    lines.append("  market against the trade".ljust(26) + _stat(listed[listed["mkt50"] == 0]))
     lines.append("\nBy year (listed setups): trades / target hit / avg R")
     for year, g in listed.groupby(listed["date"].dt.year):
         lines.append(f"  {year}: {len(g):>4} / {g['hit'].mean():.0%} / {g['R'].mean():+.2f}R")

@@ -680,7 +680,7 @@ Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov 
 
 ### Price action (the fourth mode)
 
-**Price action** lists weekly-structure setups with a daily trigger, long side, for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
+**Price action** lists weekly-structure setups with a daily trigger - bullish shapes as longs, bearish shapes as shorts (F&O stocks only) - for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
 
 | Setup | Structure (completed weekly candles) | Trigger (daily) |
 |---|---|---|
@@ -688,12 +688,37 @@ Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov 
 | Weekly range breakout | 8-40 weeks in a box 5-25% wide with two spaced tests of each side | a close above the top |
 | Triangle breakout | falling or flat swing highs and rising swing lows that converge (symmetric / ascending) | a close above the upper line |
 | Cup and handle | two rims within 8% around a rounded 12-45% dip, then a 2-15% handle in the upper half | a close above the rim |
+| Multi-year breakout | the highest weekly high of the last 2-5 years, set at least 26 weeks ago, price within 15% of it | a close above that high |
+| W pattern (double bottom) / **M pattern (double top, short)** | two swing lows (highs) within 4%, 4-40 weeks apart, a rebound of 8% or more strictly between them, reached from above (below) | a close through the neckline |
+| Triple bottom / **triple top (short)** | three swing lows (highs) within 4% | a close through the neckline |
+| Inverse head and shoulders / **head and shoulders (short)** | a head 3% or more beyond two shoulders that are within 8% of each other; the neckline joins the two rebounds | a close through the neckline |
+| Bull flag / **bear flag (short)** | a pole of 20% or more in 8 weeks or fewer, then 2-6 weeks giving back 3% to half of it | a close through the pole's end |
 
-Each row gives the **reason** in words, the entry (the latest close once triggered, or the level to close above while waiting), the **stop** (just under the zone, or the lower of the breakout level and the trigger day's low), the **target** (the next weekly resistance - a confirmed weekly swing high or the last three weeks' high - or the pattern's height projected up when nothing is overhead, marked `*`), risk %, reward % and **reward : risk**, which is the default sort. Filters: **F&O stocks only**, kind of setup, triggered / waiting, minimum reward : risk, maximum risk, and "probability beats break-even". Click a row for the daily chart: the weekly structure in blue, the reward as a green box from entry to target and the risk as a red box from entry to stop, with the tags for and against it underneath. `signals/price_action.py` holds the detectors (nothing looks ahead: a test cuts the history at arbitrary days and requires the same earlier triggers), `signals/price_action_model.py` the outcomes and the probability, `signals/price_action_board.py` the list.
+The bearish shapes are the same detectors run on inverted prices, so the two sides cannot drift apart; a short's stop is above the level, its target the next weekly *support* (or the pattern's height projected down), and shorts are listed only for F&O stocks because a cash short cannot be carried overnight. A head and shoulders outranks a triple, and a triple a double, so the same swing points are named once.
+
+Each row gives the **reason** in words, the entry (the latest close once triggered, or the level to close above while waiting), the **stop** (just under the zone, or the lower of the breakout level and the trigger day's low), the **target** (the next weekly resistance - a confirmed weekly swing high or the last three weeks' high - or the pattern's height projected up when nothing is overhead, marked `*`), risk %, reward % and **reward : risk**, which is the default sort. Each row also shows **this type's record** - what that kind of setup did in the past (average R per trade and the number of trades). Filters: **F&O stocks only**, kind of setup, **direction** (long / short), triggered / waiting, minimum reward : risk, maximum risk, and "probability beats break-even". Click a row for the chart, with a **Daily / Weekly** toggle (weekly is where the structure is read, daily where the trigger and stop are set): the structure in blue (zone, box, triangle lines, cup, or the swing points and neckline), the reward as a green box from entry to target and the risk as a red box from entry to stop, with the tags for and against it underneath. `signals/price_action.py` holds the detectors (nothing looks ahead: a test cuts the history at arbitrary days and requires the same earlier triggers), `signals/price_action_model.py` the outcomes and the probability, `signals/price_action_board.py` the list.
 
 **Probability** = how often similar past setups reached the target before the stop (entry at the next open, 60-session time exit, 0.10% costs), from a logistic regression on the planned reward : risk and risk %, the trigger day's volume against its 20-day average, the market's trend (equal-weight index against its 50- and 200-session averages), the stock's own trend (above its 200-session average, momentum rank, distance from the 52-week high) and the kind of setup. Setups from a year ago count half as much as today's, and the figure shown is scaled down by how far the model's year-by-year predictions (each year scored by a model fitted only on setups that had already finished) were above what happened. Next to it is the hit rate that reward : risk **needs** to break even. **Open interest is a tag, not an input**: long buildup / short covering / short buildup / long unwinding over the last five sessions, from the swing build's saved OI - there are only a few weeks of it, too little to measure what it adds.
 
-What the history says (F&O stocks, Dec 2021 - Nov 2026, 1,649 setups with reward : risk of 1.5 or more): 25% reached the target, **+0.05R a trade, profit factor 1.06** - roughly break-even. Weekly support zone +0.11R (92 trades), triangle +0.10R (275), range +0.03R (1,093), cup and handle 0.00R (189). By year: 2022 -0.11R, **2023 +0.67R**, 2024 -0.13R, 2025 -0.21R, 2026 -0.30R - one strong year carries the total. The probability orders setups correctly on unseen years (lowest quarter 8% hit, highest 34%) but higher probability did not mean a better result in R, and a bigger reward : risk is reached less often (above 4 : 1 about 15% of the time), so the top of a reward : risk sort is the long shots. Volume on the trigger day raised the hit rate a little; the market's trend did not. It is a planner with honest odds, not an edge. The page's banner shows the same figures for the full universe as of each night's build.
+What the history says (F&O stocks, Dec 2021 - Nov 2026, 3,092 setups with reward : risk of 1.5 or more, costs included): **-0.01R a trade, profit factor 0.99** overall - longs +0.04R (2,534), **shorts -0.23R (558)**.
+
+| Setup | Trades | Reached target | Average per trade | PF |
+|---|---|---|---|---|
+| Multi-year breakout | 164 | 9% | **+0.33R** | 1.43 |
+| Weekly support zone | 92 | 43% | +0.11R | 1.15 |
+| Triangle breakout | 275 | 32% | +0.10R | 1.14 |
+| Bull flag | 416 | 16% | +0.07R | 1.08 |
+| Weekly range breakout | 1,093 | 23% | +0.03R | 1.04 |
+| Cup and handle | 189 | 17% | 0.00R | 1.00 |
+| M pattern (short) | 258 | 22% | -0.05R | 0.94 |
+| Triple top (short) | 82 | 18% | -0.10R | 0.87 |
+| W pattern | 200 | 27% | -0.15R | 0.79 |
+| Inverse head and shoulders | 36 | 19% | -0.21R | 0.76 |
+| Triple bottom | 69 | 20% | -0.31R | 0.61 |
+| Bear flag (short) | 183 | 13% | -0.46R | 0.49 |
+| Head and shoulders (short) | 35 | 11% | -0.67R | 0.33 |
+
+By year: 2022 -0.11R, **2023 +0.61R**, 2024 -0.22R, 2025 -0.30R, 2026 -0.21R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short lost - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout reaches its far target only 9% of the time; its result comes from trades that were closed in profit at the 60-session time exit. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
 
 ### What the 6-year research found (Nov 2026)
 

@@ -26,8 +26,9 @@ def weekly_chart(df: pd.DataFrame) -> dict:
     return {"d": [d.strftime("%Y-%m-%d") for d in wk.index], "c": [[round(float(x), 2) for x in row] for row in wk[["open", "high", "low", "close"]].to_numpy()]}
 
 
-def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5) -> dict | None:
-    """What open interest did over the last `sessions` against price: long buildup / short covering / short buildup / long unwinding."""
+def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5, side: str = "long") -> dict | None:
+    """What open interest did over the last `sessions` against price: long buildup / short covering / short buildup / long unwinding. "for" says
+    whether that agrees with the trade's side."""
     series = ((store or {}).get("oi") or {}).get(symbol)
     if not series:
         return None
@@ -41,7 +42,8 @@ def oi_tag(store: dict | None, symbol: str, close: pd.Series, sessions: int = 5)
     if abs(oi_chg) > 0.5:                                         # a rollover step, not positioning
         return None
     tag = ("long buildup" if oi_chg > 0 else "short covering") if px_chg > 0 else ("short buildup" if oi_chg > 0 else "long unwinding")
-    return {"tag": tag, "oi_chg": round(oi_chg * 100, 1), "px_chg": round(px_chg * 100, 1), "for": tag in ("long buildup", "short covering")}
+    bullish = tag in ("long buildup", "short covering")
+    return {"tag": tag, "oi_chg": round(oi_chg * 100, 1), "px_chg": round(px_chg * 100, 1), "for": bullish if side == "long" else not bullish}
 
 
 def _calibration(v: dict | None) -> float:
@@ -63,7 +65,9 @@ def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, cal
     if not len(listed):
         return out
     out.update(all=stat(listed), first=listed["date"].min().strftime("%Y-%m-%d"), last=listed["date"].max().strftime("%Y-%m-%d"), stocks=int(listed["symbol"].nunique()),
-               by_kind=[{"kind": k, "name": pa.KIND_NAMES[k], **stat(listed[listed["kind"] == k])} for k in pa.KINDS if (listed["kind"] == k).any()],
+               by_kind=[{"kind": k, "side": sd, "name": name, **stat(listed[(listed["kind"] == k) & (listed["side"] == sd)])}
+                        for (k, sd), name in pa.NAMES.items() if ((listed["kind"] == k) & (listed["side"] == sd)).any()],
+               by_side=[{"side": sd, **stat(listed[listed["side"] == sd])} for sd in ("long", "short") if (listed["side"] == sd).any()],
                by_year=[{"year": int(y), **stat(g)} for y, g in listed.groupby(listed["date"].dt.year)])
     if model:
         out.update(base_rate=round(model["base_rate"] * 100, 1), miss_r=round(model["miss_r"], 2), weights={f: round(b, 2) for f, b in zip(model["features"], model["beta"][1:])})
@@ -84,6 +88,8 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     v = pm.validate(listed) if len(listed) else None
     calibration = _calibration(v)
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
+    summary = _model_summary(listed, model, v, calibration)
+    record = {(r["kind"], r["side"]): {"n": r["n"], "hit": r["hit"], "avg_r": r["avg_r"]} for r in summary.get("by_kind", [])}     # each type's own past result
     rows, candles = [], {}
     for symbol, (triggers, pending) in scans.items():
         df = frames[symbol]
@@ -95,34 +101,42 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
         last = close[-1]
         found = []
         for t in triggers:
-            age = n - 1 - t["i"]
+            age, sg = n - 1 - t["i"], (1 if t["side"] == "long" else -1)
             if age > FRESH_DAYS:
                 continue
-            if age and (lows[t["i"] + 1:].min() <= t["stop"] or highs[t["i"] + 1:].max() >= t["target"]):
-                continue                                           # already stopped or already there
-            risk = last - t["stop"]
-            if not risk > 0 or not (p.min_risk_pct <= risk / last * 100 <= p.max_risk_pct) or t["target"] <= last:
+            if age:                                                # already stopped or already there
+                worst, best = (lows, highs) if sg == 1 else (highs, lows)
+                if (sg * (worst[t["i"] + 1:] - t["stop"]) <= 0).any() or (sg * (best[t["i"] + 1:] - t["target"]) >= 0).any():
+                    continue
+            risk = sg * (last - t["stop"])
+            if not risk > 0 or not (p.min_risk_pct <= risk / last * 100 <= p.max_risk_pct) or sg * (t["target"] - last) <= 0:
                 continue
-            found.append({**t, "status": "triggered", "age": age, "entry": last, "risk_pct": risk / last * 100, "reward_pct": (t["target"] / last - 1) * 100,
-                          "rr": (t["target"] - last) / risk, "trigger_date": dates[t["i"]].strftime("%Y-%m-%d")})
+            found.append({**t, "status": "triggered", "age": age, "entry": last, "risk_pct": risk / last * 100, "reward_pct": sg * (t["target"] / last - 1) * 100,
+                          "rr": sg * (t["target"] - last) / risk, "trigger_date": dates[t["i"]].strftime("%Y-%m-%d")})
         found += [{**t, "status": "pending", "age": None, "trigger_date": None} for t in pending]
+        found = [t for t in found if t["side"] == "long" or symbol in fo]          # a short needs a futures contract: cash shorts cannot be carried overnight
         added = False
         for t in found:
             if t["rr"] < p.min_rr:
                 continue
             added = True
             feat = pd.DataFrame([pm._row(symbol, t, dates[-1], ctx)])
+            mom_raw = ctx["mom"][symbol].get(dates[-1], np.nan) if symbol in ctx["mom"] else np.nan       # raw values for the page: it words them by side itself
+            market_up = bool(ctx["mkt50"].get(dates[-1], False))
             prob = float(pm.predict(model, feat)[0]) * calibration if model else None
             miss = model["miss_r"] if model else -1.0
             f = t["f"]
+            if not t["rr"] - miss > 0:
+                continue
             rows.append({
-                "symbol": symbol, "fo": symbol in fo, "sector": sectors.get(symbol), "kind": t["kind"], "name": f"{t['geo']['shape']} triangle breakout" if t["kind"] == "triangle" else pa.KIND_NAMES[t["kind"]], "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
+                "symbol": symbol, "fo": symbol in fo, "sector": sectors.get(symbol), "kind": t["kind"], "side": t["side"],
+                "name": f"{t['geo']['shape']} triangle breakout" if t["kind"] == "triangle" else pa.NAMES[(t["kind"], t["side"])], "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
                 "reason": t["reason"], "price": round(float(last), 2), "entry": round(float(t["entry"]), 2), "stop": round(float(t["stop"]), 2), "target": round(float(t["target"]), 2),
                 "target_kind": t["target_kind"], "risk_pct": round(float(t["risk_pct"]), 2), "reward_pct": round(float(t["reward_pct"]), 2), "rr": round(float(t["rr"]), 2),
                 "p": round(prob * 100, 1) if prob is not None else None, "breakeven": round(-miss / (t["rr"] - miss) * 100, 1),
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
-                "mom": None if np.isnan(feat["mom"].iloc[0]) else round(float(feat["mom"].iloc[0]) * 100), "market_up": bool(feat["mkt50"].iloc[0]),
-                "oi": oi_tag(oi_store, symbol, df["close"]) if symbol in fo else None, "geo": t["geo"]})
+                "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
+                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])), "geo": t["geo"]})
         if added:
             tail = df.tail(CHART_BARS)
             candles[symbol] = {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(tail.index).normalize()],
@@ -130,5 +144,5 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     rows.sort(key=lambda r: (-r["rr"], r["risk_pct"], r["symbol"]))
     now = now or datetime.now()
     payload = {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(timespec="seconds"), "universe": len(frames), "fo_count": sum(1 for s in frames if s in fo),
-               "min_rr": p.min_rr, "market_up": bool(ctx["mkt50"].iloc[-1]), "model": _model_summary(listed, model, v, calibration), "setups": rows}
+               "min_rr": p.min_rr, "market_up": bool(ctx["mkt50"].iloc[-1]), "model": summary, "setups": rows}
     return payload, {"asof": payload["asof"], "stocks": candles}

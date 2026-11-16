@@ -261,7 +261,8 @@
     <div id="paBanner" class="momBanner"></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
-      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option></select></label>
+      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="double">W / M pattern</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option></select></label>
+      <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
       <label>Status <select id="paStatus" aria-label="Triggered or waiting"><option value="all">All</option><option value="triggered">Triggered</option><option value="pending">Waiting for the trigger</option></select></label>
       <label>Reward : risk at least <select id="paMinRR" aria-label="Smallest reward to risk"><option value="1.5">1.5</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select></label>
       <label>Risk at most <select id="paMaxRisk" aria-label="Largest stop distance"><option value="any">Any</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
@@ -271,7 +272,7 @@
     </div>
     <div class="tablewrap">
       <table id="paTable">
-        <thead><tr><th>#</th><th class="l">Stock</th><th class="l">Setup and reason</th><th class="l">Status</th><th>Entry</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>Reward : risk</th><th title="Share of similar past setups that reached the target before the stop, scaled to what the walk-forward test delivered. 'needs' = the hit rate at which this reward:risk breaks even.">Probability</th><th title="Volume on the trigger day against the 20-session average">Volume</th><th title="Open interest against price over the last 5 sessions (F&amp;O stocks)">OI</th></tr></thead>
+        <thead><tr><th>#</th><th class="l">Stock</th><th class="l">Setup and reason</th><th class="l">Status</th><th>Entry</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>Reward : risk</th><th title="Share of similar past setups that reached the target before the stop, scaled to what the walk-forward test delivered. 'needs' = the hit rate at which this reward:risk breaks even.">Probability</th><th title="What this type of setup did in the past on the stocks scanned: average result per trade in R (1R = the amount risked) and the number of trades">This type's record</th><th title="Volume on the trigger day against the 20-session average">Volume</th><th title="Open interest against price over the last 5 sessions (F&amp;O stocks)">OI</th></tr></thead>
         <tbody id="paRows"></tbody>
       </table>
       <div id="paEmpty" class="empty" hidden></div>
@@ -379,11 +380,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D" };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all" };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -1625,12 +1626,12 @@
     liveJson("setups_candles.json", "dashboard-setups").then(function (d) { state.setupsCandles = d; if (state.paSel) renderSetupDetail(); }).catch(function () { state.setupsCandles = null; });
   }
   function paPx(v) { return v.toLocaleString("en-IN", { maximumFractionDigits: v >= 1000 ? 1 : 2 }); }
-  function paStatusText(s) { return s.status === "pending" ? "Waiting - close above " + paPx(s.geo.level) : s.age === 0 ? "Triggered today" : "Triggered " + s.age + (s.age === 1 ? " session ago" : " sessions ago"); }
+  function paStatusText(s) { return s.status === "pending" ? "Waiting - close " + (s.side === "short" ? "below " : "above ") + paPx(s.geo.level) : s.age === 0 ? "Triggered today" : "Triggered " + s.age + (s.age === 1 ? " session ago" : " sessions ago"); }
   function paList() {
     var d = state.setups; if (!d) return [];
     var minRR = parseFloat(state.paMinRR), maxRisk = state.paMaxRisk === "any" ? Infinity : parseFloat(state.paMaxRisk), q = state.paQ.trim().toUpperCase();
     var rows = d.setups.filter(function (s) {
-      return (!state.paFo || s.fo) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
+      return (!state.paFo || s.fo) && (state.paSide === "all" || (s.side || "long") === state.paSide) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
         && (!state.paEdge || (s.p !== null && s.p >= s.breakeven)) && (!q || s.symbol.indexOf(q) >= 0);
     });
     var edge = function (s) { return s.p === null ? -1e9 : s.p - s.breakeven; }, pv = function (s) { return s.p === null ? -1 : s.p; };
@@ -1640,15 +1641,16 @@
   }
   function renderSetups() {
     var d = state.setups; if (!d || state.mode !== "setups") return;
-    $("paFo").checked = state.paFo; $("paEdge").checked = state.paEdge; $("paKind").value = state.paKind; $("paStatus").value = state.paStatus; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk; $("paSort").value = state.paSort;
+    $("paFo").checked = state.paFo; $("paEdge").checked = state.paEdge; $("paKind").value = state.paKind; $("paStatus").value = state.paStatus; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk; $("paSort").value = state.paSort; $("paSide").value = state.paSide;
     $("pill").className = "pill"; $("pill").textContent = "Price action · " + shortDate(d.asof) + " close";
     $("updated").textContent = d.updated_at ? "built " + new Date(d.updated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
     var rows = paList(), m = d.model || {}, all = m.all;
     $("paCount").textContent = rows.length + " of " + d.setups.length + " setups · " + d.universe + " stocks scanned (" + d.fo_count + " F&O)";
     var banner = $("paBanner"), bad = all && all.avg_r <= 0.1; banner.className = "momBanner" + (bad ? " warn" : "");
     var years = (m.by_year || []).filter(function (y) { return y.n >= 30; }).map(function (y) { return y.year + ": " + (y.avg_r > 0 ? "+" : "") + y.avg_r.toFixed(2) + "R"; }).join(", ");
+    var sides = (m.by_side || []).length > 1 ? " " + m.by_side.map(function (x) { return (x.side === "short" ? "Shorts" : "Longs") + " " + (x.avg_r > 0 ? "+" : "") + x.avg_r.toFixed(2) + "R (" + x.n.toLocaleString("en-IN") + ")"; }).join(", ") + "." : "";
     banner.textContent = (d.market_up ? "The market is above its 50-day average. " : "The market is below its 50-day average. ")
-      + (all ? "Track record of these setups (" + all.n.toLocaleString("en-IN") + " with reward : risk of " + d.min_rr + " or more, " + m.stocks + " stocks, " + m.first.slice(0, 4) + "-" + m.last.slice(0, 4) + ", costs included): " + all.hit.toFixed(0) + "% reached the target before the stop, average " + (all.avg_r > 0 ? "+" : "") + all.avg_r.toFixed(2) + "R a trade" + (all.pf ? ", profit factor " + all.pf.toFixed(2) : "") + ". By year - " + years + ". Roughly break-even overall and it depends heavily on the year, so size every trade from the stop."
+      + (all ? "Track record of these setups (" + all.n.toLocaleString("en-IN") + " with reward : risk of " + d.min_rr + " or more, " + m.stocks + " stocks, " + m.first.slice(0, 4) + "-" + m.last.slice(0, 4) + ", costs included): " + all.hit.toFixed(0) + "% reached the target before the stop, average " + (all.avg_r > 0 ? "+" : "") + all.avg_r.toFixed(2) + "R a trade" + (all.pf ? ", profit factor " + all.pf.toFixed(2) : "") + ". By year - " + years + "." + sides + " It depends heavily on the year and on the type of setup - see each row's own record - so size every trade from the stop."
              : "Not enough history yet to measure these setups.");
     var body = $("paRows"); body.textContent = "";
     $("paEmpty").hidden = rows.length > 0; if (!rows.length) $("paEmpty").textContent = d.setups.length ? "No setup matches these filters - loosen them." : "No setup today: no stock is at a weekly support zone or breaking out of a weekly pattern with reward : risk of " + d.min_rr + " or more.";
@@ -1657,12 +1659,13 @@
       var td = function (text, c) { return el("td", c ? { "class": c } : null, text); };
       tr.appendChild(td(String(i + 1), "mute"));
       var sym = el("td", { "class": "sym l" }, s.symbol); if (s.fo) sym.appendChild(el("span", { "class": "fo" }, "F&O")); tr.appendChild(sym);
-      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, s.name)); setup.appendChild(el("div", null, s.reason)); tr.appendChild(setup);
+      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, s.name)); setup.appendChild(el("span", { "class": "fo", style: s.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, s.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, s.reason)); tr.appendChild(setup);
       tr.appendChild(td(paStatusText(s), "l"));
       tr.appendChild(td(paPx(s.entry))); tr.appendChild(td(paPx(s.stop))); tr.appendChild(td(paPx(s.target) + (s.target_kind === "measured" ? " *" : "")));
       tr.appendChild(td("-" + s.risk_pct.toFixed(1) + "%", "down")); tr.appendChild(td("+" + s.reward_pct.toFixed(1) + "%", "up"));
       tr.appendChild(el("td", { style: "font-weight:700" }, s.rr.toFixed(1) + " : 1"));
       tr.appendChild(s.p === null ? td("-", "mute") : el("td", { "class": s.p >= s.breakeven ? "up" : "", title: "Needs " + s.breakeven.toFixed(0) + "% to break even at this reward : risk" }, s.p.toFixed(0) + "% · needs " + s.breakeven.toFixed(0) + "%"));
+      tr.appendChild(s.record ? el("td", { "class": s.record.avg_r > 0.02 ? "up" : s.record.avg_r < -0.02 ? "down" : "", title: s.record.hit.toFixed(0) + "% of " + s.record.n + " past setups of this type reached the target" }, (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R · " + s.record.n) : td("-", "mute"));
       tr.appendChild(s.vol === null ? td("-", "mute") : el("td", s.vol >= 1.5 ? { style: "font-weight:700" } : null, s.vol.toFixed(1) + "×"));
       tr.appendChild(s.oi ? el("td", { "class": s.oi["for"] ? "up" : "down", title: "OI " + (s.oi.oi_chg > 0 ? "+" : "") + s.oi.oi_chg + "%, price " + (s.oi.px_chg > 0 ? "+" : "") + s.oi.px_chg + "% over 5 sessions" }, s.oi.tag) : td(s.fo ? "no data" : "-", "mute"));
       var open = function () { openSetup(s); };
@@ -1670,7 +1673,7 @@
       body.appendChild(tr);
     });
     var walk = m.walk ? " Checked year by year on " + m.walk.n + " setups it had not seen: the lowest quarter of estimates hit " + m.walk.rows[0].actual + "% and the highest " + m.walk.rows[m.walk.rows.length - 1].actual + "% (it had said " + m.walk.rows[0].predicted + "% and " + m.walk.rows[m.walk.rows.length - 1].predicted + "%), so the figure shown is scaled by " + m.calibration + "." : "";
-    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it. Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle = a daily close above the pattern's top. Entry = the latest close (triggered) or the level to close above (waiting); stop = just under the zone, or back inside the pattern; target = the next weekly resistance, or the pattern's height projected up when nothing is overhead (marked *). Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Not a recommendation to trade.";
+    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it. Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high / bull flag = a daily close above the pattern's top; W pattern, triple bottom and inverse head and shoulders = a daily close above the neckline. The bearish twins - M pattern, triple top, head and shoulders, bear flag - are shorts on a daily close below the neckline, listed for F&O stocks only (a cash short cannot be carried overnight). Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance (support for a short), or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - several kinds, and the short side as a whole, have lost money. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Not a recommendation to trade.";
   }
   function openSetup(s) { state.sel = null; state.paSel = s; $("oiOverlay").hidden = false; $("oiClose").focus(); renderSetupDetail(); }
   function renderSetupDetail() {
@@ -1679,10 +1682,12 @@
     $("oiSub").textContent = paStatusText(s) + " · as of the " + shortDate(state.setups.asof) + " close" + (s.sector ? " · " + s.sector : "") + (s.fo ? " · F&O" : "");
     var body = $("oiBody"); body.textContent = "";
     var plan = el("div", { "class": "paPlan" });
-    [["Entry", paPx(s.entry), s.status === "pending" ? "on a daily close above" : "latest close", ""], ["Stop", paPx(s.stop), "risk -" + s.risk_pct.toFixed(1) + "%", "risk"],
-     ["Target", paPx(s.target), (s.target_kind === "measured" ? "measured move" : "next weekly resistance") + " · +" + s.reward_pct.toFixed(1) + "%", "reward"],
+    var short = s.side === "short";
+    [[short ? "Sell (short)" : "Entry", paPx(s.entry), s.status === "pending" ? "on a daily close " + (short ? "below" : "above") : "latest close", ""], ["Stop", paPx(s.stop), "risk -" + s.risk_pct.toFixed(1) + "%", "risk"],
+     ["Target", paPx(s.target), (s.target_kind === "measured" ? "measured move" : short ? "next weekly support" : "next weekly resistance") + " · +" + s.reward_pct.toFixed(1) + "%", "reward"],
      ["Reward : risk", s.rr.toFixed(1) + " : 1", "per 1 risked", ""],
-     ["Probability", s.p === null ? "-" : s.p.toFixed(0) + "%", "needs " + s.breakeven.toFixed(0) + "% to break even", s.p !== null && s.p >= s.breakeven ? "reward" : ""]].forEach(function (k) {
+     ["Probability", s.p === null ? "-" : s.p.toFixed(0) + "%", "needs " + s.breakeven.toFixed(0) + "% to break even", s.p !== null && s.p >= s.breakeven ? "reward" : ""],
+     ["This type's record", s.record ? (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R" : "-", s.record ? s.record.n + " past trades, " + s.record.hit.toFixed(0) + "% hit" : "no history", s.record ? (s.record.avg_r > 0.02 ? "reward" : s.record.avg_r < -0.02 ? "risk" : "") : ""]].forEach(function (k) {
       var box = el("div", k[3] ? { "class": k[3] } : null); box.appendChild(el("span", null, k[0])); box.appendChild(el("b", null, k[1])); box.appendChild(el("span", null, k[2])); plan.appendChild(box);
     });
     body.appendChild(plan);
@@ -1697,7 +1702,7 @@
       body.appendChild(tfs);
       body.appendChild(drawSetupChart(weekly ? (cd.w && cd.w.c && cd.w.c.length > 20 ? cd.w : weeklyFromDaily(cd)) : cd, s, weekly));
       body.appendChild(el("p", { "class": "oiNote", style: "margin:4px 0 0" }, weekly
-        ? "Weekly candles: this is where the structure is read - the zone or pattern, and the resistance used as the target. The last candle is the week still forming."
+        ? "Weekly candles: this is where the structure is read - the zone or pattern, and the " + (short ? "support" : "resistance") + " used as the target. The last candle is the week still forming."
         : "Daily candles: the trigger is a daily close outside the weekly structure; the stop and the entry are set here."));
     } else body.appendChild(el("p", { "class": "oiNote" }, state.setupsCandles ? "No candles stored for this stock." : "Loading the chart…"));
     var why = el("div", { "class": "paWhy" });
@@ -1705,14 +1710,16 @@
     why.appendChild(el("h3", null, "What is for and against it"));
     var chips = el("div", { "class": "paChips" }), chip = function (text, kind) { chips.appendChild(el("span", kind ? { "class": kind } : null, text)); };
     if (s.vol !== null) chip("Volume " + s.vol.toFixed(1) + "× its 20-day average", s.vol >= 1.5 ? "for" : s.vol < 0.8 ? "against" : "");
-    chip(s.market_up ? "Market above its 50-day average" : "Market below its 50-day average", s.market_up ? "for" : "against");
-    if (s.above200 !== null) chip(s.above200 ? "Above its own 200-day average" : "Below its own 200-day average", s.above200 ? "for" : "against");
-    if (s.mom !== null) chip("Momentum rank " + s.mom + " of 100", s.mom >= 70 ? "for" : s.mom <= 30 ? "against" : "");
+    chip(s.market_up ? "Market above its 50-day average" : "Market below its 50-day average", s.market_up !== short ? "for" : "against");
+    if (s.above200 !== null) chip(s.above200 ? "Above its own 200-day average" : "Below its own 200-day average", s.above200 !== short ? "for" : "against");
+    if (s.mom !== null) chip("Momentum rank " + s.mom + " of 100", (short ? s.mom <= 30 : s.mom >= 70) ? "for" : (short ? s.mom >= 70 : s.mom <= 30) ? "against" : "");
+    if (short) chip("Short: needs the futures contract");
+    if (s.record) chip("This type's record: " + (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R a trade over " + s.record.n, s.record.avg_r > 0.02 ? "for" : s.record.avg_r < -0.02 ? "against" : "");
     if (s.oi) chip("OI: " + s.oi.tag + " (OI " + (s.oi.oi_chg > 0 ? "+" : "") + s.oi.oi_chg + "%, price " + (s.oi.px_chg > 0 ? "+" : "") + s.oi.px_chg + "% in 5 sessions)", s.oi["for"] ? "for" : "against");
     else if (s.fo) chip("OI: not stored yet"); else chip("Not an F&O stock - no OI");
     chip(s.p === null ? "Probability: not enough history" : s.p >= s.breakeven ? "Probability " + s.p.toFixed(0) + "% is above the " + s.breakeven.toFixed(0) + "% needed" : "Probability " + s.p.toFixed(0) + "% is below the " + s.breakeven.toFixed(0) + "% needed", s.p === null ? "" : s.p >= s.breakeven ? "for" : "against");
     why.appendChild(chips);
-    why.appendChild(el("p", { "class": "oiNote", style: "margin-top:10px" }, "Green = the reward (entry to target), red = the risk (entry to stop). The tags are context: only volume, the trends, momentum and the reward : risk are inside the probability; OI is not."));
+    why.appendChild(el("p", { "class": "oiNote", style: "margin-top:10px" }, "Green = the reward (entry to target), red = the risk (entry to stop); on a short the green box is below the entry. The tags are context: only volume, the trends, momentum and the reward : risk are inside the probability; OI is not."));
     body.appendChild(why);
   }
   function weeklyFromDaily(cd) {                                   // fallback when the build carried no weekly candles: group the daily ones by their Friday
@@ -1730,7 +1737,7 @@
     var at = function (date) { for (var i = 0; i < n; i++) if (ds[i] >= date) return i; return n - 1; };
     var start = Math.max(0, Math.min((g.from ? at(g.from) : n - minBars) - lead, n - minBars)), cs = all.slice(start), dd = ds.slice(start), m = cs.length;
     var PAD = Math.max(weekly ? 8 : 20, Math.round(m * 0.22)), N = m + PAD, W = 720, H = 390, L = 46, R = 122, T = 12, B = 24, pw = W - L - R, ph = H - T - B;
-    var lo = Math.min(s.stop, g.base), hi = Math.max(s.target, g.level);
+    var lo = Math.min(s.stop, s.target, g.base, g.level), hi = Math.max(s.stop, s.target, g.base, g.level);
     cs.forEach(function (c) { lo = Math.min(lo, c[2]); hi = Math.max(hi, c[1]); });
     var pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
     var y = function (v) { return T + (hi - v) / (hi - lo) * ph; }, x = function (i) { return L + (i + 0.5) / N * pw; }, xi = function (date) { return Math.max(0, at(date) - start); };
@@ -1760,19 +1767,30 @@
       svg.appendChild(svgEl("line", { x1: cl, x2: right, y1: yr, y2: yr, stroke: acc, "stroke-dasharray": "5 3" }));
       svg.appendChild(svgEl("text", { x: cb, y: yb + 14, "text-anchor": "middle", style: "fill:" + acc + ";font-weight:600" }, "Cup and handle"));
     }
+    if (g.pts && g.pts.length) {                                    // reversal / continuation shapes: the skeleton through the swing points, and the neckline
+      svg.appendChild(svgEl("polyline", { points: g.pts.map(function (q) { return x(xi(q[0])) + "," + y(q[1]); }).join(" "), fill: "none", stroke: acc, "stroke-width": "1.8", "stroke-linejoin": "round" }));
+      g.pts.forEach(function (q) { svg.appendChild(svgEl("circle", { cx: x(xi(q[0])), cy: y(q[1]), r: "2.6", fill: acc })); });
+      if (g.neck) {
+        var nx1 = x(xi(g.neck[2]));
+        svg.appendChild(svgEl("line", { x1: x(xi(g.neck[0])), y1: y(g.neck[1]), x2: nx1, y2: y(g.neck[3]), stroke: acc, "stroke-dasharray": "5 3", "stroke-width": "1.4" }));
+        svg.appendChild(svgEl("line", { x1: nx1, y1: y(g.level), x2: right, y2: y(g.level), stroke: acc, "stroke-dasharray": "5 3", "stroke-width": "1.4" }));
+      }
+      svg.appendChild(svgEl("rect", { x: L + 6, y: T + 5, width: 9, height: 9, fill: acc }));                 // a fixed legend: a label on the shape itself lands on the candles
+      svg.appendChild(svgEl("text", { x: L + 20, y: T + 14, style: "fill:" + acc + ";font-weight:600" }, s.name + " - swing points and neckline"));
+    }
     var t0 = s.trigger_date ? xi(s.trigger_date) : m - 1, bx = Math.min(x(t0) - cw / 2, right - 40), bw = right - bx;      // the position: reward above the entry, risk below it
-    svg.appendChild(svgEl("rect", { x: bx, y: y(s.target), width: bw, height: Math.max(y(s.entry) - y(s.target), 1), fill: "var(--up)", "fill-opacity": "0.2" }));
-    svg.appendChild(svgEl("rect", { x: bx, y: y(s.entry), width: bw, height: Math.max(y(s.stop) - y(s.entry), 1), fill: "var(--down)", "fill-opacity": "0.26" }));
+    var band = function (a, b, color, op) { svg.appendChild(svgEl("rect", { x: bx, y: Math.min(y(a), y(b)), width: bw, height: Math.max(Math.abs(y(a) - y(b)), 1), fill: color, "fill-opacity": op })); };
+    band(s.entry, s.target, "var(--up)", "0.2"); band(s.entry, s.stop, "var(--down)", "0.26");
     [[s.target, "var(--up)"], [s.entry, "var(--ink)"], [s.stop, "var(--down)"]].forEach(function (k) { svg.appendChild(svgEl("line", { x1: bx, x2: right, y1: y(k[0]), y2: y(k[0]), stroke: k[1], "stroke-width": "1.2" })); });
     svg.appendChild(svgEl("text", { x: right - 5, y: (y(s.target) + y(s.entry)) / 2 + 4, "text-anchor": "end", style: "fill:var(--up);font-weight:700" }, "+" + s.reward_pct.toFixed(1) + "% · " + s.rr.toFixed(1) + "R"));
-    if (y(s.stop) - y(s.entry) >= 12) svg.appendChild(svgEl("text", { x: right - 5, y: (y(s.entry) + y(s.stop)) / 2 + 4, "text-anchor": "end", style: "fill:var(--down);font-weight:700" }, "-" + s.risk_pct.toFixed(1) + "%"));
+    if (Math.abs(y(s.stop) - y(s.entry)) >= 12) svg.appendChild(svgEl("text", { x: right - 5, y: (y(s.entry) + y(s.stop)) / 2 + 4, "text-anchor": "end", style: "fill:var(--down);font-weight:700" }, "-" + s.risk_pct.toFixed(1) + "%"));
     cs.forEach(function (c, i) {
       var up = c[3] >= c[0], col = up ? "var(--up)" : "var(--down)";
       svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
       svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
     });
     var labels = [{ p: s.target, t: "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
-    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "zone" ? "Zone top" : "Breakout", c: acc });
+    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "zone" ? "Zone top" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
     labels.sort(function (a, b) { return b.p - a.p; });
     var prevY = -99;
     labels.forEach(function (l) {
@@ -1847,7 +1865,7 @@
   $("modeReplay").addEventListener("click", enterReplay);
   $("modeSwing").addEventListener("click", enterSwing);
   $("modeSetups").addEventListener("click", enterSetups);
-  [["paFo", "checked"], ["paEdge", "checked"], ["paKind", "value"], ["paStatus", "value"], ["paMinRR", "value"], ["paMaxRisk", "value"], ["paSort", "value"]].forEach(function (k) {
+  [["paFo", "checked"], ["paEdge", "checked"], ["paKind", "value"], ["paStatus", "value"], ["paMinRR", "value"], ["paMaxRisk", "value"], ["paSort", "value"], ["paSide", "value"]].forEach(function (k) {
     $(k[0]).addEventListener("change", function (e) { state[k[0]] = e.target[k[1]]; save(); renderSetups(); });
   });
   $("paQ").addEventListener("input", function (e) { state.paQ = e.target.value; renderSetups(); });

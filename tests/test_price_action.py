@@ -177,19 +177,22 @@ def test_scan_never_looks_ahead():
         assert full, "the walk should produce at least one setup"
         for cut in (400, 520, 640):
             part, _ = pa.scan_stock(df.iloc[:cut])
-            key = lambda t: (t["kind"], t["i"], round(t["stop"], 6), round(t["target"], 6))
+            key = lambda t: (t["kind"], t["side"], t["i"], round(t["stop"], 6), round(t["target"], 6))
             assert [key(t) for t in part] == [key(t) for t in full if t["i"] < cut]
 
 
 def test_trigger_is_a_close_above_the_level_with_the_stop_under_it():
     for seed in range(6):
         df = _daily(seed)
-        c, l = df["close"].to_numpy(), df["low"].to_numpy()
+        c, l, h = df["close"].to_numpy(), df["low"].to_numpy(), df["high"].to_numpy()
         for t in pa.scan_stock(df)[0]:
             i = t["i"]
-            assert t["stop"] < c[i] < t["target"] and P.min_risk_pct <= t["risk_pct"] <= P.max_risk_pct
-            assert abs(t["rr"] - (t["target"] - c[i]) / (c[i] - t["stop"])) < 1e-9
-            if t["kind"] != "zone":
+            sg = 1 if t["side"] == "long" else -1
+            assert sg * (c[i] - t["stop"]) > 0 and sg * (t["target"] - c[i]) > 0 and P.min_risk_pct <= t["risk_pct"] <= P.max_risk_pct
+            assert abs(t["rr"] - (t["target"] - c[i]) / (c[i] - t["stop"])) < 1e-9 and (t["kind"], t["side"]) in pa.NAMES
+            if t["side"] == "short":
+                assert c[i] < t["level"] and t["stop"] >= max(t["level"], h[i])
+            elif t["kind"] != "zone":
                 assert c[i] > t["level"] and t["stop"] <= min(t["level"], l[i])
             else:
                 assert c[i] > t["level"] and t["stop"] < t["geo"]["base"]
@@ -200,8 +203,8 @@ def test_one_trigger_per_kind_inside_the_cooldown():
     for seed in range(6):
         last = {}
         for t in pa.scan_stock(_daily(seed))[0]:
-            assert t["i"] - last.get(t["kind"], -10 ** 9) >= P.cooldown_days
-            last[t["kind"]] = t["i"]
+            assert t["i"] - last.get((t["kind"], t["side"]), -10 ** 9) >= P.cooldown_days
+            last[(t["kind"], t["side"])] = t["i"]
 
 
 def test_short_history_gives_nothing():
@@ -249,10 +252,10 @@ def _events(n=1500, seed=0):
     hit = rng.random(n) < p_true
     dates = pd.bdate_range("2021-01-01", periods=n)
     kind = rng.choice(list(pa.KINDS), n)
-    return pd.DataFrame({"symbol": "S", "kind": kind, "date": dates, "exit_date": dates + pd.Timedelta(days=20), "entry_date": dates, "rr": rr, "risk_pct": rng.uniform(1, 8, n),
+    extra = {f"is_{k}": (kind == k).astype(float) for k in pm.KIND_FLAGS}
+    return pd.DataFrame({**extra, "side": "long", "is_short": 0.0, "symbol": "S", "kind": kind, "date": dates, "exit_date": dates + pd.Timedelta(days=20), "entry_date": dates, "rr": rr, "risk_pct": rng.uniform(1, 8, n),
                          "reward_pct": rr * 3, "log_rr": np.log(rr), "log_vol": np.log(vol), "vol": vol, "mkt50": rng.integers(0, 2, n).astype(float),
                          "mkt200": rng.integers(0, 2, n).astype(float), "above200": rng.integers(0, 2, n).astype(float), "mom": rng.random(n), "off_high": -rng.random(n) * 0.3,
-                         "is_range": (kind == "range").astype(float), "is_triangle": (kind == "triangle").astype(float), "is_cup": (kind == "cup").astype(float),
                          "hit": hit, "R": np.where(hit, rr, -1.0) - 0.03, "reason": np.where(hit, "target", "stop"), "target_kind": "resistance"})
 
 
@@ -322,14 +325,18 @@ def test_board_payload_is_sorted_serialisable_and_consistent():
     assert payload["universe"] == 14 and payload["fo_count"] == 3 and payload["asof"] == frames["S00"].index[-1].strftime("%Y-%m-%d")
     assert [r["rr"] for r in rows] == sorted((r["rr"] for r in rows), reverse=True)
     for r in rows:
-        assert r["rr"] >= payload["min_rr"] and r["stop"] < r["entry"] < r["target"] and r["status"] in ("triggered", "pending")
+        assert r["rr"] >= payload["min_rr"] and r["status"] in ("triggered", "pending")
+        assert (r["stop"] < r["entry"] < r["target"]) if r["side"] == "long" else (r["target"] < r["entry"] < r["stop"])
         assert abs(r["rr"] - (r["target"] - r["entry"]) / (r["entry"] - r["stop"])) < 0.02 and r["reason"] and r["symbol"] in candles["stocks"]
-        assert r["fo"] == (r["symbol"] in {"S00", "S01", "S02"}) and r["oi"] is None
+        assert r["fo"] == (r["symbol"] in {"S00", "S01", "S02"}) and r["oi"] is None and r["side"] in ("long", "short")
+        assert r["side"] == "long" or r["fo"]                                       # shorts are only listed for F&O stocks
         assert 0 < r["breakeven"] < 100 and (r["p"] is None or 0 <= r["p"] <= 100)
         if r["status"] == "triggered":
             assert 0 <= r["age"] <= pb.FRESH_DAYS and r["entry"] == r["price"]
-        else:
+        elif r["side"] == "long":
             assert r["entry"] > r["price"] * 0.999 and r["age"] is None
+        else:
+            assert r["entry"] < r["price"] * 1.001 and r["age"] is None
     assert set(candles["stocks"]) == {r["symbol"] for r in rows}
     assert all(len(v["d"]) == len(v["c"]) <= pb.CHART_BARS for v in candles["stocks"].values())
     for sym, v in candles["stocks"].items():                                        # the weekly series: Fridays, the forming week last, same last close
@@ -343,3 +350,119 @@ def test_weekly_chart_aggregates_days_into_weeks():
     df = pd.DataFrame({"open": [10, 11, 12, 13, 14], "high": [12, 15, 13, 14, 16], "low": [9, 10, 11, 12, 13], "close": [11, 12, 12.5, 13.5, 15]}, index=idx)
     w = pb.weekly_chart(df)
     assert w["d"] == ["2026-01-09", "2026-01-16"] and w["c"] == [[10.0, 15.0, 9.0, 12.5], [13.0, 16.0, 12.0, 15.0]]
+
+
+# ---------------------------------------------------------------- reversal / continuation shapes, both sides
+def _path(knots, band=0.01):
+    """Weekly candles along straight lines between (week, price) knots; highs and lows 1% either side of the close."""
+    xs = np.arange(knots[-1][0] + 1)
+    C = np.interp(xs, [k[0] for k in knots], [k[1] for k in knots]).astype(float)
+    return C * (1 + band), C * (1 - band), C
+
+
+def _found(knots):
+    H, L, C = _path(knots)
+    return pa.patterns_at(H, L, C, len(C) - 1, P)
+
+
+W_KNOTS = [(0, 130), (20, 100), (26, 115), (32, 101), (36, 108)]
+M_KNOTS = [(0, 70), (20, 100), (26, 87), (32, 99), (36, 93)]
+
+
+def test_w_pattern_is_two_equal_lows_with_the_neckline_between():
+    f = _found(W_KNOTS)
+    w = f[("double", "long")]
+    assert abs(w["level"] - 115 * 1.01) < 1e-6 and abs(w["base"] - 100 * 0.99) < 1e-6 and w["gap"] == 12 and abs(w["height"] - (w["level"] - w["base"])) < 1e-9
+    assert [x for x, _ in w["pts"]] == [20, 26, 32] and "W pattern" in w["why"] and ("double", "short") not in f
+
+
+def test_m_pattern_is_the_mirror_and_comes_back_in_real_prices():
+    f = _found(M_KNOTS)
+    m = f[("double", "short")]
+    assert abs(m["level"] - 87 * 0.99) < 1e-6 and abs(m["base"] - 100 * 1.01) < 1e-6          # neckline = the trough's low, base = the higher top
+    assert m["level"] < m["base"] and abs(m["height"] - (m["base"] - m["level"])) < 1e-9 and "M pattern: two highs" in m["why"] and ("double", "long") not in f
+    assert [round(v, 2) for _, v in m["pts"]] == [101.0, 86.13, 99.99]
+
+
+def test_no_w_when_the_lows_differ_or_price_is_already_through():
+    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 107), (36, 110)])     # second low 7% higher
+    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 101), (36, 119)])     # already closed above the neckline
+    assert ("double", "long") not in _found([(0, 101), (20, 100), (26, 115), (32, 101), (36, 108)])     # no fall into it: not a reversal
+
+
+def test_head_and_shoulders_both_ways_and_it_outranks_the_smaller_shapes():
+    f = _found([(0, 130), (20, 100), (24, 110), (28, 90), (32, 111), (36, 99), (39, 105)])
+    h = f[("hs", "long")]
+    assert abs(h["base"] - 90 * 0.99) < 1e-6 and 111 < h["level"] < 114 and [x for x, _ in h["pts"]] == [20, 24, 28, 32, 36] and "inverse head and shoulders" in h["why"]
+    assert ("triple", "long") not in f and ("double", "long") not in f
+    f = _found([(0, 70), (20, 100), (24, 91), (28, 111), (32, 90), (36, 101), (39, 95)])
+    h = f[("hs", "short")]
+    assert abs(h["base"] - 111 * 1.01) < 1e-6 and 87 < h["level"] < 91 and h["why"].startswith("head and shoulders") and h["height"] > 15
+
+
+def test_triple_bottom_and_triple_top():
+    f = _found([(0, 130), (16, 100), (21, 112), (26, 101), (31, 113), (36, 100.5), (39, 106)])
+    t = f[("triple", "long")]
+    assert abs(t["level"] - 113 * 1.01) < 1e-6 and abs(t["base"] - 99.0) < 1e-6 and len(t["pts"]) == 5 and ("hs", "long") not in f and ("double", "long") not in f
+    f = _found([(0, 70), (16, 100), (21, 89), (26, 99), (31, 88), (36, 99.5), (39, 94)])
+    assert abs(f[("triple", "short")]["level"] - 88 * 0.99) < 1e-6 and "triple top: three highs" in f[("triple", "short")]["why"]
+
+
+def test_bull_and_bear_flag_use_the_real_pole_top():
+    f = _found([(0, 100), (30, 100), (36, 130), (39, 124)])
+    b = f[("flag", "long")]
+    assert abs(b["level"] - 130 * 1.01) < 1e-6 and b["pts"][1][0] == 36 and b["flag_weeks"] == 3 and abs(b["height"] - (131.3 - 99.0)) < 1e-6 and "bull flag" in b["why"]
+    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 130), (39, 112)])                 # gave back more than half the pole
+    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 112), (39, 108)])                 # a 12% pole is not a pole
+    f = _found([(0, 100), (30, 100), (36, 72), (39, 76)])
+    assert abs(f[("flag", "short")]["level"] - 72 * 0.99) < 1e-6 and "bear flag" in f[("flag", "short")]["why"] and f[("flag", "short")]["height"] > 25
+
+
+def test_multi_year_breakout_needs_an_old_high_and_a_close_near_it():
+    f = _found([(0, 100), (60, 200), (100, 150), (149, 190)])
+    m = f[("multiyear", "long")]
+    assert abs(m["level"] - 202.0) < 1e-6 and abs(m["base"] - 148.5) < 1e-6 and m["start"] == 60 and "3-year high" in m["why"]
+    assert ("multiyear", "long") not in _found([(0, 100), (60, 200), (100, 150), (149, 160)])          # more than 15% under the high
+    assert ("multiyear", "long") not in _found([(0, 100), (130, 200), (149, 195)])                     # the high is only 19 weeks old
+    assert ("multiyear", "long") not in _found([(0, 100), (40, 200), (80, 150), (99, 190)])            # under two years of history
+
+
+def test_short_plan_targets_the_next_support_or_a_measured_move():
+    L = np.array([50, 49, 50, 50, 40, 20, 40, 45, 50, 48, 30, 46, 50, 52, 54, 53, 52], float)
+    H = L + 2
+    pl = pa.plan(50.0, 52.0, H, len(L) - 1, 10.0, 50.5, P, "short", L)               # risk 2 (4%); supports below: 30 and 20 -> the nearer, 30
+    assert pl["target"] == 30.0 and pl["target_kind"] == "support" and abs(pl["rr"] - 10.0) < 1e-9 and abs(pl["reward_pct"] - 40.0) < 1e-9
+    assert pa.next_support(L, len(L) - 1, 25.0, P) == 20.0 and pa.next_support(L, len(L) - 1, 15.0, P) is None
+    pl = pa.plan(18.0, 18.6, H, len(L) - 1, 5.0, 18.2, P, "short", L)                # nothing below: the height projected down from the entry
+    assert pl["target"] == 13.0 and pl["target_kind"] == "measured"
+    assert pa.plan(18.0, 18.6, H, len(L) - 1, 30.0, 18.2, P, "short", L) is None     # a measured move below zero is no target
+    assert pa.plan(50.0, 49.0, H, len(L) - 1, 10.0, 50.5, P, "short", L) is None     # stop on the wrong side
+
+
+def test_short_outcome_is_the_mirror():
+    o, h, l, c = _ohlc([[100, 101, 99, 100], [100, 100.5, 97, 98], [98, 99, 89, 90]])
+    r = pm.outcome(o, h, l, c, 0, 105.0, 90.0, P, "short")                           # sell 100, risk 5, target 90 -> +2R less cost
+    assert r["hit"] and abs(r["R"] - (2.0 - 0.02)) < 1e-9 and abs(r["rr_actual"] - 2.0) < 1e-9
+    o, h, l, c = _ohlc([[100, 101, 99, 100], [100, 106, 88, 100]])
+    r = pm.outcome(o, h, l, c, 0, 105.0, 90.0, P, "short")                           # both in one bar: the stop counts
+    assert not r["hit"] and abs(r["R"] - (-1.0 - 0.02)) < 1e-9
+    o, h, l, c = _ohlc([[100, 101, 99, 100], [100, 101, 99, 100], [108, 109, 107, 108]])
+    assert pm.outcome(o, h, l, c, 0, 105.0, 90.0, P, "short")["R"] < -1.5           # gap above the stop
+    o, h, l, c = _ohlc([[100, 101, 99, 100], [89, 90, 88, 89]])
+    assert pm.outcome(o, h, l, c, 0, 105.0, 90.0, P, "short") is None               # opened beyond the target
+
+
+def test_features_are_turned_to_face_the_trade():
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    ctx = {"mkt50": pd.Series([True] * 3, index=dates), "mkt200": pd.Series([False] * 3, index=dates), "mom": pd.DataFrame({"A": [0.9, 0.9, 0.9]}, index=dates)}
+    t = {"kind": "double", "rr": 2.0, "risk_pct": 3.0, "reward_pct": 6.0, "target_kind": "support", "f": {"vol": 1.5, "above200": 1.0, "off_high": -0.02, "off_low": 0.30}}
+    lg, sh = pm._row("A", {**t, "side": "long"}, dates[-1], ctx), pm._row("A", {**t, "side": "short"}, dates[-1], ctx)
+    assert (lg["mkt50"], lg["mkt200"], lg["above200"], lg["is_short"]) == (1.0, 0.0, 1.0, 0.0) and abs(lg["mom"] - 0.9) < 1e-9 and lg["off_high"] == -0.02
+    assert (sh["mkt50"], sh["mkt200"], sh["above200"], sh["is_short"]) == (0.0, 1.0, 0.0, 1.0) and abs(sh["mom"] - 0.1) < 1e-9 and sh["off_high"] == -0.30
+    assert lg["is_double"] == 1.0 and lg["is_flag"] == 0.0 and set(pm.FEATURES) <= set(lg)
+
+
+def test_oi_tag_agrees_with_the_side():
+    close = pd.Series([100, 101, 102, 103, 104, 105, 110.0])
+    store = {"oi": {"A": {f"2026-01-{d:02d}": v for d, v in zip(range(1, 8), [100, 100, 100, 100, 100, 100, 110])}}}
+    assert pb.oi_tag(store, "A", close)["for"] and not pb.oi_tag(store, "A", close, side="short")["for"]      # long buildup: for a long, against a short

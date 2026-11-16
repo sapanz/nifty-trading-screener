@@ -1,6 +1,13 @@
 """Price-action setups: weekly structure, traded on the daily chart (long side).
 
-Four kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
+Nine kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure. Bullish ones are longs; the bearish
+twins (M pattern, head and shoulders, triple top, bear flag) are shorts - the same detectors run on inverted prices:
+  multiyear a close above the highest weekly high of the last 2-5 years, set at least 26 weeks ago.
+  double    W pattern (double bottom) / M pattern (double top): two swing lows (highs) at the same level; a close through the neckline.
+  hs        inverse head and shoulders / head and shoulders; a close through the neckline joining the two peaks (troughs).
+  triple    triple bottom / triple top; a close through the neckline.
+  flag      bull / bear flag: a sharp pole, a short shallow pullback; a close through the pole's end.
+and the four below:
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
   range     8-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top.
@@ -25,8 +32,12 @@ import pandas as pd
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup")
-KIND_NAMES = {"zone": "Weekly support zone", "range": "Weekly range breakout", "triangle": "Triangle breakout", "cup": "Cup and handle"}
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "double", "hs", "triple", "flag")
+NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
+         ("multiyear", "long"): "Multi-year breakout", ("double", "long"): "W pattern (double bottom)", ("double", "short"): "M pattern (double top)",
+         ("hs", "long"): "Inverse head and shoulders", ("hs", "short"): "Head and shoulders", ("triple", "long"): "Triple bottom", ("triple", "short"): "Triple top",
+         ("flag", "long"): "Bull flag", ("flag", "short"): "Bear flag"}
+KIND_NAMES = {k: NAMES[(k, "long")] for k in KINDS}                # the long-side name of each kind
 
 
 @dataclass(frozen=True)
@@ -150,7 +161,164 @@ def cup_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> di
     return best
 
 
+# ---- reversal and continuation shapes. Each is written ONCE, bullish way up; the bearish twin (M pattern, head and shoulders, triple top, bear
+# ---- flag) is the same function run on inverted prices (1 / price, highs and lows swapped), so the two sides cannot drift apart.
+def multiyear_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """The highest weekly high of the last 2-5 years, set at least 26 weeks ago, with the last close within 15% under it."""
+    n = min(w + 1, 260)
+    if n < 104:
+        return None
+    a = w - n + 1
+    t = a + int(np.argmax(H[a:w + 1]))
+    level = H[t]
+    if w - t < 26 or C[w] > level or C[w] < level * 0.85:
+        return None
+    b = t + int(np.argmin(L[t:w + 1]))
+    return {"level": float(level), "base": float(L[b]), "hfrom": float(L[b]), "hto": float(level), "start": t, "end": w, "weeks": w - t + 1,
+            "pts": [(t, float(level)), (b, float(L[b]))], "neck": (t, float(level), w + 1, float(level)), "years": n / 52}
+
+
+def double_bottom_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """W: two weekly swing lows within 4% of each other, 4-40 weeks apart, a peak at least 8% above them in between (the neckline), reached from above."""
+    pl = _pivots(L, 2, max(0, w - 60), w, False)
+    if len(pl) < 2 or w - pl[-1] > 12:
+        return None
+    b2 = pl[-1]
+    for b1 in reversed(pl[:-1]):
+        if b2 - b1 < 4:
+            continue
+        if b2 - b1 > 40 or b1 < 4:
+            break
+        low = min(L[b1], L[b2])
+        m = b1 + 1 + int(np.argmax(H[b1 + 1:b2]))                  # the rebound high strictly between the two lows (not the high of a low's own week)
+        neck = H[m]
+        if abs(L[b1] / L[b2] - 1) > 0.04 or neck / low - 1 < 0.08 or L[b1:w + 1].min() < low * 0.985 or C[b2:w + 1].max() > neck:
+            continue
+        if H[max(0, b1 - 26):b1].max() < neck:                     # it has to come after a fall from above the neckline
+            continue
+        return {"level": float(neck), "base": float(low), "hfrom": float(low), "hto": float(neck), "start": b1, "end": w, "weeks": w - b1 + 1,
+                "pts": [(b1, float(L[b1])), (m, float(neck)), (b2, float(L[b2]))], "neck": (m, float(neck), w + 1, float(neck)), "gap": b2 - b1}
+    return None
+
+
+def triple_bottom_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Three weekly swing lows within 4% of each other; the neckline is the highest point between them."""
+    pl = _pivots(L, 2, max(0, w - 70), w, False)
+    if len(pl) < 3:
+        return None
+    b1, b2, b3 = pl[-3:]
+    if w - b3 > 12 or b2 - b1 < 3 or b3 - b2 < 3 or b1 < 4:
+        return None
+    lows = L[[b1, b2, b3]]
+    low = lows.min()
+    m1, m2 = b1 + 1 + int(np.argmax(H[b1 + 1:b2])), b2 + 1 + int(np.argmax(H[b2 + 1:b3]))      # the two rebound highs, strictly between the lows
+    m = m1 if H[m1] >= H[m2] else m2
+    neck = H[m]
+    if lows.max() / low - 1 > 0.04 or neck / low - 1 < 0.08 or L[b1:w + 1].min() < low * 0.985 or C[b3:w + 1].max() > neck or H[max(0, b1 - 26):b1].max() < neck:
+        return None
+    return {"level": float(neck), "base": float(low), "hfrom": float(low), "hto": float(neck), "start": b1, "end": w, "weeks": w - b1 + 1,
+            "pts": [(b1, float(L[b1])), (m1, float(H[m1])), (b2, float(L[b2])), (m2, float(H[m2])), (b3, float(L[b3]))], "neck": (m, float(neck), w + 1, float(neck))}
+
+
+def inv_head_shoulders_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Three weekly swing lows, the middle one (head) at least 3% below both shoulders, shoulders within 8% of each other; the neckline joins the two
+    peaks in between and the level is that line carried to next week."""
+    pl = _pivots(L, 2, max(0, w - 70), w, False)
+    if len(pl) < 3:
+        return None
+    ls, hd, rs = pl[-3:]
+    if w - rs > 10 or hd - ls < 3 or rs - hd < 3 or ls < 4 or not (1 / 3 <= (hd - ls) / (rs - hd) <= 3):
+        return None
+    if L[hd] > min(L[ls], L[rs]) * 0.97 or abs(L[ls] / L[rs] - 1) > 0.08:
+        return None
+    n1, n2 = ls + 1 + int(np.argmax(H[ls + 1:hd])), hd + 1 + int(np.argmax(H[hd + 1:rs]))      # the two rebound highs, strictly between the lows
+    if n2 <= n1 or abs(H[n2] / H[n1] - 1) > 0.10:
+        return None
+    slope = (H[n2] - H[n1]) / (n2 - n1)
+    line = lambda x: H[n1] + slope * (x - n1)                       # noqa: E731
+    if line(hd) / L[hd] - 1 < 0.10 or L[hd:w + 1].min() < L[hd] or (C[rs:w + 1] > line(np.arange(rs, w + 1))).any() or H[max(0, ls - 26):ls].max() < line(ls):
+        return None
+    level = float(line(w + 1))
+    return {"level": level, "base": float(L[hd]), "hfrom": float(L[hd]), "hto": float(line(hd)), "start": ls, "end": w, "weeks": w - ls + 1,
+            "pts": [(ls, float(L[ls])), (n1, float(H[n1])), (hd, float(L[hd])), (n2, float(H[n2])), (rs, float(L[rs]))], "neck": (n1, float(H[n1]), w + 1, level),
+            "shoulders": (float(L[ls]), float(L[rs]))}
+
+
+def flag_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Bull flag: a pole of at least 20% in 8 weeks or fewer, then 2-6 weeks that pull back 3% or more but give up no more than half the pole."""
+    for f in range(2, 7):
+        t = w - f                                                 # the pole's top
+        if t < 9:
+            break
+        if H[t] < H[t - 8:w + 1].max() or C[w] > H[t]:
+            continue                                              # the pole's top has to be the highest point of the pole and the flag
+        q = t - 8 + int(np.argmin(L[t - 8:t]))
+        pole = H[t] - L[q]
+        low_i = t + 1 + int(np.argmin(L[t + 1:w + 1]))
+        if H[t] / L[q] - 1 < 0.20 or L[low_i] < H[t] - 0.5 * pole or 1 - L[low_i] / H[t] < 0.03:
+            continue
+        return {"level": float(H[t]), "base": float(L[low_i]), "hfrom": float(L[q]), "hto": float(H[t]), "start": q, "end": w, "weeks": w - q + 1,
+                "pts": [(q, float(L[q])), (t, float(H[t])), (low_i, float(L[low_i]))], "neck": (t, float(H[t]), w + 1, float(H[t])), "pole_weeks": t - q, "flag_weeks": f}
+    return None
+
+
+def _unmirror(pat: dict) -> dict:
+    """Turn a pattern found on inverted prices back into real prices."""
+    out = dict(pat)
+    for key in ("level", "base", "hfrom", "hto"):
+        out[key] = 1.0 / pat[key]
+    out["pts"] = [(i, 1.0 / v) for i, v in pat["pts"]]
+    x0, y0, x1, y1 = pat["neck"]
+    out["neck"] = (x0, 1.0 / y0, x1, 1.0 / y1)
+    if "shoulders" in pat:
+        out["shoulders"] = tuple(1.0 / v for v in pat["shoulders"])
+    return out
+
+
+def describe(kind: str, side: str, pat: dict) -> str:
+    """The reason in words (real prices)."""
+    long = side == "long"
+    level, base, move = pat["level"], pat["base"], abs(pat["hto"] / pat["hfrom"] - 1) * 100
+    if kind == "multiyear":
+        return f"{pat['years']:.0f}-year high {level:,.1f}, set {pat['end'] - pat['start']} weeks ago; the base since then went down to {base:,.1f}"
+    if kind == "double":
+        return (f"{'W pattern: two lows' if long else 'M pattern: two highs'} near {base:,.1f}, {pat['gap']} weeks apart, with a {'peak' if long else 'trough'} "
+                f"{move:.0f}% {'above' if long else 'below'} them - the neckline {level:,.1f}")
+    if kind == "triple":
+        return f"{'triple bottom: three lows' if long else 'triple top: three highs'} near {base:,.1f} over {pat['weeks']} weeks, neckline {level:,.1f}"
+    if kind == "hs":
+        a, b = pat["shoulders"]
+        return (f"{'inverse head and shoulders' if long else 'head and shoulders'} over {pat['weeks']} weeks: head {base:,.1f}, shoulders {a:,.1f} and {b:,.1f}, "
+                f"neckline now {level:,.1f}")
+    return (f"{'bull' if long else 'bear'} flag: a {move:.0f}% {'rise' if long else 'fall'} in {pat['pole_weeks']} weeks, then a {pat['flag_weeks']}-week "
+            f"{'pullback' if long else 'bounce'} to {base:,.1f} that kept more than half of it")
+
+
+# (kind, side, detector, new-style). Order matters only for the reversal shapes: a head and shoulders outranks a triple, a triple outranks a double.
+PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at, False), ("cup", "long", cup_at, False), ("multiyear", "long", multiyear_at, True)] + [
+    (kind, side, fn, True) for kind, fn in (("hs", inv_head_shoulders_at), ("triple", triple_bottom_at), ("double", double_bottom_at), ("flag", flag_at)) for side in ("long", "short")]
 DETECTORS = {"range": range_at, "triangle": triangle_at, "cup": cup_at}
+
+
+def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Params) -> dict[tuple[str, str], dict]:
+    """Every structure present as of week w, keyed by (kind, side), in real prices with `height` and `why` filled in."""
+    found: dict[tuple[str, str], dict] = {}
+    inv = None
+    for kind, side, fn, new in PATTERNS:
+        if (kind == "triple" and ("hs", side) in found) or (kind == "double" and (("hs", side) in found or ("triple", side) in found)):
+            continue                                              # the same lows / highs are already named by the bigger shape
+        if side == "long":
+            pat = fn(wH, wL, wC, w, p)
+        else:
+            inv = inv or (1.0 / wL, 1.0 / wH, 1.0 / wC)
+            pat = fn(*inv, w, p)
+            pat = _unmirror(pat) if pat else None
+        if pat is None:
+            continue
+        if new:
+            pat = {**pat, "height": abs(pat["hto"] - pat["hfrom"]), "why": describe(kind, side, pat)}
+        found[(kind, side)] = pat
+    return found
 
 
 # ---------------------------------------------------------------- resistance and the plan
@@ -163,8 +331,28 @@ def next_resistance(wH: np.ndarray, w: int, above: float, p: Params) -> float | 
     return float(min(higher)) if higher else None
 
 
-def plan(ref: float, stop: float, wH: np.ndarray, w: int, height: float, level: float, p: Params) -> dict | None:
-    """Stop / target / reward:risk for an entry at `ref`. None when the risk is outside the limits or nothing sensible is overhead."""
+def next_support(wL: np.ndarray, w: int, below: float, p: Params) -> float | None:
+    """The highest weekly support below `below`, known at week w: confirmed swing lows and the last few weeks' low (the mirror of next_resistance)."""
+    lo = max(0, w - p.res_lookback_weeks + 1)
+    cands = [wL[i] for i in _pivots(wL, p.pivot_k, lo, w, False)]
+    cands.append(wL[max(0, w - p.recent_weeks + 1):w + 1].min())
+    lower = [c for c in cands if c < below]
+    return float(max(lower)) if lower else None
+
+
+def plan(ref: float, stop: float, wH: np.ndarray, w: int, height: float, level: float, p: Params, side: str = "long", wL: np.ndarray | None = None) -> dict | None:
+    """Stop / target / reward:risk for an entry at `ref`. None when the risk is outside the limits or there is no sensible target. A short is the
+    mirror: stop above, target = the next weekly support below (or the pattern's height projected down)."""
+    if side == "short":
+        risk = stop - ref
+        if not risk > 0 or not (p.min_risk_pct <= risk / ref * 100 <= p.max_risk_pct):
+            return None
+        sup = next_support(wL, w, ref - 0.5 * risk, p)
+        target, kind = (sup, "support") if sup is not None else (min(level, ref) - height, "measured")
+        if not 0 < target < ref:
+            return None
+        return {"stop": float(stop), "target": float(target), "target_kind": kind, "risk_pct": risk / ref * 100, "reward_pct": (1 - target / ref) * 100,
+                "rr": (ref - target) / risk}
     risk = ref - stop
     if not risk > 0 or not (p.min_risk_pct <= risk / ref * 100 <= p.max_risk_pct):
         return None
@@ -181,8 +369,8 @@ def _features(d: dict, i: int) -> dict:
     c, v = d["c"], d["v"]
     vol = v[i] / v[i - 20:i].mean() if i >= 20 and v[i - 20:i].mean() > 0 else np.nan
     sma200 = c[i - 199:i + 1].mean() if i >= 199 else np.nan
-    hi252 = d["h"][max(0, i - 251):i + 1].max()
-    return {"vol": float(vol), "above200": float(c[i] > sma200) if not np.isnan(sma200) else np.nan, "off_high": float(c[i] / hi252 - 1),
+    hi252, lo252 = d["h"][max(0, i - 251):i + 1].max(), d["l"][max(0, i - 251):i + 1].min()
+    return {"vol": float(vol), "above200": float(c[i] > sma200) if not np.isnan(sma200) else np.nan, "off_high": float(c[i] / hi252 - 1), "off_low": float(c[i] / lo252 - 1),
             "r60": float(c[i] / c[i - 60] - 1) if i >= 60 else np.nan, "day_move": float(c[i] / c[i - 1] - 1) if i else np.nan}
 
 
@@ -200,54 +388,67 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
     n, buf = len(dates), p.stop_buffer_pct / 100
     wk_of = np.searchsorted(wdates.values, dates.values, side="left") - 1           # the last week that closed BEFORE each session's own week
     triggers, pending = [], []
-    last_trigger = {k: -10 ** 9 for k in KINDS}
+    last_trigger: dict = {}
 
     def geometry(kind: str, pat: dict) -> dict:
-        g = {"from": wdates[pat["start"]].strftime("%Y-%m-%d"), "to": wdates[pat["end"]].strftime("%Y-%m-%d"), "level": round(pat["level"], 2), "base": round(pat["base"], 2)}
+        wd = lambda x: wdates[min(x, len(wdates) - 1)].strftime("%Y-%m-%d")         # noqa: E731
+        g = {"from": wd(pat["start"]), "to": wd(pat["end"]), "level": round(pat["level"], 2), "base": round(pat["base"], 2)}
         if kind == "triangle":
             g["shape"] = pat["shape"]
             for key in ("upper", "lower"):
                 x0, y0, x1, y1 = pat[key]
-                g[key] = [wdates[x0].strftime("%Y-%m-%d"), round(y0, 2), wdates[min(x1, len(wdates) - 1)].strftime("%Y-%m-%d"), round(y1, 2)]
+                g[key] = [wd(x0), round(y0, 2), wd(x1), round(y1, 2)]
         if kind == "cup":
-            g.update(left=wdates[pat["left"]].strftime("%Y-%m-%d"), bottom=wdates[pat["bottom"]].strftime("%Y-%m-%d"), right=wdates[pat["right"]].strftime("%Y-%m-%d"),
-                     bottom_px=round(pat["bottom_px"], 2))
+            g.update(left=wd(pat["left"]), bottom=wd(pat["bottom"]), right=wd(pat["right"]), bottom_px=round(pat["bottom_px"], 2))
+        if "pts" in pat:                                                            # the shape's skeleton and its neckline / trigger line
+            x0, y0, x1, y1 = pat["neck"]
+            g.update(pts=[[wd(x), round(y, 2)] for x, y in pat["pts"]], neck=[wd(x0), round(y0, 2), wd(x1), round(y1, 2)])
         return g
 
-    # --- breakouts: the pattern as of the last completed week, a daily close above its level during the following week
-    cache: dict[tuple[str, int], dict | None] = {}
+    # --- patterns: the structure as of the last completed week, a daily close beyond its level during the following week (above for a long, below for a short)
+    cache: dict[int, dict] = {}
     for i in range(260, n):
         w = int(wk_of[i])
         if w < 40:
             continue
-        for kind, detect in DETECTORS.items():
-            if (kind, w) not in cache:
-                cache[(kind, w)] = detect(wH, wL, wC, w, p)
-            pat = cache[(kind, w)]
-            if pat is None or i - last_trigger[kind] < p.cooldown_days:
+        if w not in cache:
+            cache[w] = patterns_at(wH, wL, wC, w, p)
+        if not cache[w]:
+            continue
+        first = int(np.searchsorted(dates.values, wdates.values[w], side="right"))        # first session after that week closed
+        c = d["c"][i]
+        for (kind, side), pat in cache[w].items():
+            long, level = side == "long", pat["level"]
+            if i - last_trigger.get((kind, side), -10 ** 9) < p.cooldown_days:
                 continue
-            first = int(np.searchsorted(dates.values, wdates.values[w], side="right"))    # first session after that week closed
-            if d["c"][i] > pat["level"] and not (d["c"][first:i] > pat["level"]).any():
-                stop = min(pat["level"], d["l"][i]) * (1 - buf)
-                pl = plan(d["c"][i], stop, wH, w, pat["height"], pat["level"], p)
-                last_trigger[kind] = i
-                if pl is None:
-                    continue
-                triggers.append({"kind": kind, "i": i, "w": w, "level": pat["level"], **pl, "geo": geometry(kind, pat), "f": _features(d, i),
-                                 "reason": f"{pat['why']}; daily close {d['c'][i]:,.1f} above {pat['level']:,.1f}"})
+            beyond = (d["c"][first:i + 1] > level) if long else (d["c"][first:i + 1] < level)
+            if not beyond[-1] or beyond[:-1].any():
+                continue
+            stop = min(level, d["l"][i]) * (1 - buf) if long else max(level, d["h"][i]) * (1 + buf)
+            pl = plan(c, stop, wH, w, pat["height"], level, p, side, wL)
+            last_trigger[(kind, side)] = i
+            if pl is None:
+                continue
+            triggers.append({"kind": kind, "side": side, "i": i, "w": w, "level": level, **pl, "geo": geometry(kind, pat), "f": _features(d, i),
+                             "reason": f"{pat['why']}; daily close {c:,.1f} {'above' if long else 'below'} {level:,.1f}"})
     w_last = int(wk_of[n - 1]) if n else -1
-    if n and w_last >= 40:                                                        # armed now: pattern intact and the close just under its level
+    if n and w_last >= 40:                                                        # armed now: structure intact and the close just short of its level
         first = int(np.searchsorted(dates.values, wdates.values[w_last], side="right"))
-        for kind, detect in DETECTORS.items():
-            pat = cache.get((kind, w_last)) or detect(wH, wL, wC, w_last, p)
-            c = d["c"][n - 1]
-            if pat is None or (d["c"][first:n] > pat["level"]).any() or not (pat["level"] * (1 - p.near_pct / 100) <= c <= pat["level"]):
+        c = d["c"][n - 1]
+        for (kind, side), pat in (cache.get(w_last) or patterns_at(wH, wL, wC, w_last, p)).items():
+            long, level = side == "long", pat["level"]
+            beyond = (d["c"][first:n] > level) if long else (d["c"][first:n] < level)
+            near = (level * (1 - p.near_pct / 100) <= c <= level) if long else (level <= c <= level * (1 + p.near_pct / 100))
+            if beyond.any() or not near:
                 continue
-            entry = pat["level"] * (1 + buf)
-            pl = plan(entry, min(pat["level"], d["l"][n - 1]) * (1 - buf), wH, w_last, pat["height"], pat["level"], p)
+            entry = level * (1 + buf) if long else level * (1 - buf)
+            stop = min(level, d["l"][n - 1]) * (1 - buf) if long else max(level, d["h"][n - 1]) * (1 + buf)
+            pl = plan(entry, stop, wH, w_last, pat["height"], level, p, side, wL)
             if pl is not None:
-                pending.append({"kind": kind, "i": n - 1, "w": w_last, "level": pat["level"], "entry": entry, **pl, "geo": geometry(kind, pat), "f": _features(d, n - 1),
-                                "reason": f"{pat['why']}; {((pat['level'] / c) - 1) * 100:.1f}% below the breakout level - buy on a daily close above {pat['level']:,.1f}"})
+                gap = abs(level / c - 1) * 100
+                pending.append({"kind": kind, "side": side, "i": n - 1, "w": w_last, "level": level, "entry": entry, **pl, "geo": geometry(kind, pat), "f": _features(d, n - 1),
+                                "reason": (f"{pat['why']}; {gap:.1f}% {'below' if long else 'above'} the level - "
+                                           f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}")})
 
     # --- weekly support zones: closed inside, then a daily close back out above the zone
     zp = ZoneParams(side="long", impulse_atr=p.zone_impulse_atr, expiry_weeks=p.zone_expiry_weeks)
@@ -271,18 +472,18 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             if c > hi:
                 done = True
                 w = int(wk_of[i])
-                if i >= 260 and w >= 40 and i - last_trigger["zone"] >= p.cooldown_days:
+                if i >= 260 and w >= 40 and i - last_trigger.get(("zone", "long"), -10 ** 9) >= p.cooldown_days:
                     pl = plan(c, lo * (1 - buf), wH, w, hi - lo, hi, p)
-                    last_trigger["zone"] = i
+                    last_trigger[("zone", "long")] = i
                     if pl is not None:
-                        triggers.append({"kind": "zone", "i": i, "w": w, "level": hi, **pl, "geo": geo, "f": {**_features(d, i), "impulse": z["impulse"]},
+                        triggers.append({"kind": "zone", "side": "long", "i": i, "w": w, "level": hi, **pl, "geo": geo, "f": {**_features(d, i), "impulse": z["impulse"]},
                                          "reason": f"{why}; in the zone from {dates[entered].strftime('%d %b')}, daily close {c:,.1f} back above it"})
                 break
         if not done and entered is not None and end == n and w_last >= 40:        # in the zone right now
             entry = hi * (1 + buf)
             pl = plan(entry, lo * (1 - buf), wH, w_last, hi - lo, hi, p)
             if pl is not None:
-                pending.append({"kind": "zone", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
+                pending.append({"kind": "zone", "side": "long", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
                                 "reason": f"{why}; price is in the zone since {dates[entered].strftime('%d %b')} - buy on a daily close back above {hi:,.1f}"})
     triggers.sort(key=lambda t: t["i"])
     return triggers, pending
