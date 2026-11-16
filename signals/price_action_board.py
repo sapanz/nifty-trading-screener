@@ -79,16 +79,54 @@ def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, cal
     return out
 
 
+def collect(frames: dict[str, pd.DataFrame], p: pa.Params = pa.Params()) -> tuple[dict, pd.DataFrame, dict]:
+    """(market context, every historical trigger with its outcome, the per-stock scans) - the slow part, shared by `build` and `history`."""
+    ctx = pm.context(frames)
+    ev, scans = pm.collect(frames, ctx, p)
+    return ctx, ev, scans
+
+
+EPOCH = pd.Timestamp("2000-01-01")
+
+
+def history(ev: pd.DataFrame, fo: set[str] | None = None, sectors: dict[str, str] | None = None, min_rr: float = pa.Params().min_rr) -> dict[int, list[dict]]:
+    """The backtest view's rows, by the year of the trigger: every past setup that would have been listed (planned reward:risk >= min_rr), with
+    the trade as it was taken (entry at the next open) and what happened. Still-open trades are included and marked "open". `rr` is the
+    reward:risk as planned at the trigger close - what the list showed, and what it is filtered on; `rr_entry` is the same from the actual entry."""
+    fo, sectors = fo or set(), sectors or {}
+    out: dict[int, list[dict]] = {}
+    if not len(ev):
+        return out
+    day = lambda d: d.strftime("%Y-%m-%d")                         # noqa: E731
+    for r in ev[ev["rr"] >= min_rr].sort_values(["date", "symbol"]).itertuples():
+        sg = -1 if r.side == "short" else 1
+        row = {"symbol": r.symbol, "fo": r.symbol in fo, "sector": sectors.get(r.symbol), "kind": r.kind, "side": r.side,
+               "name": f"{r.geo['shape']} triangle breakout" if r.kind == "triangle" else pa.NAMES[(r.kind, r.side)],
+               "date": day(r.date), "entry_date": day(r.entry_date), "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2), "target": round(float(r.target), 2),
+               "target_kind": r.target_kind, "rr": round(float(r.rr), 2), "rr_entry": round(float(r.rr_actual), 2), "risk_pct": round(float(sg * (r.entry - r.stop) / r.entry * 100), 2),
+               "reward_pct": round(float(sg * (r.target / r.entry - 1) * 100), 2), "out": r.reason, "exit_date": day(r.exit_date), "exit": round(float(r.exit), 2),
+               "R": round(float(r.R), 2), "bars": int(r.bars), "vol": None if np.isnan(r.vol) else round(float(r.vol), 2), "with_market": bool(r.mkt50 == 1),
+               "reason": r.why, "geo": r.geo}
+        out.setdefault(int(r.date.year), []).append(row)
+    return out
+
+
+def history_candles(df: pd.DataFrame) -> dict:
+    """One stock's whole daily history for the backtest charts, compact: `o` = days since 2000-01-01 for each candle, `c` = [open, high, low, close]."""
+    idx = pd.DatetimeIndex(df.index).normalize()
+    return {"o": [int(x) for x in (idx - EPOCH).days], "c": [[round(float(x), 2) for x in row] for row in df[["open", "high", "low", "close"]].to_numpy()]}
+
+
 def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: dict[str, str] | None = None, oi_store: dict | None = None,
-          now: datetime | None = None, p: pa.Params = pa.Params(), macro_factors: dict | None = None, events: tuple | None = None) -> tuple[dict, dict]:
+          now: datetime | None = None, p: pa.Params = pa.Params(), macro_factors: dict | None = None, events: tuple | None = None,
+          collected: tuple | None = None) -> tuple[dict, dict]:
     """-> (setups.json payload, setups_candles.json payload). `macro_factors` = signals.macro.readings(...) and `events` = (board meetings,
     corporate actions, calendar readable?) are optional context for the selected stock; without them those sections say there is no data."""
     fo, sectors = fo or set(), sectors or {}
     macro_factors = macro_factors or {}
     meetings, actions, calendar_ok = events or ({}, {}, False)
     flows = sc.sector_flows(frames, sectors)
-    ctx = pm.context(frames)
-    ev, scans = pm.collect(frames, ctx, p)
+    ctx, ev, scans = collected or collect(frames, p)
     listed = pm.closed(ev, p.min_rr)
     model = pm.fit(listed) if len(listed) else None
     v = pm.validate(listed) if len(listed) else None

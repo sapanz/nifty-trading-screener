@@ -95,7 +95,8 @@ def collect(frames: dict[str, pd.DataFrame], ctx: dict | None = None, p: pa.Para
             res = outcome(o, h, l, c, t["i"], t["stop"], t["target"], p, t.get("side", "long"))
             if res is None:
                 continue
-            rows.append({**_row(symbol, t, dates[t["i"]], ctx), **res, "exit_date": dates[res["exit_i"]], "entry_date": dates[res["entry_i"]]})
+            rows.append({**_row(symbol, t, dates[t["i"]], ctx), **res, "exit_date": dates[res["exit_i"]], "entry_date": dates[res["entry_i"]],
+                         "stop": t["stop"], "target": t["target"], "why": t["reason"], "geo": t["geo"]})          # the plan and the reason, for the backtest view
     return pd.DataFrame(rows), scans
 
 

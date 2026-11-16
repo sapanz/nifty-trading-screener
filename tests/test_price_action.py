@@ -466,3 +466,46 @@ def test_oi_tag_agrees_with_the_side():
     close = pd.Series([100, 101, 102, 103, 104, 105, 110.0])
     store = {"oi": {"A": {f"2026-01-{d:02d}": v for d, v in zip(range(1, 8), [100, 100, 100, 100, 100, 100, 110])}}}
     assert pb.oi_tag(store, "A", close)["for"] and not pb.oi_tag(store, "A", close, side="short")["for"]      # long buildup: for a long, against a short
+
+
+# ---------------------------------------------------------------- the backtest view's data
+def test_history_rows_carry_the_plan_the_trade_and_the_outcome():
+    frames = {f"S{k:02d}": _daily(k) for k in range(14)}
+    ctx, ev, scans = pb.collect(frames)
+    past = pb.history(ev, fo={"S00", "S01"}, sectors={"S00": "Banks"})
+    rows = [r for y in past.values() for r in y]
+    assert rows and all(y == int(r["date"][:4]) for y, g in past.items() for r in g)
+    assert len(rows) == int((ev["rr"] >= 1.5).sum())                                  # exactly the setups that would have been listed
+    dates = [r["date"] for g in past.values() for r in g]
+    assert all(g == sorted(g, key=lambda r: (r["date"], r["symbol"])) for g in past.values())
+    for r in rows:
+        sg = -1 if r["side"] == "short" else 1
+        assert r["rr"] >= 1.5 and r["out"] in ("target", "stop", "time", "open") and r["date"] < r["entry_date"] <= r["exit_date"]
+        assert sg * (r["target"] - r["entry"]) > 0 and sg * (r["entry"] - r["stop"]) > 0 and r["reason"] and r["name"] and r["geo"]
+        assert abs(r["risk_pct"] - sg * (r["entry"] - r["stop"]) / r["entry"] * 100) < 0.05 and r["bars"] >= 0       # entry and stop are stored rounded to 2 decimals
+        if r["out"] == "target":
+            assert r["R"] > 0 and abs(r["exit"] - r["target"]) / r["target"] < 0.2
+        if r["out"] == "stop":
+            assert r["R"] < 0
+        assert r["fo"] == (r["symbol"] in {"S00", "S01"}) and (r["sector"] == "Banks") == (r["symbol"] == "S00")
+    json.dumps(past)
+    assert dates
+
+
+def test_history_matches_the_model_statistics_for_the_same_trades():
+    frames = {f"S{k:02d}": _daily(k) for k in range(14)}
+    _, ev, _ = pb.collect(frames)
+    rows = [r for g in pb.history(ev).values() for r in g if r["out"] != "open"]
+    listed = pm.closed(ev, 1.5)
+    assert len(rows) == len(listed) and abs(sum(r["R"] for r in rows) - listed["R"].sum()) < 0.02 * len(rows)
+    assert sum(r["out"] == "target" for r in rows) == int(listed["hit"].sum())
+    assert pb.history(ev.iloc[0:0]) == {}
+
+
+def test_history_candles_are_compact_and_decode_to_the_same_dates():
+    df = _daily(3).iloc[:50]
+    h = pb.history_candles(df)
+    assert len(h["o"]) == len(h["c"]) == 50 and all(len(c) == 4 for c in h["c"]) and h["o"] == sorted(h["o"])
+    decoded = [(pb.EPOCH + pd.Timedelta(days=d)).strftime("%Y-%m-%d") for d in h["o"]]
+    assert decoded == [d.strftime("%Y-%m-%d") for d in df.index]
+    assert h["c"][0] == [round(float(x), 2) for x in df[["open", "high", "low", "close"]].iloc[0]]

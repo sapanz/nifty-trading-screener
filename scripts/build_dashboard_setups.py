@@ -77,8 +77,10 @@ def main() -> None:
     meetings, actions, event_status = nse_events.fetch(datetime.now(IST).date())
     logger.info("Macro sources: %s", macro_status)
     logger.info("NSE events: %s", event_status)
+    collected = price_action_board.collect(frames)
     payload, candles = price_action_board.build(frames, fo=fo, sectors=sectors, oi_store=_oi_store(repository), now=datetime.now(IST),
-                                                macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)))
+                                                macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)), collected=collected)
+    past = price_action_board.history(collected[1], fo=fo, sectors=sectors)
     m = payload["model"]
     logger.info("As of %s: %d setups from %d stocks. History: %s", payload["asof"], len(payload["setups"]), payload["universe"], json.dumps({k: m.get(k) for k in ("n", "all", "calibration", "base_rate")}))
     for row in m.get("by_kind", []):
@@ -90,6 +92,16 @@ def main() -> None:
     OUT_DIR.mkdir(exist_ok=True)
     secure.write_json(OUT_DIR / "setups.json", payload)
     secure.write_json(OUT_DIR / "setups_candles.json", candles)
+    # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
+    hist_dir = OUT_DIR / "setups_hist"
+    (hist_dir / "c").mkdir(parents=True, exist_ok=True)
+    for year, rows in past.items():
+        secure.write_json(hist_dir / f"{year}.json", {"year": year, "rows": rows})
+    symbols = sorted({r["symbol"] for rows in past.values() for r in rows})
+    for symbol in symbols:
+        secure.write_json(hist_dir / "c" / f"{symbol}.json", price_action_board.history_candles(frames[symbol]))
+    secure.write_json(hist_dir / "index.json", {"asof": payload["asof"], "years": sorted(past), "counts": {str(y): len(r) for y, r in past.items()}, "min_rr": payload["min_rr"]})
+    logger.info("Backtest view: %d past setups over %d years, candles for %d stocks", sum(len(r) for r in past.values()), len(past), len(symbols))
     if token and repository:
         publish_directory(str(OUT_DIR), repository, token, BRANCH, f"setups {payload['asof']}")
 
