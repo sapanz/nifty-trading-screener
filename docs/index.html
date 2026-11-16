@@ -1890,11 +1890,27 @@
     var section = function (title, summary, tone, items, note) {      // a context block: one-line verdict, then each factor with its reason
       why.appendChild(el("h3", null, title));
       why.appendChild(el("div", { "class": "paVerdict" + (tone ? " " + tone : "") }, summary));
-      if (items.length) { var ul = el("ul", { "class": "paCtx" }); items.forEach(function (it) { var li = el("li", it[2] ? { "class": it[2] } : null, it[0]); if (it[1]) li.appendChild(el("small", null, it[1])); ul.appendChild(li); }); why.appendChild(ul); }
+      if (items.length) { var ul = el("ul", { "class": "paCtx" }); items.forEach(function (it) { var li = el("li", it[2] ? { "class": it[2] } : null, it[0]); if (it[3] && /^https?:\/\//.test(it[3])) { li.appendChild(document.createTextNode(" ")); li.appendChild(el("a", { href: it[3], target: "_blank", rel: "noopener noreferrer" }, "open ↗")); } if (it[1]) li.appendChild(el("small", null, it[1])); ul.appendChild(li); }); why.appendChild(ul); }
       if (note) why.appendChild(el("p", { "class": "oiNote", style: "margin:4px 0 0" }, note));
     };
-    if (s.macro) section("Global macro", s.macro.summary, s.macro.verdict === "supportive" ? "for" : s.macro.verdict === "against" ? "against" : "",
-      s.macro.items.map(function (it) { return [it.text + (it.sector ? " (matters to this sector)" : ""), "Why it matters: " + it.why + ".", it.verdict === "for" || it.verdict === "against" ? it.verdict : ""]; }),
+    var tone = function (f) { return f === true ? "for" : f === false ? "against" : ""; };
+    var marketItems = function (items) { return items.map(function (it) { return [it.text + (it.sector ? " (matters to this sector)" : ""), "Why it matters: " + it.why + ".", it.verdict === "for" || it.verdict === "against" ? it.verdict : ""]; }); };
+    if (s.macro && s.macro.sections) {                                  // stock-specific: the sector worldwide, Indian peers, the news, then the market-wide backdrop
+      var sec = s.macro.sections;
+      section("Global macro - for this stock", s.macro.summary, s.macro.verdict === "supportive" ? "for" : s.macro.verdict === "against" ? "against" : "", [],
+        "Four parts below: how its sector is doing worldwide, how its Indian peers are doing, what the news says, and the market-wide backdrop. Rules of thumb with the numbers shown - context, not part of the probability.");
+      section("1. Its sector worldwide", sec.world.summary, tone(sec.world["for"]), sec.world.items.map(function (it) {
+        return [it.text, "", it.trend === null || it.trend === "flat" ? "" : (it.trend === "up") === (s.side !== "short") ? "for" : "against"]; }),
+        sec.world.basis === "sector" ? "No closer peer set is defined for this stock, so this is its broad sector's fund." : "");
+      section("2. Its Indian peers", sec.peers.summary, tone(sec.peers["for"]), (sec.peers.reasons || []).map(function (r) { return [r, "", ""]; }),
+        sec.peers.basis === "sector" ? "Compared with the other stocks in its Nifty 500 sector, as no closer peer group is defined for it." : "Compared with the other listed members of its peer group, from this dashboard's own candles.");
+      section("3. News and investor interest", sec.news.summary, tone(sec.news["for"]), sec.news.items.map(function (n) {
+        return [(n.days === 0 ? "Today" : n.days + (n.days === 1 ? " day ago" : " days ago")) + " · " + n.title + (n.source ? " (" + n.source + ")" : ""),
+                n.cue ? "Cue: “" + n.cue + "” - " + n.why + "." : "No clear buying or selling cue in the headline.", n.score > 0 ? (s.side === "short" ? "against" : "for") : n.score < 0 ? (s.side === "short" ? "for" : "against") : "", n.link]; }),
+        "Read from headlines by keyword rules - it can miss nuance or misread a headline, so judge the headlines themselves. No news is not bad news.");
+      section("4. Market-wide backdrop", sec.backdrop.summary, sec.backdrop.verdict === "supportive" ? "for" : sec.backdrop.verdict === "against" ? "against" : "", marketItems(sec.backdrop.items),
+        "The same for every stock except the factors marked as mattering to this sector (for example a weaker rupee for IT exporters).");
+    } else if (s.macro) section("Global macro", s.macro.summary, s.macro.verdict === "supportive" ? "for" : s.macro.verdict === "against" ? "against" : "", marketItems(s.macro.items),
       "Rules of thumb for how each factor usually affects this sector - context, not part of the probability.");
     if (s.vm) section("Value migration", s.vm.summary, s.vm["for"] === true ? "for" : s.vm["for"] === false ? "against" : "",
       s.vm.reasons.map(function (r) { return [r, "", ""]; }), s.vm.reasons.length ? "Measured from price and turnover (6 and 12 months against the market, and the sector's share of money traded) - a proxy, not profit data." : "");
