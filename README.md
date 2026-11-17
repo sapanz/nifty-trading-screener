@@ -688,7 +688,7 @@ Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov 
 | Weekly range breakout | 8-40 weeks in a box 5-25% wide with two spaced tests of each side | a close above the top |
 | Triangle breakout | falling or flat swing highs and rising swing lows that converge (symmetric / ascending) | a close above the upper line |
 | Cup and handle | two rims within 8% around a rounded 12-45% dip, then a 2-15% handle in the upper half | a close above the rim |
-| Multi-year breakout | the highest weekly high of the last 2-5 years, set at least 26 weeks ago, price within 15% of it | a close above that high |
+| Multi-year breakout | the highest weekly high of the last 2-5 years, set at least 26 weeks ago, price within 15% of it | a close above that high - **held, not sold at a target**: out on the first weekly close below the 30-week average (next open), or at the stop |
 | W pattern (double bottom) / **M pattern (double top, short)** | two swing lows (highs) within 4%, 4-40 weeks apart, a rebound of 8% or more strictly between them, reached from above (below) | a close through the neckline |
 | Triple bottom / **triple top (short)** | three swing lows (highs) within 4% | a close through the neckline |
 | Inverse head and shoulders / **head and shoulders (short)** | a head 3% or more beyond two shoulders that are within 8% of each other; the neckline joins the two rebounds | a close through the neckline |
@@ -718,6 +718,8 @@ Each row gives the **reason** in words, the entry (the latest close once trigger
 
 So a reversal candle at weekly support is **not an edge on its own**: all candles at support together made +0.02R a trade, the plain hammer (the most common signal) +0.01R, the better-looking piercing line and bullish engulfing +0.13R and +0.09R on only 66 and 62 trades, and the morning star lost. Candles at resistance for shorts did worse. A candle is best read as one more tag on a setup you already like, with its own record shown on the row. (A first run showed candles at support at +0.10R; that came from a bug that dropped signals depending on the order zones were processed in, found and fixed before release, and the corrected figure is the one above.)
 
+**Yes / No in the summary tags**: next to volume, trends and momentum the stock's tag row also says `Global macro supportive: Yes / No`, `Value migration into (out of, for a short) its sector: Yes / No` and `Catalyst: Yes / No`, each with the short reason (hover for the full sentence) - macro Yes = verdict Supportive; value migration Yes = money flowing into the sector for a long, out of it for a short; catalyst Yes = a board meeting in the next three weeks (it can move the stock either way, so that tag is neutral) or an event-sized move, gap or fresh 52-week extreme in the last three weeks in the trade's direction (green). "No data" is shown when a source was unavailable. The three blocks below hold the detail.
+
 **Context when you open a stock** - three blocks under the chart, each line with its reason, none of them inside the probability:
 
 - **Global macro, for this stock** (`signals/stock_macro.py`): the section is about the stock in front of you, in four parts, each with its numbers and reasons, then one verdict (Supportive / Mixed / Against, flipped for a short) from how many parts are with the trade:
@@ -732,11 +734,11 @@ So a reversal candle at weekly support is **not an edge on its own**: all candle
 
 Every source fails soft (a missing factor shows as "no data" and counts neither way); `scripts/probe_context_sources.py` (workflow **Context sources probe**, no login) reports which ones answer.
 
-What the history says (F&O stocks, Dec 2021 - Nov 2026, 4,453 setups with reward : risk of 1.5 or more, costs included): **-0.02R a trade, profit factor 0.98** overall - longs +0.03R (3,157), **shorts -0.14R (1,296)**.
+What the history says (F&O stocks, Dec 2021 - Nov 2026, 4,453 setups with reward : risk of 1.5 or more, costs included): **+0.05R a trade, profit factor 1.06** overall (multi-year breakouts traded with the 30-week exit; with a fixed target for every kind it was -0.02R) - longs +0.12R (3,156), **shorts -0.14R (1,296)**.
 
 | Setup | Trades | Reached target | Average per trade | PF |
 |---|---|---|---|---|
-| Multi-year breakout | 164 | 9% | +0.33R | 1.43 |
+| Multi-year breakout, 30-week exit (21% end in profit; no target) | 163 | - | +2.07R | 3.52 |
 | Weekly support zone | 92 | 43% | +0.11R | 1.15 |
 | Triangle breakout | 275 | 32% | +0.10R | 1.14 |
 | Bull flag | 416 | 16% | +0.07R | 1.08 |
@@ -752,7 +754,7 @@ What the history says (F&O stocks, Dec 2021 - Nov 2026, 4,453 setups with reward
 | Bear flag (short) | 183 | 13% | -0.46R | 0.49 |
 | Head and shoulders (short) | 35 | 11% | -0.67R | 0.33 |
 
-By year: 2021 -0.30R, 2022 -0.07R, 2023 +0.41R, 2024 -0.18R, 2025 -0.17R, 2026 -0.15R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short type lost or only broke even - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout reaches its far target only 9% of the time; its result comes from trades that were closed in profit at the 60-session time exit. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
+By year: 2021 -0.30R, 2022 -0.07R, 2023 +0.73R, 2024 -0.20R, 2025 -0.17R, 2026 -0.18R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short type lost or only broke even - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout used to be sold at a target (9% reached it, +0.33R a trade); held until a weekly close below the 30-week average it makes **+2.07R a trade over 163 trades** (126 stopped out, 37 closed by the exit, median hold 7 sessions, mean 54) - but that is carried by a handful of runners: the best five trades (TRENT +122R, BEL +49R, BAJAJ-AUTO +47R, GMRAIRPORT +41R, COLPAL +35R, all from 2023) are 87% of the total, without them it is +0.27R, 2023 alone is +6.9R a trade and the other four years are -0.3R to -1.0R (-0.51R over 106 trades excluding 2023). So the exit does what it should - it lets the profitable trades run - but the result is a few big winners paid for by many small losses, not a steady edge. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
 
 ### What the 6-year research found (Nov 2026)
 

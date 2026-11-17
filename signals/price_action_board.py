@@ -70,10 +70,13 @@ def _calibration(v: dict | None) -> float:
 
 def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, calibration: float) -> dict:
     def stat(g: pd.DataFrame) -> dict:
-        r = g["R"].to_numpy()
+        g = g[g["t_out"] != "open"]                                # results are of the trade as taken (a trend-exit trade can still be running)
+        if not len(g):
+            return {"n": 0, "hit": 0.0, "win": 0.0, "avg_r": 0.0, "pf": None, "rr": 0.0}
+        r = g["t_R"].to_numpy()
         wins, losses = r[r > 0].sum(), -r[r <= 0].sum()
-        return {"n": int(len(g)), "hit": round(float(g["hit"].mean()) * 100, 1), "avg_r": round(float(r.mean()), 2), "pf": round(float(wins / losses), 2) if losses > 0 else None,
-                "rr": round(float(g["rr"].median()), 1)}
+        return {"n": int(len(g)), "hit": round(float(g["hit"].mean()) * 100, 1), "win": round(float((r > 0).mean()) * 100, 1), "avg_r": round(float(r.mean()), 2),
+                "pf": round(float(wins / losses), 2) if losses > 0 else None, "rr": round(float(g["rr"].median()), 1)}
     out = {"n": int(len(listed)), "calibration": round(calibration, 2)}
     if not len(listed):
         return out
@@ -115,9 +118,9 @@ def history(ev: pd.DataFrame, fo: set[str] | None = None, sectors: dict[str, str
         row = {"symbol": r.symbol, "fo": r.symbol in fo, "sector": sectors.get(r.symbol), "kind": r.kind, "side": r.side,
                "name": setup_name(r.kind, r.side, r.geo),
                "date": day(r.date), "entry_date": day(r.entry_date), "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2), "target": round(float(r.target), 2),
-               "target_kind": r.target_kind, "rr": round(float(r.rr), 2), "rr_entry": round(float(r.rr_actual), 2), "risk_pct": round(float(sg * (r.entry - r.stop) / r.entry * 100), 2),
-               "reward_pct": round(float(sg * (r.target / r.entry - 1) * 100), 2), "out": r.reason, "exit_date": day(r.exit_date), "exit": round(float(r.exit), 2),
-               "R": round(float(r.R), 2), "bars": int(r.bars), "vol": None if np.isnan(r.vol) else round(float(r.vol), 2), "with_market": bool(r.mkt50 == 1),
+               "target_kind": r.target_kind, "trend": r.kind in pm.TREND_KINDS and r.side == "long", "rr": round(float(r.rr), 2), "rr_entry": round(float(r.rr_actual), 2), "risk_pct": round(float(sg * (r.entry - r.stop) / r.entry * 100), 2),
+               "reward_pct": round(float(sg * (r.target / r.entry - 1) * 100), 2), "out": r.t_out, "exit_date": day(r.t_exit_date), "exit": round(float(r.t_exit), 2),
+               "R": round(float(r.t_R), 2), "bars": int(r.t_bars), "vol": None if np.isnan(r.vol) else round(float(r.vol), 2), "with_market": bool(r.mkt50 == 1),
                "reason": r.why, "geo": r.geo}
         out.setdefault(int(r.date.year), []).append(row)
     return out
@@ -169,8 +172,8 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     calibration = _calibration(v)
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
     summary = _model_summary(listed, model, v, calibration)
-    record = {(r["kind"], r["side"]): {"n": r["n"], "hit": r["hit"], "avg_r": r["avg_r"]} for r in summary.get("by_kind", [])}     # each type's own past result
-    record.update({("candle", r["side"], r["candle"]): {"n": r["n"], "hit": r["hit"], "avg_r": r["avg_r"]} for r in summary.get("by_candle", [])})     # a candle: its own
+    record = {(r["kind"], r["side"]): {"n": r["n"], "hit": r["hit"], "win": r["win"], "avg_r": r["avg_r"]} for r in summary.get("by_kind", [])}     # each type's own past result
+    record.update({("candle", r["side"], r["candle"]): {"n": r["n"], "hit": r["hit"], "win": r["win"], "avg_r": r["avg_r"]} for r in summary.get("by_candle", [])})     # a candle: its own
     rows, candles = [], {}
     for symbol, (triggers, pending) in scans.items():
         df = frames[symbol]
@@ -207,6 +210,8 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
             prob = float(pm.predict(model, feat)[0]) * calibration if model else None
             miss = model["miss_r"] if model else -1.0
             f = t["f"]
+            trend = t["kind"] in pm.TREND_KINDS and t["side"] == "long"          # held while the weekly close stays above its 30-week average: no target, so no hit probability
+            sma30 = pm.trend_sma(dates, df["close"].to_numpy(float)) if trend else None
             if not t["rr"] - miss > 0:
                 continue
             rows.append({
@@ -214,7 +219,8 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 "name": setup_name(t["kind"], t["side"], t["geo"]), "status": t["status"], "age": t["age"], "trigger_date": t["trigger_date"],
                 "reason": t["reason"], "price": round(float(last), 2), "entry": round(float(t["entry"]), 2), "stop": round(float(t["stop"]), 2), "target": round(float(t["target"]), 2),
                 "target_kind": t["target_kind"], "risk_pct": round(float(t["risk_pct"]), 2), "reward_pct": round(float(t["reward_pct"]), 2), "rr": round(float(t["rr"]), 2),
-                "p": round(prob * 100, 1) if prob is not None else None, "breakeven": round(-miss / (t["rr"] - miss) * 100, 1),
+                "p": None if trend else round(prob * 100, 1) if prob is not None else None, "breakeven": None if trend else round(-miss / (t["rr"] - miss) * 100, 1),
+                "trail": {"weeks": pm.TREND_WEEKS, "sma": None if sma30 is None else round(sma30, 2)} if trend else None,
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
                 "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
                 "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get(("candle", t["side"], t["geo"].get("candle"))) if t["kind"] == "candle" else record.get((t["kind"], t["side"])),

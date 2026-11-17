@@ -279,7 +279,7 @@
       <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="double">W / M pattern</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="candle">Candle at support / resistance</option></select></label>
       <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
-      <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
+      <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="trend">Closed below 30-week average</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
       <label class="liveOnly">Status <select id="paStatus" aria-label="Triggered or waiting"><option value="all">All</option><option value="triggered">Triggered</option><option value="pending">Waiting for the trigger</option></select></label>
       <label>Reward : risk at least <select id="paMinRR" aria-label="Smallest reward to risk"><option value="1.5">1.5</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select></label>
       <label>Risk at most <select id="paMaxRisk" aria-label="Largest stop distance"><option value="any">Any</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
@@ -1691,11 +1691,11 @@
       var sym = el("td", { "class": "sym l" }, s.symbol); if (s.fo) sym.appendChild(el("span", { "class": "fo" }, "F&O")); tr.appendChild(sym);
       var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, s.name)); setup.appendChild(el("span", { "class": "fo", style: s.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, s.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, s.reason)); tr.appendChild(setup);
       tr.appendChild(td(paStatusText(s), "l"));
-      tr.appendChild(td(paPx(s.entry))); tr.appendChild(td(paPx(s.stop))); tr.appendChild(td(paPx(s.target) + (s.target_kind === "measured" ? " *" : "")));
+      tr.appendChild(td(paPx(s.entry))); tr.appendChild(td(paPx(s.stop))); tr.appendChild(s.trail ? el("td", { title: "No fixed target: held while the weekly close stays above its 30-week average" + (s.trail.sma ? " (now " + paPx(s.trail.sma) + ")" : "") + ". The reward shown is the measured move, for reference." }, "30-wk avg") : td(paPx(s.target) + (s.target_kind === "measured" ? " *" : "")));
       tr.appendChild(td("-" + s.risk_pct.toFixed(1) + "%", "down")); tr.appendChild(td("+" + s.reward_pct.toFixed(1) + "%", "up"));
       tr.appendChild(el("td", { style: "font-weight:700" }, s.rr.toFixed(1) + " : 1"));
-      tr.appendChild(s.p === null ? td("-", "mute") : el("td", { "class": s.p >= s.breakeven ? "up" : "", title: "Needs " + s.breakeven.toFixed(0) + "% to break even at this reward : risk" }, s.p.toFixed(0) + "% · needs " + s.breakeven.toFixed(0) + "%"));
-      tr.appendChild(s.record ? el("td", { "class": s.record.avg_r > 0.02 ? "up" : s.record.avg_r < -0.02 ? "down" : "", title: s.record.hit.toFixed(0) + "% of " + s.record.n + " past setups of this type reached the target" }, (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R · " + s.record.n) : td("-", "mute"));
+      tr.appendChild(s.p === null ? el("td", { "class": "mute", title: s.trail ? "No fixed target, so no hit probability - see this type's record" : "Not enough history" }, "-") : el("td", { "class": s.p >= s.breakeven ? "up" : "", title: "Needs " + s.breakeven.toFixed(0) + "% to break even at this reward : risk" }, s.p.toFixed(0) + "% · needs " + s.breakeven.toFixed(0) + "%"));
+      tr.appendChild(s.record ? el("td", { "class": s.record.avg_r > 0.02 ? "up" : s.record.avg_r < -0.02 ? "down" : "", title: s.trail ? s.record.win.toFixed(0) + "% of " + s.record.n + " past trades of this type ended in profit (held until a weekly close below the 30-week average)" : s.record.hit.toFixed(0) + "% of " + s.record.n + " past setups of this type reached the target" }, (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R · " + s.record.n) : td("-", "mute"));
       tr.appendChild(s.vol === null ? td("-", "mute") : el("td", s.vol >= 1.5 ? { style: "font-weight:700" } : null, s.vol.toFixed(1) + "×"));
       tr.appendChild(s.oi ? el("td", { "class": s.oi["for"] ? "up" : "down", title: "OI " + (s.oi.oi_chg > 0 ? "+" : "") + s.oi.oi_chg + "%, price " + (s.oi.px_chg > 0 ? "+" : "") + s.oi.px_chg + "% over 5 sessions" }, s.oi.tag) : td(s.fo ? "no data" : "-", "mute"));
       var open = function () { openSetup(s); };
@@ -1703,12 +1703,12 @@
       body.appendChild(tr);
     });
     var walk = m.walk ? " Checked year by year on " + m.walk.n + " setups it had not seen: the lowest quarter of estimates hit " + m.walk.rows[0].actual + "% and the highest " + m.walk.rows[m.walk.rows.length - 1].actual + "% (it had said " + m.walk.rows[0].predicted + "% and " + m.walk.rows[m.walk.rows.length - 1].predicted + "%), so the figure shown is scaled by " + m.calibration + "." : "";
-    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it. Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high / bull flag = a daily close above the pattern's top; W pattern, triple bottom and inverse head and shoulders = a daily close above the neckline. The bearish twins - M pattern, triple top, head and shoulders, bear flag - are shorts on a daily close below the neckline, listed for F&O stocks only (a cash short cannot be carried overnight). Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance (support for a short), or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - several kinds, and the short side as a whole, have lost money. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
+    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it. Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high / bull flag = a daily close above the pattern's top; W pattern, triple bottom and inverse head and shoulders = a daily close above the neckline. The bearish twins - M pattern, triple top, head and shoulders, bear flag - are shorts on a daily close below the neckline, listed for F&O stocks only (a cash short cannot be carried overnight). Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance (support for a short), or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - several kinds, and the short side as a whole, have lost money. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
   }
 
   /* ---------- Price action backtest: every past setup that would have been listed, traded by the same rule (entry at the next open, the planned
      stop and target, a 60-session time exit, 0.10% costs), from setups_hist/<year>.json; each stock's candles load when a row is opened. ---------- */
-  var PA_OUT = { target: "Target hit", stop: "Stopped", time: "Time exit", open: "Still open" };
+  var PA_OUT = { target: "Target hit", stop: "Stopped", time: "Time exit", open: "Still open", trend: "Closed below 30-week average" };
   function setPaView(v) { state.paView = v; save(); closeOi(); renderPaView(); if (v === "hist") loadHist(); else renderSetups(); }
   function renderPaView() {
     var hist = state.paView === "hist";
@@ -1774,7 +1774,7 @@
       tr.appendChild(td(shortDate(r.date) + " " + r.date.slice(0, 4), "l"));
       var sym = el("td", { "class": "sym l" }, r.symbol); if (r.fo) sym.appendChild(el("span", { "class": "fo" }, "F&O")); tr.appendChild(sym);
       var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, r.name)); setup.appendChild(el("span", { "class": "fo", style: r.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, r.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, r.reason)); tr.appendChild(setup);
-      tr.appendChild(td(paPx(r.entry))); tr.appendChild(td(paPx(r.stop))); tr.appendChild(td(paPx(r.target) + (r.target_kind === "measured" ? " *" : "")));
+      tr.appendChild(td(paPx(r.entry))); tr.appendChild(td(paPx(r.stop))); tr.appendChild(r.trend ? el("td", { title: "No fixed target: sold at the next open after a weekly close below the 30-week average" }, "30-wk avg") : td(paPx(r.target) + (r.target_kind === "measured" ? " *" : "")));
       tr.appendChild(td("-" + r.risk_pct.toFixed(1) + "%", "down")); tr.appendChild(td(r.rr.toFixed(1) + " : 1"));
       tr.appendChild(el("td", { "class": r.out === "open" ? "mute" : r.R > 0 ? "up" : "down", style: "font-weight:700" }, (r.R > 0 ? "+" : "") + r.R.toFixed(2) + "R"));
       tr.appendChild(td(PA_OUT[r.out] || r.out, r.out === "target" ? "up" : r.out === "stop" ? "down" : ""));
@@ -1805,10 +1805,11 @@
     prev.addEventListener("click", function () { stepHist(-1); }); next.addEventListener("click", function () { stepHist(1); });
     nav.appendChild(prev); nav.appendChild(next); nav.appendChild(el("span", null, (h.i + 1) + " of " + list.length + " in this list · arrow keys also step"));
     body.appendChild(nav);
-    var ended = r.out === "target" ? "the target was reached" : r.out === "stop" ? "the stop was hit" : r.out === "time" ? "neither was reached in 60 sessions, so it was closed" : "the trade is still open";
+    var ended = r.out === "target" ? "the target was reached" : r.out === "stop" ? "the stop was hit" : r.out === "trend" ? "the weekly close fell below the 30-week average, so it was sold at the next open" : r.out === "time" ? (r.trend ? "it was still held after about two years, so it was closed" : "neither was reached in 60 sessions, so it was closed") : "the trade is still open";
     var plan = el("div", { "class": "paPlan" });
     [[short ? "Sold (short)" : "Entry", paPx(r.entry), "next open, " + shortDate(r.entry_date), ""], ["Stop", paPx(r.stop), "risk -" + r.risk_pct.toFixed(1) + "%", "risk"],
-     ["Target", paPx(r.target), (r.target_kind === "measured" ? "measured move" : short ? "next weekly support" : "next weekly resistance") + " · +" + r.reward_pct.toFixed(1) + "%", "reward"],
+     r.trend ? ["Exit rule", "30-week avg", "sold at the next open after a weekly close below it · no fixed target (measured move " + paPx(r.target) + " for reference)", "reward"]
+             : ["Target", paPx(r.target), (r.target_kind === "measured" ? "measured move" : short ? "next weekly support" : "next weekly resistance") + " · +" + r.reward_pct.toFixed(1) + "%", "reward"],
      ["Reward : risk", r.rr.toFixed(1) + " : 1", "as planned" + (r.rr_entry !== undefined && Math.abs(r.rr_entry - r.rr) >= 0.1 ? " · " + r.rr_entry.toFixed(1) + " from the actual entry" : ""), ""],
      ["Result", (r.R > 0 ? "+" : "") + r.R.toFixed(2) + "R", (PA_OUT[r.out] || r.out) + " after " + r.bars + (r.bars === 1 ? " session" : " sessions"), r.out === "open" ? "" : r.R > 0 ? "reward" : "risk"],
      ["Exit", r.out === "open" ? "-" : paPx(r.exit), r.out === "open" ? "not yet" : shortDate(r.exit_date) + " " + r.exit_date.slice(0, 4), ""]].forEach(function (k) {
@@ -1852,10 +1853,11 @@
     var plan = el("div", { "class": "paPlan" });
     var short = s.side === "short";
     [[short ? "Sell (short)" : "Entry", paPx(s.entry), s.status === "pending" ? "on a daily close " + (short ? "below" : "above") : "latest close", ""], ["Stop", paPx(s.stop), "risk -" + s.risk_pct.toFixed(1) + "%", "risk"],
-     ["Target", paPx(s.target), (s.target_kind === "measured" ? "measured move" : short ? "next weekly support" : "next weekly resistance") + " · +" + s.reward_pct.toFixed(1) + "%", "reward"],
-     ["Reward : risk", s.rr.toFixed(1) + " : 1", "per 1 risked", ""],
-     ["Probability", s.p === null ? "-" : s.p.toFixed(0) + "%", "needs " + s.breakeven.toFixed(0) + "% to break even", s.p !== null && s.p >= s.breakeven ? "reward" : ""],
-     ["This type's record", s.record ? (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R" : "-", s.record ? s.record.n + " past trades, " + s.record.hit.toFixed(0) + "% hit" : "no history", s.record ? (s.record.avg_r > 0.02 ? "reward" : s.record.avg_r < -0.02 ? "risk" : "") : ""]].forEach(function (k) {
+     s.trail ? ["Exit", "30-week avg", "sell on a weekly close below it" + (s.trail.sma ? " (now " + paPx(s.trail.sma) + ")" : "") + " · no fixed target", "reward"]
+             : ["Target", paPx(s.target), (s.target_kind === "measured" ? "measured move" : short ? "next weekly support" : "next weekly resistance") + " · +" + s.reward_pct.toFixed(1) + "%", "reward"],
+     ["Reward : risk", s.rr.toFixed(1) + " : 1", s.trail ? "to the measured move " + paPx(s.target) + ", for reference" : "per 1 risked", ""],
+     s.p === null ? ["Probability", "-", s.trail ? "no fixed target - see the record" : "not enough history", ""] : ["Probability", s.p.toFixed(0) + "%", "needs " + s.breakeven.toFixed(0) + "% to break even", s.p >= s.breakeven ? "reward" : ""],
+     ["This type's record", s.record ? (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R" : "-", s.record ? s.record.n + " past trades, " + (s.trail ? s.record.win.toFixed(0) + "% profitable" : s.record.hit.toFixed(0) + "% hit") : "no history", s.record ? (s.record.avg_r > 0.02 ? "reward" : s.record.avg_r < -0.02 ? "risk" : "") : ""]].forEach(function (k) {
       var box = el("div", k[3] ? { "class": k[3] } : null); box.appendChild(el("span", null, k[0])); box.appendChild(el("b", null, k[1])); box.appendChild(el("span", null, k[2])); plan.appendChild(box);
     });
     body.appendChild(plan);
@@ -1885,7 +1887,18 @@
     if (s.record) chip("This type's record: " + (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R a trade over " + s.record.n, s.record.avg_r > 0.02 ? "for" : s.record.avg_r < -0.02 ? "against" : "");
     if (s.oi) chip("OI: " + s.oi.tag + " (OI " + (s.oi.oi_chg > 0 ? "+" : "") + s.oi.oi_chg + "%, price " + (s.oi.px_chg > 0 ? "+" : "") + s.oi.px_chg + "% in 5 sessions)", s.oi["for"] ? "for" : "against");
     else if (s.fo) chip("OI: not stored yet"); else chip("Not an F&O stock - no OI");
-    chip(s.p === null ? "Probability: not enough history" : s.p >= s.breakeven ? "Probability " + s.p.toFixed(0) + "% is above the " + s.breakeven.toFixed(0) + "% needed" : "Probability " + s.p.toFixed(0) + "% is below the " + s.breakeven.toFixed(0) + "% needed", s.p === null ? "" : s.p >= s.breakeven ? "for" : "against");
+    if (s.trail) chip("Exit: weekly close below the 30-week average" + (s.trail.sma ? " (now " + paPx(s.trail.sma) + ")" : "") + " - no fixed target, so profitable trades are held", "for");
+    else chip(s.p === null ? "Probability: not enough history" : s.p >= s.breakeven ? "Probability " + s.p.toFixed(0) + "% is above the " + s.breakeven.toFixed(0) + "% needed" : "Probability " + s.p.toFixed(0) + "% is below the " + s.breakeven.toFixed(0) + "% needed", s.p === null ? "" : s.p >= s.breakeven ? "for" : "against");
+    var yn = function (label, yes, detail, tipText, tone) { var c = el("span", tone ? { "class": tone } : null, label + ": " + (yes === null ? "no data" : yes ? "Yes" : "No") + (detail ? " - " + detail : "")); if (tipText) c.title = tipText; chips.appendChild(c); };
+    if (s.macro) { var mv = s.macro.verdict; yn("Global macro supportive", mv === "nodata" ? null : mv === "supportive", mv === "supportive" ? "" : mv === "against" ? "against the " + (short ? "short" : "long") : mv === "mixed" ? "mixed" : "", s.macro.summary, mv === "supportive" ? "for" : mv === "against" ? "against" : ""); }
+    if (s.vm) { var vv = s.vm.verdict, dirw = vv === "in" ? "into" : "out of";
+      yn("Value migration " + (short ? "out of" : "into") + " its sector", vv === "nodata" ? null : s.vm["for"] === true, s.vm["for"] === true ? "" : vv === "nodata" ? "" : vv === "neutral" ? "no clear shift" : "money is moving " + dirw + " it", s.vm.summary, s.vm["for"] === true ? "for" : s.vm["for"] === false ? "against" : ""); }
+    if (s.catalysts) {
+      var cat = s.catalysts, ahead = (cat.dated || []).filter(function (e) { return e.upcoming && e.kind === "meeting"; })[0], withT = (cat.price || []).filter(function (e) { return e["for"]; }), cdet, cyes, ctone = "";
+      if (withT.length) { cyes = true; cdet = withT[withT.length - 1].text; ctone = "for"; }
+      else if (ahead) { cyes = true; cdet = ahead.text.replace(/^Board meeting /, "") + (ahead.days === 0 ? " - today" : " - in " + ahead.days + (ahead.days === 1 ? " day" : " days")) + " (can move it either way)"; }
+      else { cyes = false; cdet = (cat.price || []).length ? "the recent event-sized move was against the trade" : cat.calendar ? "none in the next three weeks" : "event calendar unavailable"; }
+      yn("Catalyst", cyes, cdet, cat.summary, ctone); }
     why.appendChild(chips);
     var section = function (title, summary, tone, items, note) {      // a context block: one-line verdict, then each factor with its reason
       why.appendChild(el("h3", null, title));
@@ -1997,7 +2010,22 @@
         svg.appendChild(svgEl("text", { x: Math.min(cx, right - 80), y: cshort ? cy - 11 : cy + 20, "text-anchor": cx > right - 100 ? "end" : "middle", style: "fill:" + acc + ";font-weight:700;font-size:11px" }, g.candle));
       }
     }
-    var labels = [{ p: s.target, t: "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
+    if (s.kind === "multiyear" && s.side !== "short") {                // the exit line: the 30-week average of the weekly closes (a step line on the daily chart: it changes once a week)
+      var wsrc = weekly ? cd : (cd.w && cd.w.c && cd.w.c.length > 20 ? cd.w : weeklyFromDaily(cd)), wcl = wsrc.c.map(function (c) { return c[3]; }), wk = 0, dpath = "", pen = false, lastPt = null, ORG = "#d9822b";
+      var smaAt = function (k) { if (k < 29) return null; var t = 0; for (var q = k - 29; q <= k; q++) t += wcl[q]; return t / 30; };
+      for (var i3 = 0; i3 < m; i3++) {
+        var v3;
+        if (weekly) v3 = smaAt(start + i3);
+        else { while (wk + 1 < wsrc.d.length && wsrc.d[wk + 1] <= dd[i3]) wk++; v3 = wsrc.d[wk] <= dd[i3] ? smaAt(wk) : null; }
+        if (v3 === null || v3 < lo || v3 > hi) { pen = false; continue; }
+        dpath += (pen ? "L" : "M") + x(i3).toFixed(1) + " " + y(v3).toFixed(1) + " "; pen = true; lastPt = [x(i3), y(v3)];
+      }
+      if (dpath) {
+        svg.appendChild(svgEl("path", { d: dpath, fill: "none", stroke: ORG, "stroke-width": "1.8" }));
+        if (lastPt) svg.appendChild(svgEl("text", { x: Math.min(lastPt[0] + 4, right - 56), y: lastPt[1] - 6, style: "fill:" + ORG + ";font-size:10px;font-weight:700" }, "30-wk avg"));
+      }
+    }
+    var labels = [{ p: s.target, t: s.kind === "multiyear" && s.side !== "short" ? "Ref. move" : "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
     if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "candle" ? "Zone edge" : s.kind === "zone" ? "Zone top" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
     if (hist) {                                                     // where the trade ended
       var ec = hist.R > 0 ? "var(--up)" : "var(--down)", ex = x(xi(hist.exit_date)), ey = y(hist.exit);

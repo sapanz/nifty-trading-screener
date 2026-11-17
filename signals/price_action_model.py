@@ -18,6 +18,9 @@ from signals import price_action as pa
 
 MAX_HOLD = 60
 COST_PCT = 0.10
+TREND_KINDS = ("multiyear",)       # these are not sold at a target: they are held while the weekly close stays above its 30-week average
+TREND_WEEKS = 30
+TREND_MAX_HOLD = 520               # about two years; a trade still above the average then is closed at the cap
 HALF_LIFE_DAYS = 365        # in the fit a setup from a year ago counts half as much as one from today: hit rates drift with the market
 KIND_FLAGS = [k for k in pa.KINDS if k != "zone"]                  # the zone is the baseline kind
 FEATURES = ["log_rr", "risk_pct", "log_vol", "mkt50", "mkt200", "above200", "mom", "off_high", "is_short"] + [f"is_{k}" for k in KIND_FLAGS]
@@ -79,6 +82,55 @@ def outcome(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, i: int, 
             "bars": j - (i + 1), "rr_actual": float(sg * (target - entry) / risk), "entry_i": i + 1, "exit_i": j}
 
 
+# ---------------------------------------------------------------- the trend exit (multi-year breakouts)
+def trend_exit_flags(dates: pd.DatetimeIndex, close: np.ndarray, weeks: int = TREND_WEEKS) -> np.ndarray:
+    """Per daily bar: True when it is the last session of its week and that week's close is below the average of the last `weeks` weekly closes
+    (that week included). The newest bar is never flagged - its week may not be over."""
+    n = len(close)
+    flags = np.zeros(n, dtype=bool)
+    if n < 2:
+        return flags
+    wk = np.asarray(dates.to_period("W").astype(str))
+    last_of_week = np.r_[wk[1:] != wk[:-1], False]
+    idx = np.flatnonzero(last_of_week)
+    wclose = pd.Series(close[idx])
+    sma = wclose.rolling(weeks).mean().to_numpy()
+    flags[idx] = wclose.to_numpy() < sma
+    return flags
+
+
+def trend_sma(dates: pd.DatetimeIndex, close: np.ndarray, weeks: int = TREND_WEEKS) -> float | None:
+    """The 30-week average of the weekly closes as of the latest completed week (None with too little history)."""
+    n = len(close)
+    if n < 2:
+        return None
+    wk = np.asarray(dates.to_period("W").astype(str))
+    idx = np.flatnonzero(np.r_[wk[1:] != wk[:-1], False])
+    wclose = close[idx]
+    return float(wclose[-weeks:].mean()) if len(wclose) >= weeks else None
+
+
+def outcome_trend(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, i: int, entry_stop: float, flags: np.ndarray, max_hold: int = TREND_MAX_HOLD) -> dict:
+    """The same long trade held with no target: out at the planned stop (stop first, gaps fill at the open), or at the open after the first weekly close
+    below the 30-week average (`flags`), or at the close after `max_hold` sessions. The entry and the 1R risk are those of `outcome`."""
+    n = len(c)
+    entry = o[i + 1]
+    risk = entry - entry_stop
+    last = min(i + 1 + max_hold, n - 1)
+    exit_px, reason, j = c[last], "time" if last == i + 1 + max_hold else "open", last
+    for k in range(i + 1, last + 1):
+        if k > i + 1 and o[k] <= entry_stop:
+            exit_px, reason, j = o[k], "stop", k
+            break
+        if l[k] <= entry_stop:
+            exit_px, reason, j = entry_stop, "stop", k
+            break
+        if flags[k] and k + 1 < n:
+            exit_px, reason, j = o[k + 1], "trend", k + 1
+            break
+    return {"t_exit": float(exit_px), "t_R": float((exit_px - entry) / risk - COST_PCT / 100 * entry / risk), "t_out": reason, "t_bars": j - (i + 1), "t_exit_i": j}
+
+
 def collect(frames: dict[str, pd.DataFrame], ctx: dict | None = None, p: pa.Params = pa.Params()) -> tuple[pd.DataFrame, dict[str, tuple[list, list]]]:
     """(every historical trigger with its features and outcome, {symbol: (triggers, pending)} for the live list). Triggers still open at the
     end of the data (no exit yet) have reason "open" and are left out of the fitting by `closed`."""
@@ -91,11 +143,15 @@ def collect(frames: dict[str, pd.DataFrame], ctx: dict | None = None, p: pa.Para
             continue
         dates = pd.DatetimeIndex(df.index).normalize()
         o, h, l, c = (df[x].to_numpy(float) for x in ("open", "high", "low", "close"))
+        flags = trend_exit_flags(dates, c) if any(t["kind"] in TREND_KINDS for t in triggers) else None
         for t in triggers:
             res = outcome(o, h, l, c, t["i"], t["stop"], t["target"], p, t.get("side", "long"))
             if res is None:
                 continue
-            rows.append({**_row(symbol, t, dates[t["i"]], ctx), **res, "exit_date": dates[res["exit_i"]], "entry_date": dates[res["entry_i"]],
+            # the trade as it is taken: a target for most kinds (same as the fixed-target view the probability is fitted on), the trend exit for the others
+            tr = outcome_trend(o, h, l, c, t["i"], t["stop"], flags) if t["kind"] in TREND_KINDS and t.get("side", "long") == "long" else \
+                {"t_exit": res["exit"], "t_R": res["R"], "t_out": res["reason"], "t_bars": res["bars"], "t_exit_i": res["exit_i"]}
+            rows.append({**_row(symbol, t, dates[t["i"]], ctx), **res, **tr, "exit_date": dates[res["exit_i"]], "entry_date": dates[res["entry_i"]], "t_exit_date": dates[tr["t_exit_i"]],
                          "stop": t["stop"], "target": t["target"], "why": t["reason"], "geo": t["geo"]})          # the plan and the reason, for the backtest view
     return pd.DataFrame(rows), scans
 
@@ -178,9 +234,10 @@ def validate(ev: pd.DataFrame, bins: int = 4, min_train: int = 300) -> dict | No
 
 # ---------------------------------------------------------------- report
 def _stat(g: pd.DataFrame) -> str:
+    g = g[g["t_out"] != "open"] if len(g) else g                 # the trade as taken: a trend-exit trade can still be running
     if not len(g):
         return "no trades"
-    r = g["R"].to_numpy()
+    r = g["t_R"].to_numpy()
     wins, losses = r[r > 0], r[r <= 0]
     pf = wins.sum() / -losses.sum() if losses.sum() < 0 else float("inf")
     return (f"trades {len(g):>5} | target hit {g['hit'].mean():.0%} | profitable {(r > 0).mean():.0%} | planned RR {g['rr'].median():.1f} | avg {r.mean():+.2f}R | PF {pf:.2f} "
