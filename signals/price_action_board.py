@@ -37,7 +37,8 @@ def setup_name(kind: str, side: str, geo: dict) -> str:
     if kind == "candle":
         return f"{geo['candle']} at weekly {'support' if side == 'long' else 'resistance'}"
     if kind == "pause":
-        return f"Bearish continuation ({geo['tf']}): {geo['run']} red {'weeks' if geo['tf'] == 'weekly' else 'days'}, then {geo['pause'].lower()}"
+        unit = "week" if geo["tf"] == "weekly" else "day"
+        return f"Bearish continuation ({geo['tf']}): {geo['run']} red {unit}s, then a {geo['zone']}-{unit} halt zone"
     return pa.NAMES[(kind, side)]
 
 
