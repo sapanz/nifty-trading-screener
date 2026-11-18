@@ -32,12 +32,12 @@ import pandas as pd
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup", "multiyear", "double", "hs", "triple", "flag", "candle")
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "double", "hs", "triple", "flag", "candle", "pause")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
          ("multiyear", "long"): "Multi-year breakout", ("double", "long"): "W pattern (double bottom)", ("double", "short"): "M pattern (double top)",
          ("hs", "long"): "Inverse head and shoulders", ("hs", "short"): "Head and shoulders", ("triple", "long"): "Triple bottom", ("triple", "short"): "Triple top",
-         ("flag", "long"): "Bull flag", ("flag", "short"): "Bear flag", ("candle", "long"): "Candle at weekly support", ("candle", "short"): "Candle at weekly resistance"}
-KIND_NAMES = {k: NAMES[(k, "long")] for k in KINDS}                # the long-side name of each kind
+         ("flag", "long"): "Bull flag", ("flag", "short"): "Bear flag", ("candle", "long"): "Candle at weekly support", ("candle", "short"): "Candle at weekly resistance", ("pause", "short"): "Bearish continuation (pause candle)"}
+KIND_NAMES = {k: next(n for (kk, _), n in NAMES.items() if kk == k) for k in KINDS}      # the name of each kind (its long side when it has one)
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,16 @@ class Params:
     zone_impulse_atr: float = 2.0
     zone_expiry_weeks: int = 104
     near_pct: float = 3.0               # "pending": the close is within this % below the breakout level
+    pause_min_run: int = 3              # bearish continuation: at least this many consecutive strong red candles before the pause candle
+    pause_max_run: int = 8
+    pause_min_drop_atr: float = 2.0     # the run must have fallen at least this many ATRs, open of the first red candle to close of the last
+    pause_body_frac: float = 0.4        # each red candle's body is at least this share of its range ...
+    pause_close_frac: float = 0.4       # ... and it closes in the lowest 40% of its range (sellers in control to the close)
+    pause_doji_body: float = 0.3        # a doji: body at most this share of its range
+    pause_min_range_atr: float = 0.3    # the pause candle is a real candle (not a flat bar) ...
+    pause_max_range_atr: float = 1.3    # ... and not a big one
+    pause_window_days: int = 3          # a daily pause candle: the short must trigger within this many sessions
+    pause_cooldown: int = 10            # one continuation signal per timeframe in this many sessions
 
 
 # ---------------------------------------------------------------- weekly patterns (as of week index w, inclusive)
@@ -402,6 +412,114 @@ def candle_triggers(d: dict, zones: list[dict], dates: pd.DatetimeIndex, wk_of: 
     return kept
 
 
+# ---------------------------------------------------------------- bearish continuation: strong selling, then a pause candle
+def _atr(h: np.ndarray, l: np.ndarray, c: np.ndarray, n: int = 14) -> np.ndarray:
+    prev = np.r_[c[0], c[:-1]]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev), np.abs(l - prev)))
+    return pd.Series(tr).rolling(n).mean().to_numpy()
+
+
+def pause_at(O: np.ndarray, H: np.ndarray, L: np.ndarray, C: np.ndarray, atr: np.ndarray, sma: np.ndarray, j: int, p: Params) -> dict | None:
+    """The pause candle at bar j after clear selling, or None. Selling pressure = at least `pause_min_run` consecutive red candles, each with a real body
+    (>= pause_body_frac of its range), closing in the lowest part of its range and lower than the candle before, together falling at least
+    `pause_min_drop_atr` ATRs. The pause = a doji, or a small green candle (body at most half the run's average body), that does not exceed the last red
+    candle's high, is of ordinary size, and closes under its moving average (the stock is in a downtrend). Works on any timeframe's bars."""
+    a = atr[j] if j < len(atr) else float("nan")
+    if j < 20 or not a > 0 or np.isnan(sma[j]):
+        return None
+    rng, body = H[j] - L[j], abs(C[j] - O[j])
+    if not (p.pause_min_range_atr * a <= rng <= p.pause_max_range_atr * a) or not C[j] < sma[j] or H[j] > H[j - 1]:
+        return None
+    k = 0
+    while k < p.pause_max_run and j - 1 - k >= 1:
+        m = j - 1 - k
+        r = H[m] - L[m]
+        if not (C[m] < O[m] and r > 0 and O[m] - C[m] >= p.pause_body_frac * r and C[m] - L[m] <= p.pause_close_frac * r and C[m] < C[m - 1]):
+            break
+        k += 1
+    if k < p.pause_min_run:
+        return None
+    first = j - k
+    drop = O[first] - C[j - 1]
+    if drop < p.pause_min_drop_atr * a:
+        return None
+    avg_body = float(np.mean(O[first:j] - C[first:j]))
+    doji = body <= p.pause_doji_body * rng
+    if not doji and not (C[j] > O[j] and body <= 0.5 * avg_body):
+        return None
+    return {"j": j, "run": k, "from": first, "drop": float(drop), "drop_atr": float(drop / a), "drop_pct": float((1 - C[j - 1] / O[first]) * 100),
+            "pause": "Doji" if doji else "Small green candle", "low": float(L[j]), "high": float(H[j]), "avg_body": avg_body}
+
+
+def pause_scan(d: dict, dates: pd.DatetimeIndex, wk_of: np.ndarray, wdates: pd.DatetimeIndex, wO: np.ndarray, wH: np.ndarray, wL: np.ndarray, wC: np.ndarray,
+               p: Params) -> tuple[list[dict], list[dict]]:
+    """Bearish continuation shorts on the daily and the weekly chart. The short triggers on a DAILY close below the pause candle's low and its stop is the
+    pause candle's high: a daily pause candle must trigger within `pause_window_days` sessions, a weekly one during the following week; if price trades above
+    the pause candle's high first, the setup is dead. Returns (triggers, pending); each item has the raw pause info under "pat" and "tf"."""
+    n, out, pend = len(dates), [], []
+    o, h, l, c = d["o"], d["h"], d["l"], d["c"]
+    # daily pause candles
+    atr_d, sma_d = _atr(h, l, c), pd.Series(c).rolling(20).mean().to_numpy()
+    for j in range(260, n):
+        pat = pause_at(o, h, l, c, atr_d, sma_d, j, p)
+        if pat is None:
+            continue
+        hit = None
+        for i in range(j + 1, min(n, j + 1 + p.pause_window_days)):
+            if h[i] > pat["high"]:
+                hit = -1
+                break
+            if c[i] < pat["low"]:
+                hit = i
+                break
+        if hit is not None and hit > 0:
+            out.append({"tf": "daily", "i": hit, "pat": pat, "from_date": dates[pat["from"]], "pause_date": dates[j]})
+        elif hit is None and j + p.pause_window_days >= n - 1 and n - 1 >= j:      # still armed on the latest bar
+            pend.append({"tf": "daily", "i": n - 1, "pat": pat, "from_date": dates[pat["from"]], "pause_date": dates[j]})
+    # weekly pause candles: the week is complete, the trigger is a daily close in the next week
+    atr_w, sma_w = _atr(wH, wL, wC), pd.Series(wC).rolling(10).mean().to_numpy()
+    w_last = int(wk_of[n - 1]) if n else -1
+    for w in range(40, len(wC)):
+        pat = pause_at(wO, wH, wL, wC, atr_w, sma_w, w, p)
+        if pat is None:
+            continue
+        first = int(np.searchsorted(dates.values, wdates.values[w], side="right"))       # the first session after that week closed
+        hit, i = None, first
+        while i < n and int(wk_of[i]) == w:                                              # the sessions of the following week
+            if h[i] > pat["high"]:
+                hit = -1
+                break
+            if c[i] < pat["low"]:
+                hit = i
+                break
+            i += 1
+        if hit is not None and hit > 0 and hit >= 260:
+            out.append({"tf": "weekly", "i": hit, "w": w, "pat": pat, "from_date": wdates[pat["from"]], "pause_date": wdates[w]})
+        elif hit is None and w == w_last and n - 1 >= 260:
+            pend.append({"tf": "weekly", "i": n - 1, "w": w, "pat": pat, "from_date": wdates[pat["from"]], "pause_date": wdates[w]})
+    out.sort(key=lambda t: (t["tf"], t["i"]))
+    kept, last = [], {}
+    for t in out:                                                                        # cooldown per timeframe, in date order
+        if t["i"] - last.get(t["tf"], -10 ** 9) >= p.pause_cooldown:
+            kept.append(t)
+            last[t["tf"]] = t["i"]
+    return kept, pend
+
+
+def pause_geo(t: dict) -> dict:
+    pat, wk = t["pat"], t["tf"] == "weekly"
+    return {"tf": t["tf"], "from": t["from_date"].strftime("%Y-%m-%d"), "to": t["pause_date"].strftime("%Y-%m-%d"), "level": round(pat["low"], 2), "base": round(pat["high"], 2),
+            "pause": pat["pause"], "run": int(pat["run"]), "candle_date": t["pause_date"].strftime("%Y-%m-%d"), "candle": pat["pause"]}
+
+
+def pause_why(t: dict) -> str:
+    pat, wk = t["pat"], t["tf"] == "weekly"
+    unit = "week" if wk else "day"
+    return (f"selling pressure: {pat['run']} red {unit}s in a row, each closing near its low and lower than the one before, down {pat['drop_pct']:.1f}% ({pat['drop_atr']:.1f} ATR); "
+            f"then a {pat['pause'].lower()} ({unit} of {pat['low']:,.1f}-{pat['high']:,.1f}) - the pause - "
+            f"short below its low {pat['low']:,.1f}, stop at its high {pat['high']:,.1f}")
+
+
 # ---------------------------------------------------------------- resistance and the plan
 def next_resistance(wH: np.ndarray, w: int, above: float, p: Params) -> float | None:
     """The lowest weekly resistance above `above`, known at week w: confirmed swing highs of the last res_lookback_weeks and the last few weeks' high."""
@@ -578,5 +696,22 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                 continue
             triggers.append({"kind": "candle", "side": side, "i": i, "w": t["w"], "level": t["level"], **pl, "geo": t["geo"], "f": {**_features(d, i), "impulse": t["zone"]["impulse"]},
                              "reason": t["why"]})
+    # --- bearish continuation (shorts): a run of strong red candles, then a doji or a small green one; sell below its low, the stop is its high
+    pz, pp = pause_scan(d, dates, wk_of, wdates, wk["open"].to_numpy(float), wH, wL, wC, p)
+    for t in pz:
+        i, pat = t["i"], t["pat"]
+        w = t.get("w", int(wk_of[i]))
+        pl = plan(d["c"][i], pat["high"], wH, w, pat["drop"], pat["low"], p, "short", wL)
+        if pl is not None:
+            triggers.append({"kind": "pause", "side": "short", "i": i, "w": w, "level": pat["low"], **pl, "geo": pause_geo(t), "f": _features(d, i),
+                             "reason": pause_why(t) + f"; daily close {d['c'][i]:,.1f} below it"})
+    for t in pp:
+        pat, w = t["pat"], t.get("w", int(wk_of[n - 1]))
+        entry = pat["low"] * (1 - buf)
+        pl = plan(entry, pat["high"], wH, w, pat["drop"], pat["low"], p, "short", wL)
+        if pl is not None:
+            gap = (d["c"][n - 1] / pat["low"] - 1) * 100
+            pending.append({"kind": "pause", "side": "short", "i": n - 1, "w": w, "level": pat["low"], "entry": entry, **pl, "geo": pause_geo(t), "f": _features(d, n - 1),
+                            "reason": pause_why(t) + f"; the close is {gap:.1f}% above it" if gap > 0 else pause_why(t)})
     triggers.sort(key=lambda t: t["i"])
     return triggers, pending
