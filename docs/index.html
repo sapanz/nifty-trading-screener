@@ -110,6 +110,14 @@
   #lock button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px; font: inherit; font-weight: 600; cursor: pointer; }
   #lock button:disabled { opacity: .6; cursor: default; }
   #lockErr { color: var(--down); font-size: 13px; min-height: 18px; }
+  #updBtn { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 99px; padding: 2px 12px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  #updBtn:hover { border-color: var(--accent); }
+  .job { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; background: var(--bg); }
+  .job .jt { display: flex; justify-content: space-between; gap: 10px; align-items: center; font-weight: 700; }
+  .job .jt button, .job .jt a, #updAll, #updReload, #updTokBtn, #updForget { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .job .jt button:disabled, #updAll:disabled { background: var(--chip); color: var(--muted); cursor: not-allowed; }
+  .job .jw { color: var(--muted); font-size: 13px; margin-top: 2px; } .job .js { font-size: 13px; margin-top: 4px; } .job .js.ok { color: var(--up); } .job .js.bad { color: var(--down); }
+  #updForget { background: var(--chip); color: var(--ink); } #updTok { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
   #lockBtn { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
   .empty { padding: 28px 14px; color: var(--muted); text-align: center; }
 
@@ -182,6 +190,7 @@
       <button type="button" id="modeSetups" aria-pressed="false">Price action</button>
     </div>
     <span id="pill" class="pill">Loading…</span><span id="updated"></span>
+    <button type="button" id="updBtn" title="Run the nightly builds now instead of waiting for the schedule">Update data</button>
     <button type="button" id="lockBtn" hidden>Lock</button>
   </div>
 </header>
@@ -364,6 +373,15 @@
     <h2 id="oiTitle"></h2>
     <div class="sub" id="oiSub"></div>
     <div id="oiBody"></div>
+  </div>
+</div>
+
+<div id="updOverlay" class="overlay" hidden>
+  <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="updTitle">
+    <button type="button" class="close" id="updClose" aria-label="Close">×</button>
+    <h2 id="updTitle">Update data now</h2>
+    <div class="sub" id="updSub"></div>
+    <div id="updBody"></div>
   </div>
 </div>
 
@@ -2116,6 +2134,143 @@
   $("oiClose").addEventListener("click", closeOi);
   $("oiOverlay").addEventListener("click", function (e) { if (e.target === $("oiOverlay")) closeOi(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && (state.sel || state.paSel || state.paHist)) closeOi(); if (state.paHist && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); stepHist(e.key === "ArrowLeft" ? -1 : 1); } });
+
+  /* ---------------------------------------------------------------- Update data: run the nightly builds by hand.
+     A static page cannot start a GitHub Actions workflow by itself: it needs a GitHub token. Without one, each row links to the workflow's page on GitHub
+     (press "Run workflow" there). With a fine-grained token (this repository only, Actions: read and write) saved in THIS browser, "Run now" starts it and
+     the page follows it to the end. The three builds log in to Upstox, and a second login cancels the first one's token, so they are never started during
+     market hours (the live dashboard would lose its data) or while another login job is running. */
+  var UPD_JOBS = [
+    { key: "history", file: "dashboard_history.yml", wf: "Dashboard history", name: "Replay history", after: true, what: "Rebuilds the Replay mode's history (5-minute candles of recent days)." },
+    { key: "swing", file: "dashboard_swing.yml", wf: "Dashboard swing", name: "Swing", after: true, what: "Rebuilds the Swing lists: R-factor, OI, daily order blocks, momentum." },
+    { key: "setups", file: "dashboard_setups.yml", wf: "Dashboard price action", name: "Price action", after: true, what: "Rebuilds the price-action list, probabilities, the Backtest view and the context (about 10 minutes)." },
+    { key: "live", file: "dashboard.yml", wf: "Dashboard", name: "Live dashboard", live: true, what: "Starts the live refresher (quotes, OI, order blocks). Only useful, and only allowed, during market hours." }
+  ];
+  var upd = { token: null, repo: null, branch: "main", busy: false, status: {}, running: {}, notice: "" };
+  function updRepo() { var q = new URLSearchParams(location.search).get("repo"); if (q && q.indexOf("/") > 0) return q.split("/"); return ownerRepo(); }
+  function updTokenLoad() { try { upd.token = localStorage.getItem("dashGhToken") || null; } catch (e) { upd.token = null; } }
+  function updTokenSave(t) { upd.token = t || null; try { if (t) localStorage.setItem("dashGhToken", t); else localStorage.removeItem("dashGhToken"); } catch (e) {} }
+  function istNow() {                                              // {dow: 1-7 (Mon=1), min: minutes since midnight} in India time
+    var parts = {}; new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).forEach(function (x) { parts[x.type] = x.value; });
+    return { dow: { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[parts.weekday], min: parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10) };
+  }
+  function updBlockReason(job, running) {                          // why this job cannot start now, or ""
+    var t = istNow(), weekday = t.dow <= 5, inSession = weekday && t.min >= 8 * 60 + 40 && t.min < 15 * 60 + 45;
+    if (job.after && inSession) return "Not during market hours (08:40-15:45 IST): the build logs in to Upstox and would cut off the live dashboard. Try after 15:45 IST.";
+    if (job.live && !(weekday && t.min >= 8 * 60 + 40 && t.min <= 15 * 60 + 30)) return "The live refresher only runs during market hours (08:40-15:30 IST).";
+    if (running.length) return "Another Upstox job is running (" + running.join(", ") + ") - a second login would cancel its token. Wait for it to finish.";
+    return "";
+  }
+  function ghApi(path, opts) {
+    var r = upd.repo, headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+    if (upd.token) headers.Authorization = "Bearer " + upd.token;
+    opts = opts || {};
+    return fetch("https://api.github.com/repos/" + r[0] + "/" + r[1] + path, { method: opts.method || "GET", headers: headers, body: opts.body, cache: "no-store" }).then(function (res) {
+      if (res.status === 204) return null;
+      return res.json().then(function (j) { if (!res.ok) { var e = new Error(j && j.message ? j.message : "HTTP " + res.status); e.status = res.status; throw e; } return j; });
+    });
+  }
+  function ago(iso) {
+    var m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago";
+  }
+  function updLoad() {                                             // last run of each workflow, and which Upstox jobs are running right now
+    return Promise.all(UPD_JOBS.map(function (j) { return ghApi("/actions/workflows/" + j.file + "/runs?per_page=1").then(function (d) { return [j.key, (d.workflow_runs || [])[0] || null]; }).catch(function () { return [j.key, undefined]; }); })
+      .concat([ghApi("/actions/runs?status=in_progress&per_page=30").catch(function () { return { workflow_runs: [] }; }), ghApi("/actions/runs?status=queued&per_page=30").catch(function () { return { workflow_runs: [] }; })])).then(function (r) {
+      upd.status = {}; r.slice(0, UPD_JOBS.length).forEach(function (x) { upd.status[x[0]] = x[1]; });
+      var names = UPD_JOBS.map(function (j) { return j.wf; }), run = [];
+      r.slice(UPD_JOBS.length).forEach(function (d) { (d.workflow_runs || []).forEach(function (w) { if (names.indexOf(w.name) >= 0 && run.indexOf(w.name) < 0) run.push(w.name); }); });
+      upd.running = run;
+    });
+  }
+  function updRunText(run) {
+    if (run === undefined) return ["Status unavailable (GitHub did not answer).", ""];
+    if (!run) return ["Never run.", ""];
+    var w = run.status === "completed" ? (run.conclusion === "success" ? "finished OK" : "ended: " + (run.conclusion || "unknown")) : run.status === "queued" ? "queued" : "running";
+    return ["Last run " + ago(run.updated_at || run.created_at) + " - " + w + ".", run.status === "completed" ? (run.conclusion === "success" ? "ok" : "bad") : ""];
+  }
+  function updRender() {
+    var body = $("updBody"); body.textContent = "";
+    var t = istNow(), hh = String(Math.floor(t.min / 60)).padStart(2, "0") + ":" + String(t.min % 60).padStart(2, "0");
+    $("updSub").textContent = "India time now " + hh + ". These are the same builds the schedule runs every evening; running one now just refreshes its data.";
+    if (upd.notice) body.appendChild(el("div", { "class": "paVerdict", style: "margin-bottom:10px" }, upd.notice));
+    var hasTok = !!upd.token, anyFree = false;
+    UPD_JOBS.forEach(function (j) {
+      var box = el("div", { "class": "job" }), top = el("div", { "class": "jt" }), why = updBlockReason(j, upd.running), st = updRunText(upd.status[j.key]);
+      top.appendChild(el("span", null, j.name));
+      if (hasTok) {
+        var b = el("button", { type: "button" }, upd.busy ? "Busy…" : "Run now"); b.disabled = !!why || upd.busy; if (!why && !upd.busy) anyFree = true;
+        b.addEventListener("click", function () { updRun([j]); }); top.appendChild(b);
+      } else {
+        var a = el("a", { href: "https://github.com/" + upd.repo[0] + "/" + upd.repo[1] + "/actions/workflows/" + j.file, target: "_blank", rel: "noopener noreferrer" }, "Open on GitHub ↗");
+        top.appendChild(a);
+      }
+      box.appendChild(top); box.appendChild(el("div", { "class": "jw" }, j.what));
+      box.appendChild(el("div", { "class": "js " + st[1] }, st[0]));
+      if (why) box.appendChild(el("div", { "class": "js bad" }, why));
+      body.appendChild(box);
+    });
+    if (hasTok) {
+      var chain = UPD_JOBS.filter(function (j) { return j.after; }), allWhy = updBlockReason(chain[0], upd.running);
+      var all = el("button", { type: "button", id: "updAll", style: "margin:2px 0 10px" }, "Update all after the close (history → swing → price action, one after another)");
+      all.disabled = !!allWhy || upd.busy; all.addEventListener("click", function () { updRun(chain); }); body.appendChild(all);
+      body.appendChild(el("p", { "class": "oiNote" }, "The builds run one at a time (each logs in to Upstox). This page follows them and offers a reload when they finish; you can close it and come back - it will not stop them."));
+    } else {
+      body.appendChild(el("p", { "class": "oiNote" }, "Without a GitHub token this page can only open the workflow's page; press “Run workflow” there. To start builds from here, paste a token below. It is stored only in this browser (never in the repository) and sent only to api.github.com."));
+    }
+    var tokBox = el("div", { style: "margin-top:12px" });
+    if (hasTok) {
+      var forget = el("button", { type: "button", id: "updForget" }, "Forget the saved token"); forget.addEventListener("click", function () { updTokenSave(null); upd.notice = "Token removed from this browser."; updRender(); }); tokBox.appendChild(forget);
+    } else {
+      tokBox.appendChild(el("label", { "for": "updTok", style: "font-size:13px;font-weight:600" }, "GitHub token (fine-grained: only this repository, Actions: read and write)"));
+      var inp = el("input", { id: "updTok", type: "password", autocomplete: "off", placeholder: "github_pat_…", style: "margin:4px 0 6px" });
+      var sv = el("button", { type: "button", id: "updTokBtn" }, "Save in this browser"); sv.addEventListener("click", function () { var v = inp.value.trim(); if (!v) return; updTokenSave(v); upd.notice = "Token saved in this browser."; updLoad().then(updRender); });
+      tokBox.appendChild(inp); tokBox.appendChild(sv);
+      tokBox.appendChild(el("p", { "class": "oiNote" }, "Create it at GitHub → Settings → Developer settings → Fine-grained tokens: Resource owner you, repository “" + upd.repo[1] + "” only, permission Actions = Read and write, nothing else. Anyone who can read this browser's storage could use it to start this repository's workflows, so keep it on devices you trust, and set a short expiry."));
+    }
+    body.appendChild(tokBox);
+    if (upd.finished) { var rl = el("button", { type: "button", id: "updReload", style: "margin-top:10px" }, "Reload the page to show the new data"); rl.addEventListener("click", function () { location.reload(); }); body.appendChild(rl); }
+  }
+  function updSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function updRun(jobs) {
+    if (upd.busy) return; upd.busy = true; upd.finished = false; upd.notice = ""; updRender();
+    var poll = (window.__updPollMs || 15000), chain = Promise.resolve();
+    jobs.forEach(function (j) {
+      chain = chain.then(function () {
+        return updLoad().then(function () {                        // re-check right before each start: the clock moves and other jobs may have started
+          var why = updBlockReason(j, upd.running); if (why) throw new Error(j.name + ": " + why);
+          var started = Date.now() - 60000;                        // allow for clock differences with GitHub
+          upd.notice = "Starting " + j.name + "…"; updRender();
+          return ghApi("/actions/workflows/" + j.file + "/dispatches", { method: "POST", body: JSON.stringify({ ref: upd.branch }) }).then(function () {
+            upd.notice = j.name + " started - waiting for it to finish…"; updRender();
+            var tries = 0;
+            var wait = function () {
+              return updSleep(tries++ ? poll : Math.min(poll, 4000)).then(function () { return ghApi("/actions/workflows/" + j.file + "/runs?event=workflow_dispatch&per_page=3"); }).then(function (d) {
+                var run = (d.workflow_runs || []).filter(function (w) { return new Date(w.created_at).getTime() >= started; })[0];
+                if (!run) { if (tries > 40) throw new Error(j.name + " did not appear on GitHub - check the Actions tab."); return wait(); }
+                upd.notice = j.name + ": " + (run.status === "completed" ? run.conclusion : run.status) + "…"; updRender();
+                if (run.status !== "completed") { if (tries > 200) throw new Error(j.name + " is taking too long - check the Actions tab."); return wait(); }
+                if (run.conclusion !== "success") throw new Error(j.name + " ended with " + run.conclusion + " - see " + run.html_url);
+              });
+            };
+            return wait();
+          });
+        });
+      });
+    });
+    return chain.then(function () { upd.finished = true; upd.notice = "Done: " + jobs.map(function (j) { return j.name; }).join(", ") + " finished OK."; }, function (e) {
+      upd.notice = e.status === 401 || e.status === 403 || e.status === 404 ? "GitHub refused the request (" + e.message + "). Check that the token is valid and has Actions: read and write on this repository." : "Stopped: " + e.message;
+    }).then(function () { upd.busy = false; return updLoad(); }).then(updRender, updRender);
+  }
+  function updOpen() {
+    updTokenLoad(); upd.repo = updRepo(); upd.notice = ""; upd.finished = false; $("updOverlay").hidden = false; $("updClose").focus();
+    $("updBody").textContent = "Checking GitHub…"; updLoad().then(updRender, updRender);
+  }
+  function updClose() { $("updOverlay").hidden = true; }
+  $("updBtn").addEventListener("click", updOpen);
+  $("updClose").addEventListener("click", updClose);
+  $("updOverlay").addEventListener("click", function (e) { if (e.target === $("updOverlay")) updClose(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("updOverlay").hidden) updClose(); });
   $("modeLive").addEventListener("click", enterLive);
   $("modeReplay").addEventListener("click", enterReplay);
   $("modeSwing").addEventListener("click", enterSwing);

@@ -804,6 +804,15 @@ Below the momentum lists, the ten stocks with the **widest daily range** (14-ses
 
 So the list finds stocks that move about twice as often, but roughly **three in four picks still do not make a 10% move**, and it says nothing about the direction (a separate walk-forward test of direction found no tradable edge: the picks' hit rates beat the base rate but not the 2-to-1 payoff break-even, and long picks lost money in the falling market of the test). The squeeze reading looked interesting but added nothing over the range itself, so it is shown, not ranked. A wide range also means a wide stop - size the position from it. A candidate list to study, not a signal.
 
+### Update data now (button on the page)
+
+The header's **Update data** button runs the evening builds by hand instead of waiting for the schedule: Replay history, Swing and Price action (and, in market hours, the live refresher). A static page cannot start a GitHub Actions workflow by itself, so there are two ways:
+
+- **No token:** each row opens that workflow's page on GitHub; press *Run workflow* there.
+- **With a token saved in this browser:** *Run now* starts the workflow through the GitHub API and the page follows it (queued / running / finished or failed); *Update all after the close* runs history → swing → price action one after another and offers a reload at the end. Create a fine-grained token at GitHub → Settings → Developer settings: only this repository, permission *Actions: read and write*, nothing else, short expiry. It is kept in the browser's local storage (never in the repository) and sent only to `api.github.com`; *Forget the saved token* removes it. Anyone who can read that browser's storage could use it to start this repository's workflows, so use it on devices you trust.
+
+The three builds log in to Upstox, and a second login cancels the first one's token, so the page never starts them **during market hours (08:40-15:45 IST on weekdays)** or while another Upstox job is running (it checks GitHub right before each start). The live refresher can only be started during market hours. The schedule is unchanged. (`?repo=owner/name` points the panel at another repository, e.g. when the page is served from a custom domain.)
+
 ### Login screen and encrypted data (optional)
 
 The dashboard lives on public GitHub Pages and reads JSON from public branches, so a password form on its own would only hide the page - anyone could still open the data files. Setting one repository secret turns on real protection:
