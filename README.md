@@ -817,6 +817,14 @@ Backtest (6 years, 218 F&O stocks, 10,010 picks, 0.10% costs; the table in the p
 | 3 / 4 × ATR trailing stop | +2.48% / +3.08% | 51-55% | -27% / -30% | - |
 | 4 × ATR stop + exit when the market falls below its average | +2.33% | 50% | -30% | 7% (+37% market exits) |
 
+**How to actually place the ten trades** (the card on the page works the numbers out for your capital):
+
+1. **Signal day (after the close):** if the card says ACTIVE, note the 10 stocks. If it says STAND ASIDE, do nothing.
+2. **Before the next open (pre-open 9:00-9:08, or at 9:15):** a **limit buy** for each stock at **last close + 3%**. It fills at the open when the stock opens up to 3% higher and does not fill on a bigger gap-up. Tested: skipping gaps above +3% gave +3.41% a pick against +3.32% buying everything, and the 3% of picks that gapped that far earned only +0.15% - a small safety rule. Do **not** wait for a dip with a lower limit: a limit at the signal close missed 14% of picks that averaged +5.6%, a limit 1% under the open missed 32% averaging +5.4% - the picks that never dipped were the winners.
+3. **Quantity:** the smaller of capital ÷ 10 and (risk % of capital ÷ stop distance). With 1% risk and typical stops of 10-18% that is 6-10% of capital per stock. Equal weights (+3.32% a pick) and risk-sized weights (+3.13%, slightly smoother) tested about the same. If you cannot afford all ten, buy as many as you can - the rank inside the top 10 made no difference (+3.0% to +4.5% a pick at every rank, no pattern); fewer stocks only makes the result lumpier.
+4. **As soon as each buy fills:** place the **stop-loss sell** (SL-M, or a GTT for delivery) at fill price × (1 - 4 × the stock's daily range %). A gap through it fills at the open, so the loss can be bigger; if all ten stops were hit the loss is about 9-10% of capital.
+5. **Exit:** sell at the close of the 20th session after the signal (a reminder date is shown), unless the stop is hit first. No target. Then repeat from step 1 with a fresh top 10 - the test treated a stock that stays in the top 10 as a new trade.
+
 Every stop costs some return (momentum stocks are volatile and recover), so the 4 × ATR stop is a limit on a bad month (worst pick -43% to -30%), not a source of profit. Read it honestly: the data is **only the stocks in F&O today** (survivorship) over a mostly rising market, 2023 carried the total, 2026 so far is weak, and a market turn can cost 20-30% in a month. Unleveraged this is about 3% a month, nowhere near 20%.
 
 ### Movers watchlist (Swing tab)

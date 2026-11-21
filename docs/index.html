@@ -1171,7 +1171,9 @@
   }
 
   /* The "Momentum top-10 long" strategy: the rules and the numbers behind them come from the 6-year backtest (README); the constants mirror signals/momentum.py. */
-  var MOM_RULE = { hold: 20, stopAtr: 4, targetAtr: 8 };
+  var MOM_RULE = { hold: 20, stopAtr: 4, targetAtr: 8, gapCap: 3 };
+  var momSize = { capital: 1000000, risk: 1 };
+  try { var ms = JSON.parse(localStorage.getItem("momSize") || "{}"); if (ms.capital > 0) momSize.capital = ms.capital; if (ms.risk > 0) momSize.risk = ms.risk; } catch (e) {}
   var MOM_RECORD = [[2021, 1890, 1.57, 48, 10, 20.5], [2022, 1490, 1.98, 53, 17, 12.4], [2023, 1810, 8.72, 69, 4, 116.4], [2024, 2030, 3.10, 54, 14, 40.5], [2025, 1570, 2.79, 60, 10, 27.2], [2026, 1220, 0.66, 52, 14, 3.6]];
   function addSessions(iso, n) { var d = new Date(iso + "T00:00:00Z"); while (n > 0) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6 !== 0) n--; } return d.toISOString().slice(0, 10); }
   function renderMomPlan(m, base) {
@@ -1181,26 +1183,44 @@
     box.appendChild(h);
     var exitIso = addSessions(base.asof, MOM_RULE.hold), entryIso = addSessions(base.asof, 1);
     var plan = el("div", { "class": "paPlan" });
-    [["Entry", "Next open", up ? "buy all 10 below at the open of " + shortDate(entryIso) + ", equal weight (about 10% of capital each)" : "no new entries while the market is below its 50-day average", ""],
-     ["Stop-loss", MOM_RULE.stopAtr + " × ATR", "below your entry price (the table works it from the last close); a gap below fills at the open, so it can be worse", "risk"],
+    [["Entry", "Limit buy at the open", up ? "before the open of " + shortDate(entryIso) + " (pre-open 9:00-9:08 or 9:15) place a LIMIT buy for each stock at last close + " + MOM_RULE.gapCap + "%: it fills at the open, and skips a stock that gaps up more (those chases earned about nothing). Do not wait for a dip - the picks that never dipped were the winners" : "no new entries while the market is below its 50-day average", ""],
+     ["Stop-loss", MOM_RULE.stopAtr + " × ATR", "as soon as a buy fills, place a stop-loss sell (SL-M, delivery / GTT) at fill price × (1 - " + MOM_RULE.stopAtr + " × the stock's daily range %); the table works it from the last close. A gap below it fills at the open, so it can be worse", "risk"],
      ["Target", "None", "hold to the exit day. Optional: book profit " + MOM_RULE.targetAtr + " × ATR above entry (tested: it changed nothing)", ""],
      ["Exit", MOM_RULE.hold + " sessions", "sell at the close of " + shortDate(exitIso) + " (about, holidays aside), or earlier if the stop is hit. Do not sell just because the market dips below its average - tested, it cut the result", "reward"],
      ["Re-pick", "Every " + MOM_RULE.hold + " sessions", "take a fresh top 10, but only if the market is above its 50-day average on that day - otherwise stay in cash", ""]].forEach(function (k) {
       var b = el("div", k[3] ? { "class": k[3] } : null); b.appendChild(el("span", null, k[0])); b.appendChild(el("b", null, k[1])); b.appendChild(el("span", null, k[2])); plan.appendChild(b);
     });
     box.appendChild(plan);
-    box.appendChild(el("p", { "class": "oiNote", style: "margin:8px 0 4px" }, "Sizing: risk about 1% of your capital per stock - position value = 1% of capital ÷ the stop distance (a stop 10% away means a position of 10% of capital). Costs are included in the numbers below (0.10% a round trip); taxes and slippage are not."));
+    var sz = el("div", { style: "display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:10px 0 4px;font-size:13px" });
+    var capIn = el("input", { type: "number", min: "1000", step: "10000", value: String(momSize.capital), "aria-label": "Capital in rupees", style: "width:120px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit" });
+    var riskIn = el("input", { type: "number", min: "0.1", max: "5", step: "0.1", value: String(momSize.risk), "aria-label": "Risk per stock in percent of capital", style: "width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit" });
+    var l1 = el("label", null, "Capital ₹ "), l2 = el("label", null, "Risk per stock % "); l1.appendChild(capIn); l2.appendChild(riskIn); sz.appendChild(l1); sz.appendChild(l2);
+    sz.appendChild(el("span", { "class": "oiNote", style: "margin:0" }, "Position = the smaller of capital ÷ 10 and (risk % of capital ÷ stop distance). If you cannot afford all 10, buy as many as you can: the rank inside the top 10 made no difference (average +3.0% to +4.5% a pick at every rank, no pattern) - fewer stocks only makes the result lumpier."));
+    box.appendChild(sz);
     var wrap = el("div", { "class": "tbl" }), t = el("table"), hd = el("thead"), hr = el("tr");
-    ["#", "Stock", "Last close", "Stop", "Risk", "Optional target", "Daily range", "Exit by"].forEach(function (c) { hr.appendChild(el("th", null, c)); });
-    hd.appendChild(hr); t.appendChild(hd); var tb = el("tbody");
-    base.strong.slice(0, MOM.topN).forEach(function (x, i) {
-      var stop = x.close * (1 - MOM_RULE.stopAtr * x.atr / 100), tgt = x.close * (1 + MOM_RULE.targetAtr * x.atr / 100), tr = el("tr", { tabindex: "0", title: "Open the chart" });
-      [String(i + 1), x.symbol, paPx(x.close), paPx(stop), "-" + (MOM_RULE.stopAtr * x.atr).toFixed(1) + "%", paPx(tgt) + " (+" + (MOM_RULE.targetAtr * x.atr).toFixed(0) + "%)", x.atr + "%", shortDate(exitIso)].forEach(function (v, k) {
-        tr.appendChild(el("td", k === 3 || k === 4 ? { "class": "down" } : k === 5 ? { "class": "up" } : null, v)); });
-      var open = function () { openOi(x.symbol, "chart"); }; tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
-      tb.appendChild(tr);
-    });
-    t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
+    ["#", "Stock", "Last close", "Buy limit (max)", "Qty", "Amount ₹", "Stop", "Loss if stopped ₹", "Optional target", "Exit by"].forEach(function (c) { hr.appendChild(el("th", null, c)); });
+    hd.appendChild(hr); t.appendChild(hd); var tb = el("tbody"), tf = el("tfoot"), tfr = el("tr");
+    var inr = function (v) { return "₹" + Math.round(v).toLocaleString("en-IN"); };
+    var fill = function () {
+      var cap = parseFloat(capIn.value), rk = parseFloat(riskIn.value); if (!(cap > 0) || !(rk > 0)) return;
+      momSize.capital = cap; momSize.risk = rk; try { localStorage.setItem("momSize", JSON.stringify(momSize)); } catch (e) {}
+      tb.textContent = ""; tfr.textContent = ""; var spent = 0, loss = 0, bought = 0, list = base.strong.slice(0, MOM.topN);
+      list.forEach(function (x, i) {
+        var stopPct = MOM_RULE.stopAtr * x.atr, stop = x.close * (1 - stopPct / 100), tgt = x.close * (1 + MOM_RULE.targetAtr * x.atr / 100), tr = el("tr", { tabindex: "0", title: "Open the chart" });
+        var amount = Math.min(cap / list.length, cap * rk / 100 / (stopPct / 100)), qty = Math.floor(amount / x.close), cost = qty * x.close, lossIf = qty * (x.close - stop);
+        spent += cost; loss += lossIf; if (qty > 0) bought++;
+        [String(i + 1), x.symbol, paPx(x.close), paPx(x.close * (1 + MOM_RULE.gapCap / 100)), qty > 0 ? qty.toLocaleString("en-IN") : "0 (too dear)", qty > 0 ? inr(cost) : "-", paPx(stop) + " (-" + stopPct.toFixed(1) + "%)",
+         qty > 0 ? inr(lossIf) : "-", paPx(tgt) + " (+" + (MOM_RULE.targetAtr * x.atr).toFixed(0) + "%)", shortDate(exitIso)].forEach(function (v, k) {
+          tr.appendChild(el("td", k === 6 || k === 7 ? { "class": "down" } : k === 8 ? { "class": "up" } : k === 4 && qty === 0 ? { "class": "mute" } : null, v)); });
+        var open = function () { openOi(x.symbol, "chart"); }; tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+        tb.appendChild(tr);
+      });
+      var tc = el("td", { colspan: "10", style: "text-align:left;font-weight:600;padding-top:8px;white-space:normal;min-width:520px" }, "Invested " + inr(spent) + " (" + (spent / cap * 100).toFixed(0) + "% of capital) in " + bought + " stocks · cash " + inr(cap - spent) + " · if every stop were hit: about -" + inr(loss) + " (" + (loss / cap * 100).toFixed(1) + "% of capital), more on gaps. Quantities use the last close: recompute them and the stops from your real fill prices.");
+      tfr.appendChild(tc);
+    };
+    capIn.addEventListener("input", fill); riskIn.addEventListener("input", fill); fill();
+    tf.appendChild(tfr); t.appendChild(tb); t.appendChild(tf); wrap.appendChild(t); box.appendChild(wrap);
+    box.appendChild(el("p", { "class": "oiNote", style: "margin:8px 0 4px" }, "Tested entry variants (4 × ATR stop, 20 sessions): buying every pick at the open +3.32% a pick; skipping gaps above +3% +3.41% (the 3% of picks that gapped that far earned +0.15%); a limit at the signal close +3.39% but it missed 14% of picks that then averaged +5.6%; a limit 1% below the open missed 32% averaging +5.4%. So the cap is a small safety rule, not a source of profit - what matters is being in all the picks. Costs are included (0.10% a round trip); taxes and slippage are not."));
     var det = el("details", { style: "margin-top:8px" }), sm = el("summary", { style: "cursor:pointer;font-weight:600" }, "Track record by year (6-year backtest, 218 F&O stocks)");
     det.appendChild(sm);
     var rt = el("table", { style: "margin-top:6px" }), rh = el("tr");

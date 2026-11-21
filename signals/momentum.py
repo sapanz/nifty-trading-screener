@@ -23,6 +23,7 @@ ATR_DAYS = 14
 TOP_N = 10
 HOLD_SESSIONS = 20                 # the strategy: hold each pick this many sessions (entry at the next open, exit at the close of the 20th session after the signal)
 STOP_ATR = 4.0                     # stop-loss: this many ATRs (14-session average true range) below the entry
+GAP_CAP_PCT = 3.0                  # entry: do not pay more than this % above the signal close (a limit buy at close x 1.03 fills at the open up to that gap, and skips a bigger one)
 TARGET_ATR = 8.0                   # optional profit-booking level (2 : 1 against the stop); the backtest did no better with it than without
 VOL_RECENT, VOL_BASE = 3, 20       # volume thrust = the last 3 sessions' average volume / the average of the 20 sessions before those
 
@@ -129,10 +130,20 @@ def _vt(volume: np.ndarray | None, last: int) -> float | None:
 
 def trade_plan(row: dict) -> dict:
     """How to trade one strongest-list pick (the "Momentum top-10 long" strategy), from its list row. Prices are worked from the last close, the best
-    guess of tomorrow's open - recompute the stop from the real entry price: stop = entry x (1 - STOP_ATR x ATR%), target = entry x (1 + TARGET_ATR x ATR%)."""
+    guess of tomorrow's open - recompute the stop from the real entry price: stop = entry x (1 - STOP_ATR x ATR%), target = entry x (1 + TARGET_ATR x ATR%).
+    `buy_limit` is the highest price to pay: a limit buy there fills at the open unless the stock gaps up more than GAP_CAP_PCT."""
     px, atr = row["close"], row["atr"]
-    return {"entry": px, "stop": round(px * (1 - STOP_ATR * atr / 100), 2), "risk_pct": round(STOP_ATR * atr, 1), "target": round(px * (1 + TARGET_ATR * atr / 100), 2),
-            "target_pct": round(TARGET_ATR * atr, 1), "hold": HOLD_SESSIONS}
+    return {"entry": px, "buy_limit": round(px * (1 + GAP_CAP_PCT / 100), 2), "stop": round(px * (1 - STOP_ATR * atr / 100), 2), "risk_pct": round(STOP_ATR * atr, 1),
+            "target": round(px * (1 + TARGET_ATR * atr / 100), 2), "target_pct": round(TARGET_ATR * atr, 1), "hold": HOLD_SESSIONS}
+
+
+def position(row: dict, capital: float, risk_pct: float = 1.0, picks: int = TOP_N) -> dict:
+    """Shares to buy for one pick: the smaller of an equal share of the capital (capital / picks) and the amount that loses `risk_pct` of the capital if
+    the stop is hit (risk_pct % of capital / stop distance). {"qty", "amount", "loss_if_stopped"}; qty is 0 when one share costs more than the amount."""
+    plan = trade_plan(row)
+    amount = min(capital / picks, capital * risk_pct / 100 / (plan["risk_pct"] / 100))
+    qty = int(amount // plan["entry"])
+    return {"qty": qty, "amount": round(qty * plan["entry"], 2), "loss_if_stopped": round(qty * (plan["entry"] - plan["stop"]), 2)}
 
 
 def exit_day(asof: str, sessions: int = HOLD_SESSIONS) -> str:

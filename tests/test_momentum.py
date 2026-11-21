@@ -85,5 +85,14 @@ def test_strategy_trade_plan_follows_the_backtested_rules():
 def test_the_page_twin_uses_the_same_numbers_as_the_python_constants():
     from signals import momentum
     html = (ROOT / "docs" / "index.html").read_text()
-    assert f"var MOM_RULE = {{ hold: {momentum.HOLD_SESSIONS}, stopAtr: {momentum.STOP_ATR:g}, targetAtr: {momentum.TARGET_ATR:g} }};" in html
+    assert f"var MOM_RULE = {{ hold: {momentum.HOLD_SESSIONS}, stopAtr: {momentum.STOP_ATR:g}, targetAtr: {momentum.TARGET_ATR:g}, gapCap: {momentum.GAP_CAP_PCT:g} }};" in html
     assert 'id="momPlan"' in html and "Strategy: Momentum top-10 long" in html
+
+
+def test_position_size_is_the_smaller_of_an_equal_share_and_the_risk_budget():
+    row = {"symbol": "X", "close": 200.0, "atr": 3.0}                          # stop 12% below
+    assert momentum.trade_plan(row)["buy_limit"] == 206.0
+    p = momentum.position(row, 1_000_000, 1.0)                                  # equal share 100,000; risk budget 10,000 / 0.12 = 83,333 -> 416 shares
+    assert p == {"qty": 416, "amount": 83200.0, "loss_if_stopped": 9984.0}
+    assert momentum.position({"symbol": "Y", "close": 200.0, "atr": 1.0}, 1_000_000, 1.0)["qty"] == 500   # stop 4%: the equal share (100,000) is the smaller
+    assert momentum.position({"symbol": "Z", "close": 11000.0, "atr": 3.0}, 100_000, 1.0)["qty"] == 0      # one share costs more than the amount
