@@ -670,6 +670,26 @@ The "Strongest order blocks" panel has a second row of filters, all about the zo
 
 Narrowing the list is not the same as improving it: in the backtests, zone strength, trendline confluence and the other zone filters did not add a measurable edge over trading in the market's direction (see the swing backtests above), so use these to find setups that fit your plan, not as proof a setup is better.
 
+### Which Swing zone filters pay? (6-year backtest, with ROI)
+
+`scripts/backtest_swing_filters.py` (data: `equity_daily.csv.gz` from the `research-data` branch, 218 F&O stocks, Nov 2020 - Nov 2026) trades every daily order-block retest the way the Swing tab shows it (limit entry at the zone, stop 0.1% beyond it, 2R target, 20-session limit, **0.22% round-trip cost**) and records each zone's features as of the evening before the entry: strength and its parts, trendline confluence, distance, age, stop %, the market's side. 7,452 trades. ROI = average net return per trade; R = average result in units of the risk; an average trade lasts 8 days. The flow filter (R-factor / OI) **cannot be backtested**: only about 90 days of futures open interest exist.
+
+| Long (demand) zones | Trades | ROI / trade | R | Won | PF | 2021-23 | 2024-26 |
+|---|---|---|---|---|---|---|---|
+| all long zones | 3,786 | **0.00%** | +0.07 | 38% | 1.00 | +0.26% | -0.20% |
+| thrust of 4+ ATR | 527 | +0.66% | +0.25 | 44% | 1.34 | +1.19% | +0.27% |
+| zone strength 70+ | 299 | +0.65% | +0.19 | 43% | 1.31 | +1.06% | +0.36% |
+| thrust volume 2x+ | 554 | +0.46% | +0.16 | 41% | 1.22 | +1.11% | -0.05% |
+| strength 60+ **and** trendline confirms | 203 | +0.62% | +0.15 | 41% | 1.33 | +0.15% | +1.05% |
+| thrust 4+ ATR **and** volume 2x+ | 170 | +0.89% | +0.35 | 46% | 1.45 | +1.18% | +0.65% |
+| strength 70+ **and** trendline | 55 | +1.07% | +0.29 | 47% | 1.60 | +1.08% | +1.06% |
+| thrust 4+ ATR, strength 60+ and trendline (all three) | 46 | +2.37% | +0.70 | 59% | 2.70 | +2.68% | +2.14% |
+| trendline alone | 778 | -0.09% | +0.06 | 38% | 0.96 | -0.06% | -0.12% |
+
+What it says: **the zone's own strength is what pays on the long side** - the size of the thrust, the volume behind it and the combined strength score - and the trendline helps only on top of a strong zone; on its own it does nothing. Zone strength 70+ was positive in five of six years and thrust 4+ ATR in five of six (2026 flat); strength 60+ with a trendline was mixed by year (+0.6, -0.7, +0.5, +2.6, +0.8, -0.2). The three-way combination looks best but is only 46 trades (about 8 a year) and was picked after looking, so treat it as a lead, not a proven rule. Filters on distance (within 1.5% / 3% of the zone), the zone's age (formed within a week / two weeks / a month), stop size, the market's side, "with the trend", a liquidity sweep and the recent volume surge did **not** improve the long side (ROI -0.2% to +0.05%). A month-block bootstrap puts the gain of thrust 4+ ATR over the other trades at +0.4 to +1.2 points and of strength 70+ at +0.2 to +1.3; the two-filter combinations are too small to bound. A walk-forward test (combinations of up to three filters chosen on 2021-2023, judged on 2024-2026) kept only part of the gain: the best in-sample combination fell from +2.5% to +0.5%, so expect the live result of any filter to be well below its backtest.
+
+**Short (supply) zones lose whatever the filter:** all 3,666 trades averaged **-0.64%** (PF 0.73, negative in every year). The best filters only cut the loss - price within 1.5% of the zone -0.32%, stop 3% or less -0.41%, both -0.24% - and the trendline made it worse (-0.95%). Combinations chosen on 2021-2023 lost -0.6% to -1.5% on 2024-2026. A good level of ROI here is about +0.6% to +0.9% a trade on 3-9 trades a month in the whole universe; with an 8-day hold that is a few percent a year of capital, nowhere near the other strategies on this page (the Momentum top-10 long earns +3.3% a pick). Costs are 0.22% (delivery); today's F&O stocks only and a mostly rising market, as elsewhere.
+
 ### Momentum stocks near a zone or trendline (Swing tab)
 
 A table under the momentum lists for picking quickly: choose the **List** (the market's side by default: strongest for longs when the index is above its 50-day average, weakest for shorts when below), the **Momentum pool** (top 20 / 30 / 50 by momentum rank) and **Sort by** nearest zone, nearest trendline (price to the confirming line) or momentum rank; **Zone within** and **Trendline within** (1-8%) drop stocks that are further away. For each stock it shows the nearest zone in the trade's direction (the same numbers as the Strongest order blocks panel: zone, test, distance to its near edge, stop distance, strength), the price's distance to the confirming trendline, how far that line is from the zone, R-factor and the daily range. Click a row for the chart; **As of** works as everywhere in the Swing tab.
