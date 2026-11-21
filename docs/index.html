@@ -836,11 +836,11 @@
     $("oiSub").textContent = row ? row.sector + " · " + row.price.toLocaleString("en-IN", { minimumFractionDigits: 2 }) + " (" + fmtPct(row.change_pct) + ")" : "";
     var body = $("oiBody"); body.textContent = "";
     var hasZone = obActive() && row && row.obs && row.obs.length;
-    if (hasZone) {
+    if (obActive()) {                                              // every stock gets the chart tab; the order block is drawn on it only when there is one
       var tabs = el("div", { "class": "stabs", role: "group", "aria-label": "View" });
-      [["chart", "Chart & order block"], ["oi", "OI buildup"]].forEach(function (t) {
+      [["chart", hasZone ? "Chart & order block" : "Chart"], ["oi", "OI buildup"]].forEach(function (t) {
         var b = el("button", { type: "button", "aria-pressed": String(state.tab === t[0]) }, t[1]);
-        b.addEventListener("click", function () { state.tab = t[0]; renderOi(); }); tabs.appendChild(b);
+        b.addEventListener("click", function () { state.tab = t[0]; state.tabPref = t[0]; renderOi(); }); tabs.appendChild(b);
       });
       body.appendChild(tabs);
       if (state.tab === "chart") { body.appendChild(chartView(sym, row)); return; }
@@ -910,8 +910,8 @@
   }
 
   function openOi(sym, tab) {
-    state.sel = sym; state.tab = tab === "chart" && obActive() ? "chart" : "oi"; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
-    if (state.mode === "live") { loadLiveOi(); loadCandles(); }
+    state.sel = sym; state.tab = obActive() && (tab === "chart" || state.tabPref === "chart") ? "chart" : "oi"; $("oiOverlay").hidden = false; $("oiClose").focus(); renderOi();
+    if (state.mode === "live") { loadLiveOi(); loadCandles(); loadDailyForCharts(); }
   }
   function closeOi() { state.sel = null; state.paSel = null; state.paHist = null; $("oiOverlay").hidden = true; }
   function loadLiveBlocks() {
@@ -1410,10 +1410,27 @@
     var hs = st.c.slice(0, end + 1).map(function (c) { return c[1]; }), ls = st.c.slice(0, end + 1).map(function (c) { return c[2]; });
     return { c: cs, dates: ds, lv: keyLevelsJS(hs.slice(-160), ls.slice(-160), cs[cs.length - 1][3], 0.4) };
   }
+  /* Live mode only publishes 5-minute candles for the stocks that have an order block today. Every other stock gets last night's daily candles
+     (the swing data, loaded when a stock is opened) with the same support / resistance and previous-day lines, so each stock has a chart. */
+  function loadDailyForCharts() {
+    if (state.swingCandles || state.swingCandlesLoading) return;
+    state.swingCandlesLoading = true;
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; state.swingCandlesLoading = false; if (state.sel && state.tab === "chart") renderOi(); })
+      .catch(function () { state.swingCandlesLoading = false; state.swingCandlesFailed = true; if (state.sel && state.tab === "chart") renderOi(); });
+  }
+  function dailyFallback(sym) {
+    var sc = state.swingCandles, st = sc && sc.stocks && sc.stocks[sym];
+    if (!st || !st.c || !st.c.length) return null;
+    var i0 = sc.dates.indexOf(st.d0); if (i0 < 0) return null;
+    var dates = sc.dates.slice(i0, i0 + st.c.length), n = dates.length; if (n < 20) return null;
+    var from = Math.max(0, n - 90), cs = st.c.slice(from), ds = dates.slice(from);
+    var hs = st.c.slice(-160).map(function (c) { return c[1]; }), ls = st.c.slice(-160).map(function (c) { return c[2]; });
+    return { c: cs, dates: ds, lv: keyLevelsJS(hs, ls, cs[cs.length - 1][3], 0.4), fallbackAsof: ds[ds.length - 1] };
+  }
   function chartFor(sym) {
     if (state.mode === "replay") return replayChart(sym);
     if (state.mode === "swing") return swingChart(sym);
-    var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : null;
+    var c = state.candles && state.candles.stocks && state.candles.stocks[sym]; return c && c.c && c.c.length ? c : dailyFallback(sym);
   }
   function drawObChart(cd, row) {
     var cs = cd.c, W = 680, H = 330, L = 40, R = 104, T = 10, B = 24, pw = W - L - R, ph = H - T - B, daily = !!cd.dates, N = daily ? cs.length + 6 : Math.min(75, Math.max(36, cs.length + 12));   // early in the day the x-axis is zoomed to what exists
@@ -1484,8 +1501,12 @@
   }
   function chartView(sym, row) {
     var wrap = el("div"), cd = chartFor(sym);
-    if (!cd) { wrap.appendChild(el("p", { "class": "oiNote" }, state.candles ? "No chart for this stock: it has no live order block right now." : "Loading the chart…")); return wrap; }
+    if (!cd) {
+      var wait = state.mode === "live" ? !state.swingCandlesFailed && (state.swingCandlesLoading || !state.candles) : state.mode === "swing" && !state.swingCandles;
+      wrap.appendChild(el("p", { "class": "oiNote" }, wait ? "Loading the chart…" : state.mode === "replay" ? "No candles stored for this stock on this day." : "No candles are available for this stock.")); return wrap;
+    }
     var chart = el("div", { id: "obChart" }); chart.appendChild(drawObChart(cd, row || { obs: [] })); wrap.appendChild(chart);
+    if (cd.fallbackAsof) wrap.appendChild(el("p", { "class": "oiNote" }, "Daily candles up to the " + shortDate(cd.fallbackAsof) + " close (the live 5-minute chart and its order block appear when this stock forms one). Lines: nearest swing support / resistance" + (row && row.pdh ? " and the previous day's high / low." : ".")));
     var recs = (row && row.obs) || [];
     recs.forEach(function (b) {
       var bull = b.d === "bull", h = el("p", { "class": "oiNote" });
@@ -1497,7 +1518,7 @@
        ["Day's direction", b.wd ? "with it" : "against it"]].concat(trendWhy(row, b)).forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
       wrap.appendChild(ul);
     });
-    wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(cd.dates[cd.dates.length - 1]) + " close" + (state.swingAsof ? " (backtest view)" : "") + "." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
+    if (recs.length) wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(cd.dates[cd.dates.length - 1]) + " close" + (state.swingAsof ? " (backtest view)" : "") + "." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
     return wrap;
   }
 
