@@ -62,3 +62,14 @@ def movers_list(candles: dict, turnover: dict[str, float], asof: str | None = No
     for r in rows:
         del r["_key"]
     return {"asof": dates[last], "universe": len(rows), "rows": rows[:top_n]}
+
+
+LEADER_POOL = 30        # a "high-range leader" is a Movers row that is also in this many of the strongest momentum stocks
+
+
+def leaders(rows: list[dict], strong_pool: list[dict]) -> list[str]:
+    """Symbols of the Movers `rows` that are also in `strong_pool` (the top-LEADER_POOL rows of signals.momentum.momentum_lists). In the 6-year backtest
+    these averaged +4.3% a pick (20 sessions, 4 x ATR stop, market above its 50-day average) against +2.9% for the other movers - a lead found after
+    looking, not a proven rule. Their stops are wide (about 22%), so size them from the stop: see signals.momentum.position."""
+    pool = {r["symbol"] for r in strong_pool}
+    return [r["symbol"] for r in rows if r["symbol"] in pool]

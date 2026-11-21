@@ -1284,7 +1284,11 @@
     var m = state.mode === "swing" && state.data && state.swingCandles ? moversList(state.swingCandles, state.data.stocks, state.data.asof) : null;
     sec.hidden = !m; if (!m) return;
     $("mvCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks";
-    $("mvBanner").textContent = "The stocks with the widest daily ranges - the ones capable of a 10-12% move within about 10 sessions, up or down. This list does not say which direction, or when.";
+    var mom = state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, 30, 0) : null, pool = {}, marketUp = mom ? mom.market.up : null;
+    if (mom) mom.strong.forEach(function (r) { pool[r.symbol] = true; });                          // the JS twin of signals.movers.leaders: Movers rows that are also in the top 30 momentum
+    var nLead = m.rows.filter(function (x) { return pool[x.symbol]; }).length;
+    $("mvBanner").textContent = "The stocks with the widest daily ranges - the ones capable of a 10-12% move within about 10 sessions, up or down. This list does not say which direction, or when." +
+      (mom ? " " + (nLead ? nLead + " of them " + (nLead === 1 ? "is" : "are") + " also among the 30 strongest momentum stocks: a “high-range leader”" + (marketUp ? "." : " - but the market is below its 50-day average, so stand aside.") : "None of them is among the 30 strongest momentum stocks today.") : "");
     var box = $("mvBox"); box.textContent = ""; var top = m.rows[0].atr;
     m.rows.forEach(function (x, i) {
       var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Average daily range over 14 sessions: " + x.atr + "% of price" });
@@ -1299,11 +1303,19 @@
       meta.appendChild(el("span", null, x.from_hi20 > -3 ? "near 20d high" : x.from_lo20 < 3 ? "near 20d low" : "mid-range"));
       meta.appendChild(el("span", null, "₹" + Math.round(x.turnover_cr).toLocaleString("en-IN") + " cr"));
       body.appendChild(meta); card.appendChild(body);
+      if (pool[x.symbol]) {                                                                          // high-range leader: wide range AND strong momentum
+        var stopPct = MOM_RULE.stopAtr * x.atr, amount = Math.min(momSize.capital / MOM.topN, momSize.capital * momSize.risk / 100 / (stopPct / 100)), qty = Math.floor(amount / x.close);
+        var lead = el("div", { "class": "meta", style: "margin-top:4px" });
+        lead.appendChild(el("span", { "class": "tag use", title: "In the Movers list AND among the 30 strongest momentum stocks. In the 6-year backtest these averaged +4.3% a pick (20 sessions, 4 × ATR stop, market above its 50-day average) against +2.9% for the other movers - a lead found after looking, not a proven rule. Mostly high-beta stocks in a rising market." }, "High-range leader"));
+        lead.appendChild(el("span", { title: "4 × the daily range below your entry, as in the Momentum strategy card" }, "stop " + paPx(x.close * (1 - stopPct / 100)) + " (-" + stopPct.toFixed(0) + "%)"));
+        lead.appendChild(el("span", { title: "The smaller of capital ÷ 10 and (risk % ÷ stop distance), with the capital and risk from the Momentum strategy card" }, qty > 0 ? "size ≈ " + qty.toLocaleString("en-IN") + " sh · ₹" + Math.round(qty * x.close).toLocaleString("en-IN") : "size: 1 share costs more"));
+        body.appendChild(lead);
+      }
       var open = function () { openOi(x.symbol, "chart"); };
       card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
       box.appendChild(card);
     });
-    $("mvNote").textContent = "Ranked by the 14-session average daily range (liquid F&O stocks, ₹20 cr+ traded). Backtest, 24 Jun - 14 Oct 2026 (78 signal days, 10 sessions from the next open): these stocks moved 10% or more in either direction 27% of the time against 13% for a typical stock (12% or more: 17% vs 7%) - about twice as often, but roughly three in four still did NOT make a 10% move, and nothing here predicts the direction. A wide range also means a wide stop: size the position from it. The squeeze tag (last 10 sessions' range vs the last 50) is for information; ranking by it added nothing.";
+    $("mvNote").textContent = "Ranked by the 14-session average daily range (liquid F&O stocks, ₹20 cr+ traded). Backtest, 24 Jun - 14 Oct 2026 (78 signal days, 10 sessions from the next open): these stocks moved 10% or more in either direction 27% of the time against 13% for a typical stock (12% or more: 17% vs 7%) - about twice as often, but roughly three in four still did NOT make a 10% move, and nothing here predicts the direction. A wide range also means a wide stop: size the position from it. The squeeze tag (last 10 sessions' range vs the last 50) is for information; ranking by it added nothing. 6-year check (218 F&O stocks): these stocks reach ±10% within 10 sessions 57% of the time against 26% for a random stock; bought long (20 sessions, 4 × ATR stop, market above its 50-day average) they averaged +3.7% a pick against +1.3% for random picks, but the stop is about 22% wide and the edge may be mostly beta and survivorship; shorting them lost. “High-range leader” = also among the 30 strongest momentum stocks: +4.3% a pick against +2.9% for the other movers (a lead found after looking)";
   }
 
   /* ---------- chart: today's 5-minute candles with the zone, stop, support / resistance and liquidity ---------- */

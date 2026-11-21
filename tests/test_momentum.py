@@ -95,3 +95,14 @@ def test_position_size_is_the_smaller_of_an_equal_share_and_the_risk_budget():
     assert p == {"qty": 416, "amount": 83200.0, "loss_if_stopped": 9984.0}
     assert momentum.position({"symbol": "Y", "close": 200.0, "atr": 1.0}, 1_000_000, 1.0)["qty"] == 500   # stop 4%: the equal share (100,000) is the smaller
     assert momentum.position({"symbol": "Z", "close": 11000.0, "atr": 3.0}, 100_000, 1.0)["qty"] == 0      # one share costs more than the amount
+
+
+def test_high_range_leaders_are_the_movers_that_are_also_strong_momentum_stocks():
+    from signals import movers
+    rows = [{"symbol": s} for s in ("A", "B", "C", "D")]
+    strong = [{"symbol": "C"}, {"symbol": "A"}, {"symbol": "Z"}]
+    assert movers.leaders(rows, strong) == ["A", "C"]                  # in the order of the Movers list
+    assert movers.leaders(rows, []) == [] and movers.leaders([], strong) == []
+    assert movers.LEADER_POOL == 30
+    html = (ROOT / "docs" / "index.html").read_text()
+    assert "High-range leader" in html and "momentumLists(state.swingCandles, state.data.stocks, state.data.asof, 30, 0)" in html
