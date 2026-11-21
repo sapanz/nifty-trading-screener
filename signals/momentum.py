@@ -21,6 +21,9 @@ LOOKBACKS = (20, 60)
 MA_DAYS = 50
 ATR_DAYS = 14
 TOP_N = 10
+HOLD_SESSIONS = 20                 # the strategy: hold each pick this many sessions (entry at the next open, exit at the close of the 20th session after the signal)
+STOP_ATR = 4.0                     # stop-loss: this many ATRs (14-session average true range) below the entry
+TARGET_ATR = 8.0                   # optional profit-booking level (2 : 1 against the stop); the backtest did no better with it than without
 VOL_RECENT, VOL_BASE = 3, 20       # volume thrust = the last 3 sessions' average volume / the average of the 20 sessions before those
 
 
@@ -122,3 +125,22 @@ def _vt(volume: np.ndarray | None, last: int) -> float | None:
         return None
     x = volume_thrust(volume[: last + 1])
     return None if np.isnan(x) else round(x, 2)
+
+
+def trade_plan(row: dict) -> dict:
+    """How to trade one strongest-list pick (the "Momentum top-10 long" strategy), from its list row. Prices are worked from the last close, the best
+    guess of tomorrow's open - recompute the stop from the real entry price: stop = entry x (1 - STOP_ATR x ATR%), target = entry x (1 + TARGET_ATR x ATR%)."""
+    px, atr = row["close"], row["atr"]
+    return {"entry": px, "stop": round(px * (1 - STOP_ATR * atr / 100), 2), "risk_pct": round(STOP_ATR * atr, 1), "target": round(px * (1 + TARGET_ATR * atr / 100), 2),
+            "target_pct": round(TARGET_ATR * atr, 1), "hold": HOLD_SESSIONS}
+
+
+def exit_day(asof: str, sessions: int = HOLD_SESSIONS) -> str:
+    """The date `sessions` weekdays after the signal day (exchange holidays are not known here, so it can be a day or two early)."""
+    d = pd.Timestamp(asof)
+    left = sessions
+    while left:
+        d += pd.Timedelta(days=1)
+        if d.weekday() < 5:
+            left -= 1
+    return d.strftime("%Y-%m-%d")

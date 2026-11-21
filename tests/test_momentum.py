@@ -1,3 +1,8 @@
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
 import numpy as np
 
 from signals import momentum
@@ -63,3 +68,22 @@ def test_rows_carry_the_columns_the_page_shows():
     for key in ("symbol", "score", "close", "m5", "m20", "m60", "atr", "from_hi20", "from_lo20", "turnover_cr"):
         assert key in row
     assert 0 < row["atr"] < 5 and row["from_hi20"] <= 0 <= row["from_lo20"]
+
+
+# ---------------------------------------------------------------- the Momentum top-10 long strategy card
+def test_strategy_trade_plan_follows_the_backtested_rules():
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from signals import momentum
+    row = {"symbol": "X", "close": 200.0, "atr": 3.0}
+    plan = momentum.trade_plan(row)
+    assert plan["stop"] == round(200 * (1 - 4 * 0.03), 2) == 176.0 and plan["risk_pct"] == 12.0 and plan["target"] == round(200 * (1 + 8 * 0.03), 2) and plan["hold"] == 20
+    assert momentum.exit_day("2026-11-20") == "2026-12-18"                      # Friday + 20 weekdays
+    assert momentum.exit_day("2026-11-19", 1) == "2026-11-20" and momentum.exit_day("2026-11-20", 1) == "2026-11-23"
+
+
+def test_the_page_twin_uses_the_same_numbers_as_the_python_constants():
+    from signals import momentum
+    html = (ROOT / "docs" / "index.html").read_text()
+    assert f"var MOM_RULE = {{ hold: {momentum.HOLD_SESSIONS}, stopAtr: {momentum.STOP_ATR:g}, targetAtr: {momentum.TARGET_ATR:g} }};" in html
+    assert 'id="momPlan"' in html and "Strategy: Momentum top-10 long" in html

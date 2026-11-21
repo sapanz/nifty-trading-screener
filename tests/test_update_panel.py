@@ -23,3 +23,4 @@ def test_the_panel_never_offers_the_login_builds_during_market_hours():
     html = (ROOT / "docs" / "index.html").read_text()
     assert "8 * 60 + 40" in html and "15 * 60 + 45" in html and "would cut off the live dashboard" in html
     assert "localStorage.setItem(\"dashGhToken\"" in html and "api.github.com/repos/" in html
+

@@ -791,6 +791,34 @@ How good is it? `python scripts/backtest_momentum.py` (`signals/momentum_backtes
 
 So: accuracy is 52-57%, **not 80%**; profit comes from winners (+3.9% to +5.5%) being larger than losers (-3.1% to -3.9%), profit factor 1.5-1.9. The strongest stocks in a rising market beat a random long, but most of that came from one month (29 Jul - 31 Aug; the first half of the up signals showed no accuracy edge) and a 20-day-only rank over a longer sample shrinks it to +3 to +6 points; the weakest stocks did no better than any other short in a falling market (they bounce as often). The history is one up phase and one down phase of ~150 sessions - treat the list as a watchlist to study, not a signal, and re-run the backtest as history grows.
 
+### Strategy: Momentum top-10 long (Swing tab, above the lists)
+
+The strongest-stocks list is also laid out as a strategy with a trade plan for each pick (`signals/momentum.py: trade_plan, exit_day`; the page has a JS twin):
+
+| | Rule |
+|---|---|
+| **When** | only while the equal-weight market index is **above its 50-day average**; below it, stay in cash (the card says STAND ASIDE) |
+| **Entry** | buy the 10 strongest liquid F&O stocks (average percentile rank of the 20- and 60-session returns) at the **next open**, equal weight; size each so the stop costs about 1% of capital |
+| **Stop-loss** | **4 × ATR(14)** below the entry price (a gap below fills at the open) |
+| **Target** | **none** - hold to the exit day. An optional 8 × ATR (2 : 1) profit-booking level changed nothing (+3.33% against +3.32% a pick) |
+| **Exit** | the **close of the 20th session** after the signal, or the stop. Do not exit because the market dips below its average (it cut +3.3% to +2.3% a pick) |
+| **Repeat** | every 20 sessions take a fresh top 10, only if the market is above its average that day |
+
+Backtest (6 years, 218 F&O stocks, 10,010 picks, 0.10% costs; the table in the page's "Track record by year"): **+3.32% a pick, 56% won, 11% stopped out, worst pick -30%**. By year: 2021 +1.57%, 2022 +1.98%, 2023 **+8.72%**, 2024 +3.10%, 2025 +2.79%, 2026 (to Nov) +0.66%. Compounded as a 10-stock basket re-picked every 20 sessions (cash when the market is below its average; average of ten start dates): +21%, +12%, +116%, +41%, +27%, +4% a year, with a worst drawdown of about -20% (-28% in the worst start). How the exit rules compared (average a pick, positive in all six years for the first two):
+
+| Rule | Avg | Won | Worst | Stopped |
+|---|---|---|---|---|
+| time exit only, no stop | +3.72% | 57% | -43% | 0% |
+| **4 × ATR stop + time exit** | **+3.32%** | 56% | -30% | 11% |
+| 4 × ATR stop + 8 × ATR target | +3.33% | 56% | -30% | 11% |
+| 3 × ATR stop | +2.92% | 54% | -27% | 23% |
+| 2 × ATR stop | +2.25% | 47% | -25% | 42% |
+| 8% / 10% / 12% stop | +2.11% / +2.47% / +2.74% | 46-53% | -19% to -25% | 45% / 35% / 26% |
+| 3 / 4 × ATR trailing stop | +2.48% / +3.08% | 51-55% | -27% / -30% | - |
+| 4 × ATR stop + exit when the market falls below its average | +2.33% | 50% | -30% | 7% (+37% market exits) |
+
+Every stop costs some return (momentum stocks are volatile and recover), so the 4 × ATR stop is a limit on a bad month (worst pick -43% to -30%), not a source of profit. Read it honestly: the data is **only the stocks in F&O today** (survivorship) over a mostly rising market, 2023 carried the total, 2026 so far is weak, and a market turn can cost 20-30% in a month. Unleveraged this is about 3% a month, nowhere near 20%.
+
 ### Movers watchlist (Swing tab)
 
 Below the momentum lists, the ten stocks with the **widest daily range** (14-session average high-low range as a % of price, liquid F&O stocks only) - the ones *capable* of a 10-12% move in the next ~10 sessions, up or down. Each card shows the range, a squeeze tag (the last 10 sessions' range against the last 50: `squeezed` / `normal` / `expanding`), the 20-day move, where price sits in its 20-day range and turnover. `signals/movers.py` is the reference (the page has a JS twin checked against it); change **As of** to see any past close.

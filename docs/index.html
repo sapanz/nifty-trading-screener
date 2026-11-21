@@ -152,6 +152,11 @@
   .sbtn { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; } .sbtn:hover { border-color: var(--accent); }
   .momBanner { margin: 10px 14px 0; padding: 8px 12px; font-size: 13px; border-left: 3px solid var(--accent); background: var(--chip); border-radius: 6px; }
   .momBanner.warn { border-left-color: #b26a00; }
+  .momPlan { margin: 0 14px 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); }
+  .momPlan h3 { margin: 0 0 6px; font-size: 15px; } .momPlan h3 .tag { margin-left: 8px; }
+  .momPlan .tbl { overflow-x: auto; margin-top: 8px; } .momPlan table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .momPlan th, .momPlan td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; } .momPlan th:nth-child(-n+2), .momPlan td:nth-child(-n+2) { text-align: left; }
+  .momPlan tbody tr { cursor: pointer; } .momPlan.off table { opacity: .55; }
   #momentum .tag { font-size: 11px; font-weight: 600; margin-left: 6px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); }
   #momentum .tag.use { background: var(--accent); color: #fff; }
   #momentum .scols > div.dim .scard { opacity: .72; }
@@ -245,6 +250,7 @@
   <section id="momentum" aria-labelledby="momH" hidden>
     <h2 id="momH">Momentum watchlist <small id="momCount"></small></h2>
     <div id="momBanner" class="momBanner"></div>
+    <div id="momPlan" class="momPlan"></div>
     <div class="controls">
       <label>Volume thrust <select id="mVt" aria-label="Keep only stocks whose recent volume confirms the move"><option value="any">Off</option><option value="1.2">≥ 1.2×</option><option value="1.5">≥ 1.5×</option><option value="2">≥ 2×</option></select></label>
     </div>
@@ -1163,6 +1169,49 @@
              hasVolume: out.some(function (x) { return x.vt !== null; }),
              strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep), weak: out.slice().sort(cmp(-1)).slice(0, topN || MOM.topN).filter(keep) };
   }
+
+  /* The "Momentum top-10 long" strategy: the rules and the numbers behind them come from the 6-year backtest (README); the constants mirror signals/momentum.py. */
+  var MOM_RULE = { hold: 20, stopAtr: 4, targetAtr: 8 };
+  var MOM_RECORD = [[2021, 1890, 1.57, 48, 10, 20.5], [2022, 1490, 1.98, 53, 17, 12.4], [2023, 1810, 8.72, 69, 4, 116.4], [2024, 2030, 3.10, 54, 14, 40.5], [2025, 1570, 2.79, 60, 10, 27.2], [2026, 1220, 0.66, 52, 14, 3.6]];
+  function addSessions(iso, n) { var d = new Date(iso + "T00:00:00Z"); while (n > 0) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6 !== 0) n--; } return d.toISOString().slice(0, 10); }
+  function renderMomPlan(m, base) {
+    var box = $("momPlan"); box.textContent = ""; var up = m.market.up;
+    box.className = "momPlan" + (up ? "" : " off");
+    var h = el("h3", null, "Strategy: Momentum top-10 long"); h.appendChild(el("span", { "class": "tag" + (up ? " use" : "") }, up ? "ACTIVE - market above its 50-day average" : "STAND ASIDE - market below its 50-day average"));
+    box.appendChild(h);
+    var exitIso = addSessions(base.asof, MOM_RULE.hold), entryIso = addSessions(base.asof, 1);
+    var plan = el("div", { "class": "paPlan" });
+    [["Entry", "Next open", up ? "buy all 10 below at the open of " + shortDate(entryIso) + ", equal weight (about 10% of capital each)" : "no new entries while the market is below its 50-day average", ""],
+     ["Stop-loss", MOM_RULE.stopAtr + " × ATR", "below your entry price (the table works it from the last close); a gap below fills at the open, so it can be worse", "risk"],
+     ["Target", "None", "hold to the exit day. Optional: book profit " + MOM_RULE.targetAtr + " × ATR above entry (tested: it changed nothing)", ""],
+     ["Exit", MOM_RULE.hold + " sessions", "sell at the close of " + shortDate(exitIso) + " (about, holidays aside), or earlier if the stop is hit. Do not sell just because the market dips below its average - tested, it cut the result", "reward"],
+     ["Re-pick", "Every " + MOM_RULE.hold + " sessions", "take a fresh top 10, but only if the market is above its 50-day average on that day - otherwise stay in cash", ""]].forEach(function (k) {
+      var b = el("div", k[3] ? { "class": k[3] } : null); b.appendChild(el("span", null, k[0])); b.appendChild(el("b", null, k[1])); b.appendChild(el("span", null, k[2])); plan.appendChild(b);
+    });
+    box.appendChild(plan);
+    box.appendChild(el("p", { "class": "oiNote", style: "margin:8px 0 4px" }, "Sizing: risk about 1% of your capital per stock - position value = 1% of capital ÷ the stop distance (a stop 10% away means a position of 10% of capital). Costs are included in the numbers below (0.10% a round trip); taxes and slippage are not."));
+    var wrap = el("div", { "class": "tbl" }), t = el("table"), hd = el("thead"), hr = el("tr");
+    ["#", "Stock", "Last close", "Stop", "Risk", "Optional target", "Daily range", "Exit by"].forEach(function (c) { hr.appendChild(el("th", null, c)); });
+    hd.appendChild(hr); t.appendChild(hd); var tb = el("tbody");
+    base.strong.slice(0, MOM.topN).forEach(function (x, i) {
+      var stop = x.close * (1 - MOM_RULE.stopAtr * x.atr / 100), tgt = x.close * (1 + MOM_RULE.targetAtr * x.atr / 100), tr = el("tr", { tabindex: "0", title: "Open the chart" });
+      [String(i + 1), x.symbol, paPx(x.close), paPx(stop), "-" + (MOM_RULE.stopAtr * x.atr).toFixed(1) + "%", paPx(tgt) + " (+" + (MOM_RULE.targetAtr * x.atr).toFixed(0) + "%)", x.atr + "%", shortDate(exitIso)].forEach(function (v, k) {
+        tr.appendChild(el("td", k === 3 || k === 4 ? { "class": "down" } : k === 5 ? { "class": "up" } : null, v)); });
+      var open = function () { openOi(x.symbol, "chart"); }; tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
+    var det = el("details", { style: "margin-top:8px" }), sm = el("summary", { style: "cursor:pointer;font-weight:600" }, "Track record by year (6-year backtest, 218 F&O stocks)");
+    det.appendChild(sm);
+    var rt = el("table", { style: "margin-top:6px" }), rh = el("tr");
+    ["Year", "Picks", "Average per pick", "Won", "Stopped out", "10-stock basket, compounded"].forEach(function (c) { rh.appendChild(el("th", null, c)); }); rt.appendChild(rh);
+    MOM_RECORD.forEach(function (r) {
+      var tr = el("tr"); [String(r[0]), r[1].toLocaleString("en-IN"), (r[2] > 0 ? "+" : "") + r[2].toFixed(2) + "%", r[3] + "%", r[4] + "%", (r[5] > 0 ? "+" : "") + r[5].toFixed(0) + "%"].forEach(function (v, k) { tr.appendChild(el("td", k === 2 || k === 5 ? { "class": "up" } : null, v)); }); rt.appendChild(tr);
+    });
+    det.appendChild(rt);
+    det.appendChild(el("p", { "class": "oiNote", style: "margin:6px 0 0" }, "Entry at the next open, 4 × ATR stop, exit after 20 sessions, 0.10% costs, only while the market is above its 50-day average: +3.3% a pick on average, 56% won, 11% stopped out, worst single pick -30%. Positive in every year, but 2023 (+8.7% a pick) carried it and 2026 so far is only +0.7%. The basket column re-picks 10 stocks every 20 sessions and sits in cash when the market is below its average (average of ten start dates; worst drawdown about -20%, in one start -28%). The data is only the stocks in F&O today, so it flatters the result (survivorship) and it covers a mostly rising market - expect less, and a market turn can cost 20-30% in a month. Without the stop the average was +3.7% (worst pick -43%); a tighter stop (2-3 × ATR) or exiting when the market falls below its average lowered it to +2.3% to +2.9%. Not a recommendation to trade."));
+    box.appendChild(det);
+  }
   function renderMomentum() {
     var sec = $("momentum");
     var minVt = state.mVt === "any" ? 0 : parseFloat(state.mVt);
@@ -1176,6 +1225,7 @@
     banner.textContent = up
       ? "The market is " + pct + "% above its 50-day average, so the long side is the one with the market behind it: the strongest stocks are the list to use."
       : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average, and the weakest stocks showed no edge as shorts - this is a time to stand aside or trade small. Both lists are shown for study.";
+    renderMomPlan(m, minVt ? (momentumLists(state.swingCandles, state.data.stocks, state.data.asof, MOM.topN, 0) || m) : m);
     $("mBullTag").textContent = up ? "use this list" : "against the market"; $("mBullTag").className = "tag" + (up ? " use" : "");
     $("mBearTag").textContent = up ? "context only" : "market's direction · no edge over random shorts in tests"; $("mBearTag").className = "tag";
     $("mBullCol").className = up ? "" : "dim"; $("mBearCol").className = up ? "dim" : "";
