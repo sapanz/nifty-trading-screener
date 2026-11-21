@@ -23,10 +23,11 @@ MAX_ZONES_PER_SIDE = 2
 POOL_TOLERANCE_PCT = 0.4      # daily swing extremes within 0.4% count as one pool of stops
 
 
-def scan_daily(df: pd.DataFrame, lines: dict | None = None) -> list[dict]:
+def scan_daily(df: pd.DataFrame, lines: dict | None = None, sides: tuple[str, ...] = ("bull", "bear")) -> list[dict]:
     """The (up to two) best bullish and bearish live zones as of the last candle (testing beats fresh, then the most recent). With the
     stock's live trendlines (signals/swing_trendlines.analyze, computed here if not given) each zone also carries "cf": 1 when
-    the trendline that confirms its direction runs through it."""
+    the trendline that confirms its direction runs through it. `sides` = which directions to return: the Swing tab's build asks for ("bull",) only -
+    supply (bearish) zones lost money whatever the filter (README, "Which Swing zone filters pay?") and were removed from it."""
     if df is None or len(df) < 40:
         return []
     lines = trendlines_daily(df) if lines is None else lines
@@ -61,7 +62,7 @@ def scan_daily(df: pd.DataFrame, lines: dict | None = None) -> list[dict]:
         rec["cf"] = int(confluence(rec, lines))
         found.setdefault(b.direction, []).append(((state == "testing", b.formed_idx), rec))
     out = []
-    for direction in ("bull", "bear"):                                # the two best per direction: the nearest zone is not always the newest
+    for direction in sides:                                           # the two best per direction: the nearest zone is not always the newest
         out += [rec for _, rec in sorted(found.get(direction, []), key=lambda x: x[0], reverse=True)[:MAX_ZONES_PER_SIDE]]
     return out
 

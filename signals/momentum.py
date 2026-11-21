@@ -1,15 +1,16 @@
-"""Momentum watchlist - the strongest and weakest stocks, with a market switch (the Swing tab's panel; the page has a JS twin).
+"""Momentum watchlist - the strongest stocks, with a market switch (the Swing tab's panel; the page has a JS twin).
 
 Rank = the average of a stock's percentile ranks of its 20-session and 60-session returns, among liquid F&O stocks (at least
 MIN_TURNOVER_CR traded on the day). The market switch is the equal-weight index of those stocks against its own MA_DAYS-session
-average: above it the strongest stocks are the list to use (long), below it the weakest (short).
+average: above it the strongest stocks are the list to use (long); below it, stand aside. (The weakest-stocks list was removed: it showed no
+edge as shorts.)
 
 What the backtest found (scripts/backtest_momentum.py, 23 Jun - 30 Oct 2026, entry at the next open, 0.10% round-trip cost):
   * accuracy (picks ending in profit) was 52-57%, not 80%; the money came from winners (+3.9% to +5.5%) being larger than losers;
   * long side (market up): 54% / 52% (5 / 10 sessions) against 45% / 43% for a random pick in the same direction - a real but
     not yet stable edge (most of it came from one month);
   * short side (market down): 58% / 65%, but a random short won 61% / 70% in the falling market - NO edge over random shorts.
-Treat the strongest list as the one with evidence; the weakest list is context. See the README.
+See the README.
 """
 from __future__ import annotations
 
@@ -73,7 +74,7 @@ def _aligned_volume(candles: dict) -> dict[str, np.ndarray]:
 
 
 def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None = None, top_n: int = TOP_N, min_thrust: float | None = None) -> dict | None:
-    """{"asof", "universe", "market": {"vs_ma_pct", "up"}, "strong": [...], "weak": [...]} as of the close of `asof` (default: the last
+    """{"asof", "universe", "market": {"vs_ma_pct", "up"}, "strong": [...]} as of the close of `asof` (default: the last
     candle), or None when there is too little history. `turnover` is crore rupees traded on that day, by symbol. Every row has "vt", its
     volume thrust (None when the candles carry no volume). `min_thrust` is a confirmation applied AFTER taking the top `top_n` (so "top 30 with
     thrust >= 1.5" is a subset of the top 30 - the same meaning as in signals/momentum_zone_backtest.py)."""
@@ -116,9 +117,8 @@ def momentum_lists(candles: dict, turnover: dict[str, float], asof: str | None =
         })
     rows.sort(key=lambda r: (-r["score"], r["symbol"]))
     keep = (lambda r: True) if min_thrust is None else (lambda r: r["vt"] is not None and r["vt"] >= min_thrust)
-    weak = [r for r in sorted(rows, key=lambda r: (r["score"], r["symbol"]))[:top_n] if keep(r)]
     return {"asof": dates[last], "universe": len(rows), "market": {"vs_ma_pct": round(float(vs_ma), 1), "up": bool(index[-1] > ma)},
-            "strong": [r for r in rows[:top_n] if keep(r)], "weak": weak}
+            "strong": [r for r in rows[:top_n] if keep(r)]}
 
 
 def _vt(volume: np.ndarray | None, last: int) -> float | None:

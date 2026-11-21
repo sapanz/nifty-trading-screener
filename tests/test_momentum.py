@@ -23,15 +23,14 @@ def _universe(trend: float, n_days: int = 80, count: int = 30) -> dict[str, list
     return {f"S{i:02d}": list(100 * np.cumprod(np.full(n_days, 1 + trend + (i - count / 2) * 0.0004))) for i in range(count)}
 
 
-def test_strongest_are_the_highest_drifts_and_weakest_the_lowest():
+def test_strongest_are_the_highest_drifts():
     c = _candles(_universe(0.002))
     turn = {s: 100.0 for s in c["stocks"]}
     r = momentum.momentum_lists(c, turn)
     assert r["universe"] == 30
     assert [x["symbol"] for x in r["strong"]][:3] == ["S29", "S28", "S27"]
-    assert [x["symbol"] for x in r["weak"]][:3] == ["S00", "S01", "S02"]
-    assert r["strong"][0]["score"] > r["strong"][-1]["score"] > r["weak"][0]["score"]
-    assert len(r["strong"]) == len(r["weak"]) == momentum.TOP_N
+    assert r["strong"][0]["score"] > r["strong"][-1]["score"]
+    assert len(r["strong"]) == momentum.TOP_N and "weak" not in r
 
 
 def test_market_switch_follows_the_equal_weight_index():

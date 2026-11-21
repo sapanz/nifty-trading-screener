@@ -161,11 +161,7 @@
   #momentum .tag.use { background: var(--accent); color: #fff; }
   #momentum .scols > div.dim .scard { opacity: .72; }
   #movers { grid-column: 1 / -1; } #movers[hidden] { display: none; }
-  #momNear { grid-column: 1 / -1; } #momNear[hidden] { display: none; }
   #setups { grid-column: 1 / -1; } #setups[hidden] { display: none; } #secSectors[hidden], #secTable[hidden] { display: none; }
-  #mnTable tbody tr { cursor: pointer; } #mnTable tbody tr:hover { background: var(--chip); }
-  #mnTable th, #mnTable td { text-align: right; } #mnTable th:nth-child(-n+2), #mnTable td:nth-child(-n+2) { text-align: left; } #mnTable th { cursor: default; position: static; }
-  #mnTable td.mute { color: var(--muted); }
   #mvBox { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { #mvBox { grid-template-columns: 1fr; } }
   #movers .tag { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); } #movers .tag.sq { background: var(--accent); color: #fff; }
   .scols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 4px; } @media (max-width: 860px) { .scols { grid-template-columns: 1fr; } }
@@ -245,7 +241,7 @@
       <label><input type="checkbox" id="sVol"> Volume thrust ≥ 2×</label>
       <button type="button" class="sbtn" id="sReset">Reset filters</button>
     </div>
-    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
+    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div id="sBearCol"><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
   </section>
   <section id="momentum" aria-labelledby="momH" hidden>
     <h2 id="momH">Momentum watchlist <small id="momCount"></small></h2>
@@ -254,24 +250,8 @@
     <div class="controls">
       <label>Volume thrust <select id="mVt" aria-label="Keep only stocks whose recent volume confirms the move"><option value="any">Off</option><option value="1.2">≥ 1.2×</option><option value="1.5">≥ 1.5×</option><option value="2">≥ 2×</option></select></label>
     </div>
-    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
+    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div></div>
     <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
-  </section>
-  <section id="momNear" aria-labelledby="mnH" hidden>
-    <h2 id="mnH">Momentum stocks near a zone or trendline <small id="mnCount"></small></h2>
-    <div class="controls">
-      <label>List <select id="mnSide" aria-label="Which momentum list"><option value="auto">Market's side</option><option value="strong">Strongest (long)</option><option value="weak">Weakest (short)</option></select></label>
-      <label>Momentum pool <select id="mnPool" aria-label="How many top momentum stocks to look through"><option value="20">top 20</option><option value="30">top 30</option><option value="50">top 50</option></select></label>
-      <label>Sort by <select id="mnSort" aria-label="Order of the table"><option value="zone">Nearest zone</option><option value="tl">Nearest trendline (price to line)</option><option value="mom">Momentum rank</option></select></label>
-      <label>Zone within <select id="mnZone" aria-label="Largest distance to the zone"><option value="any">Any</option><option value="1">1%</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
-      <label>Trendline within <select id="mnTl" aria-label="Largest distance from price to the trendline"><option value="any">Any</option><option value="1">1%</option><option value="2">2%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option></select></label>
-      <label>Volume thrust <select id="mnVt" aria-label="Keep only stocks whose recent volume confirms the move"><option value="any">Off</option><option value="1.2">≥ 1.2×</option><option value="1.5">≥ 1.5×</option><option value="2">≥ 2×</option></select></label>
-    </div>
-    <div class="tablewrap"><table id="mnTable">
-      <thead><tr><th>#</th><th>Stock</th><th>Momentum</th><th>20d</th><th title="Volume of the last 3 sessions / the average of the 20 sessions before">Volume</th><th>Zone</th><th>Zone test</th><th>Zone gap</th><th>Stop</th><th>Strength</th><th>Price to line</th><th>Line to zone</th><th>R</th><th>Range</th></tr></thead>
-      <tbody id="mnRows"></tbody>
-    </table></div>
-    <p class="oiNote" id="mnNote" style="padding:8px 14px 10px"></p>
   </section>
   <section id="movers" aria-labelledby="mvH" hidden>
     <h2 id="mvH">Movers - widest daily range <small id="mvCount"></small></h2>
@@ -291,8 +271,7 @@
     <div id="paHistStats" class="momBanner histOnly" hidden></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
-      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="double">W / M pattern</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="candle">Candle at support / resistance</option><option value="pause">Bearish continuation - halt zone (short)</option></select></label>
-      <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
+      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option></select></label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
       <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="trend">Closed below 30-week average</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
       <label class="liveOnly">Status <select id="paStatus" aria-label="Triggered or waiting"><option value="all">All</option><option value="triggered">Triggered</option><option value="pending">Waiting for the trigger</option></select></label>
@@ -431,11 +410,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "mVt", "paFo", "paKind", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -625,14 +604,14 @@
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing")); $("modeSetups").setAttribute("aria-pressed", String(m === "setups"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
     var pa = m === "setups"; $("setups").hidden = !pa; $("secSectors").hidden = pa; $("secTable").hidden = pa; if (pa) $("strongest").hidden = true;
-    $("momentum").hidden = true; $("momNear").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
+    $("momentum").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
   function enterSwing() {
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
-    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMomNear(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
       if (state.mode !== "swing") return;
@@ -1059,9 +1038,10 @@
     $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort; $("sCf").checked = state.cfOnly;
     $("sFlow").checked = state.sFlow; $("sMinSc").value = String(state.sMinSc); $("sState").value = state.sState; $("sTlGap").value = state.sTlGap; $("sTlPx").value = state.sTlPx; $("sWd").checked = state.sWd; $("sSw").checked = state.sSw; $("sVol").checked = state.sVol; $("sAge").value = state.sAge;
     Array.prototype.forEach.call(document.querySelectorAll("#strongest .swingOnly"), function (e) { e.hidden = state.mode !== "swing"; });
+    $("sBearCol").hidden = state.mode === "swing";                 // supply zones were removed from the Swing tab (they lost money in the backtest)
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
-    [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
+    [["bull", "sBull"], ["bear", "sBear"]].filter(function (pair) { return state.mode !== "swing" || pair[0] === "bull"; }).forEach(function (pair) {
       var list = strongestList(pair[0]); total += list.length;
       var box = $(pair[1]); box.textContent = "";
       if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone matches these filters - loosen one (the default \"Distance to zone\" hides zones more than 3% away) or press “Reset filters”." : "None right now" + (nearLimit() < Infinity ? " with price within " + (nearLimit() || "the") + (nearLimit() ? "% of the zone" : " zone") : "") + (maxStop() < Infinity ? " and a stop within " + maxStop() + "%" : "") + " - widen “Distance to zone” or “Max stop” to see more."));
@@ -1167,7 +1147,7 @@
     var keep = function (x) { return !minVt || (x.vt !== null && x.vt >= minVt); };       // the thrust is a confirmation applied AFTER taking the top N
     return { asof: dates[last], universe: out.length, market: { vs_ma_pct: Math.round(vsMa * 10) / 10, up: index[last] > ma },
              hasVolume: out.some(function (x) { return x.vt !== null; }),
-             strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep), weak: out.slice().sort(cmp(-1)).slice(0, topN || MOM.topN).filter(keep) };
+             strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep) };
   }
 
   /* The "Momentum top-10 long" strategy: the rules and the numbers behind them come from the 6-year backtest (README); the constants mirror signals/momentum.py. */
@@ -1237,19 +1217,18 @@
     var minVt = state.mVt === "any" ? 0 : parseFloat(state.mVt);
     var m = state.mode === "swing" && state.data && state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, minVt ? 30 : MOM.topN, minVt) : null;
     sec.hidden = !m; if (!m) return;
-    m.strong = m.strong.slice(0, MOM.topN); m.weak = m.weak.slice(0, MOM.topN);
+    m.strong = m.strong.slice(0, MOM.topN);
     $("mVt").value = state.mVt;
     var up = m.market.up, pct = Math.abs(m.market.vs_ma_pct).toFixed(1);
     $("momCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks" + (minVt ? " · top 30 with volume thrust ≥ " + minVt + "×" : "");
     var banner = $("momBanner"); banner.className = "momBanner" + (up ? "" : " warn");
     banner.textContent = up
       ? "The market is " + pct + "% above its 50-day average, so the long side is the one with the market behind it: the strongest stocks are the list to use."
-      : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average, and the weakest stocks showed no edge as shorts - this is a time to stand aside or trade small. Both lists are shown for study.";
+      : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average - this is a time to stand aside or trade small. The list is shown for study.";
     renderMomPlan(m, minVt ? (momentumLists(state.swingCandles, state.data.stocks, state.data.asof, MOM.topN, 0) || m) : m);
     $("mBullTag").textContent = up ? "use this list" : "against the market"; $("mBullTag").className = "tag" + (up ? " use" : "");
-    $("mBearTag").textContent = up ? "context only" : "market's direction · no edge over random shorts in tests"; $("mBearTag").className = "tag";
-    $("mBullCol").className = up ? "" : "dim"; $("mBearCol").className = up ? "dim" : "";
-    [["strong", "mBull", true], ["weak", "mBear", false]].forEach(function (g) {
+    $("mBullCol").className = up ? "" : "dim";
+    [["strong", "mBull", true]].forEach(function (g) {
       var box = $(g[1]); box.textContent = "";
       m[g[0]].forEach(function (x, i) {
         var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Momentum score " + x.score + " (average percentile of the 20- and 60-session return)" });
@@ -1275,57 +1254,6 @@
   }
 
 
-
-  /* ---------- momentum stocks near a zone or trendline: the momentum pool joined with each stock's nearest zone in the trade's direction
-     (the same zone numbers the Strongest order blocks panel uses) and the trendline that confirms it ---------- */
-  function renderMomNear() {
-    var sec = $("momNear");
-    var pool = state.mnPool, m = state.mode === "swing" && state.data && state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, pool, state.mnVt === "any" ? 0 : parseFloat(state.mnVt)) : null;
-    sec.hidden = !m; if (!m) return;
-    var long = state.mnSide === "auto" ? m.market.up : state.mnSide === "strong", dir = long ? "bull" : "bear", list = long ? m.strong : m.weak;
-    var bySym = {}; state.data.stocks.forEach(function (s) { bySym[s.symbol] = s; });
-    var zoneMax = state.mnZone === "any" ? Infinity : parseFloat(state.mnZone), tlMax = state.mnTl === "any" ? Infinity : parseFloat(state.mnTl);
-    var gapOf = function (b) { return b.inside ? 0 : Math.max(b.dist, 0); };
-    var rows = [];
-    list.forEach(function (x, i) {
-      var s = bySym[x.symbol]; if (!s) return;
-      var zs = (s.obs || []).filter(function (b) { return b.d === dir; }).sort(function (a, b) { return gapOf(a) - gapOf(b) || b.sc - a.sc; }), b = zs[0] || null;
-      var line = s.tl ? s.tl[long ? "s" : "r"] : null, px = line ? r2(Math.abs(line.d)) : null;
-      if (zoneMax !== Infinity && !(b && gapOf(b) <= zoneMax)) return;
-      if (tlMax !== Infinity && !(px !== null && px <= tlMax)) return;
-      rows.push({ x: x, rank: i + 1, s: s, b: b, px: px });
-    });
-    var key = { zone: function (r) { return r.b ? gapOf(r.b) : 1e9; }, tl: function (r) { return r.px === null ? 1e9 : r.px; }, mom: function (r) { return r.rank; } }[state.mnSort];
-    rows.sort(function (p, q) { return key(p) - key(q) || p.rank - q.rank; });
-    $("mnSide").value = state.mnSide; $("mnPool").value = String(state.mnPool); $("mnSort").value = state.mnSort; $("mnZone").value = state.mnZone; $("mnTl").value = state.mnTl; $("mnVt").value = state.mnVt;
-    $("mnCount").textContent = (long ? "strongest" : "weakest") + " " + pool + " of " + m.universe + " liquid F&O stocks · as of the " + shortDate(m.asof) + " close · " + rows.length + " shown";
-    var body = $("mnRows"); body.textContent = "";
-    if (!rows.length) {
-      var tr = el("tr"), td = el("td", { colspan: "14", "class": "mute" }, (state.mnVt !== "any" && !m.hasVolume ? "Volume is not in the candle data yet - it arrives with the next swing build; set Volume thrust to Off until then." : "No stock in this momentum pool matches - widen “Zone within” / “Trendline within”, loosen Volume thrust, or raise the pool size.")); tr.appendChild(td); body.appendChild(tr);
-    }
-    rows.forEach(function (r, i) {
-      var b = r.b, tr = el("tr", { tabindex: "0", role: "button", title: "Open the chart" });
-      var cell = function (text, mute) { return el("td", mute ? { "class": "mute" } : null, text); };
-      tr.appendChild(cell(String(i + 1), true));
-      tr.appendChild(el("td", { style: "font-weight:700" }, r.x.symbol));
-      tr.appendChild(cell("#" + r.rank + " · " + r.x.score));
-      tr.appendChild(el("td", { "class": cls(r.x.m20) }, fmtPct(r.x.m20)));
-      tr.appendChild(r.x.vt !== null && r.x.vt !== undefined ? el("td", r.x.vt >= 1.5 ? { style: "font-weight:700" } : null, r.x.vt.toFixed(1) + "×") : cell("-", true));
-      tr.appendChild(b ? cell(b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")) : cell("no zone", true));
-      tr.appendChild(b ? cell(b.st === "testing" ? (b.wk ? "held (wick)" : "retesting") : "fresh") : cell("-", true));
-      tr.appendChild(b ? cell(b.inside ? "in zone" : Math.max(b.dist, 0).toFixed(1) + "% away") : cell("-", true));
-      tr.appendChild(b ? cell(b.sl.toFixed(1) + "%") : cell("-", true));
-      tr.appendChild(b ? cell(String(b.sc)) : cell("-", true));
-      tr.appendChild(r.px !== null ? cell(r.px.toFixed(1) + "%") : cell("no line", true));
-      tr.appendChild(b && b.tlgap !== null && b.tlgap !== undefined ? cell(b.tlgap === 0 ? "through" : b.tlgap.toFixed(1) + "%") : cell("-", true));
-      tr.appendChild(r.s.r !== null && r.s.r !== undefined && r.s.r > 0 ? cell(String(r.s.r)) : cell("-", true));
-      tr.appendChild(cell(r.x.atr + "%"));
-      var open = function () { openOi(r.x.symbol, "chart"); };
-      tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
-      body.appendChild(tr);
-    });
-    $("mnNote").textContent = "How to use it: pick the pool of strongest (or weakest) stocks, then sort by the nearest zone or trendline to find the ones close to a defined entry and stop. Zone gap = distance from price to the zone's near edge; Stop = distance to the stop beyond its far edge; Price to line = distance to the confirming trendline (support for longs, resistance for shorts); Line to zone = how far that line is from the zone. What 6 years say (218 F&O stocks, Nov 2020 - Nov 2026, costs included): zone entries on momentum stocks did no better than zone entries on any other stock - top 30 pool -0.06R a trade long and -0.13R short, against +0.02R and -0.07R for the rest - and volume thrust did not confirm anything: on the long side it made results worse (1.5× or more: -0.16R; 2× or more: -0.35R). The earlier +0.69R figure came from 20 trades in one rising stretch and did not hold up. Use this table to find a defined entry and stop quickly, not as an edge; keep Volume thrust Off unless you only want to see where volume has spiked.";
-  }
 
   /* ---------- movers watchlist - the JS twin of movers_list in signals/movers.py: the widest daily ranges, either direction ---------- */
   function moversList(cd, rows, asof) {
@@ -1769,7 +1697,7 @@
     var d = state.setups; if (!d) return [];
     var minRR = parseFloat(state.paMinRR), maxRisk = state.paMaxRisk === "any" ? Infinity : parseFloat(state.paMaxRisk), q = state.paQ.trim().toUpperCase();
     var rows = d.setups.filter(function (s) {
-      return (!state.paFo || s.fo) && (state.paSide === "all" || (s.side || "long") === state.paSide) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
+      return PA_KINDS.indexOf(s.kind) >= 0 && (s.side || "long") === "long" && (!state.paFo || s.fo) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
         && (!state.paEdge || (s.p !== null && s.p >= s.breakeven)) && (!q || s.symbol.indexOf(q) >= 0);
     });
     var edge = function (s) { return s.p === null ? -1e9 : s.p - s.breakeven; }, pv = function (s) { return s.p === null ? -1 : s.p; };
@@ -1780,7 +1708,7 @@
   function renderSetups() {
     var d = state.setups; if (!d || state.mode !== "setups") return;
     if (state.paView === "hist") { $("pill").className = "pill"; $("pill").textContent = "Price action · backtest"; return; }
-    $("paFo").checked = state.paFo; $("paEdge").checked = state.paEdge; $("paKind").value = state.paKind; $("paStatus").value = state.paStatus; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk; $("paSort").value = state.paSort; $("paSide").value = state.paSide;
+    $("paFo").checked = state.paFo; $("paEdge").checked = state.paEdge; $("paKind").value = state.paKind; $("paStatus").value = state.paStatus; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk; $("paSort").value = state.paSort;
     $("pill").className = "pill"; $("pill").textContent = "Price action · " + shortDate(d.asof) + " close";
     $("updated").textContent = d.updated_at ? "built " + new Date(d.updated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
     var rows = paList(), m = d.model || {}, all = m.all;
@@ -1812,11 +1740,12 @@
       body.appendChild(tr);
     });
     var walk = m.walk ? " Checked year by year on " + m.walk.n + " setups it had not seen: the lowest quarter of estimates hit " + m.walk.rows[0].actual + "% and the highest " + m.walk.rows[m.walk.rows.length - 1].actual + "% (it had said " + m.walk.rows[0].predicted + "% and " + m.walk.rows[m.walk.rows.length - 1].predicted + "%), so the figure shown is scaled by " + m.calibration + "." : "";
-    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it. Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high / bull flag = a daily close above the pattern's top; W pattern, triple bottom and inverse head and shoulders = a daily close above the neckline. The bearish twins - M pattern, triple top, head and shoulders, bear flag - are shorts on a daily close below the neckline, listed for F&O stocks only (a cash short cannot be carried overnight). Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance (support for a short), or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - several kinds, and the short side as a whole, have lost money. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Bearish continuation (a short, F&O stocks only) = drop, halt, drop again: clear selling - at least three red candles in a row, each with a real body closing near its low and lower than the one before, together down at least 2 ATR - then a halt zone of at least two small-bodied candles that stays under the last red candle's high and under its moving average and is no taller than 2 ATR; sell on a daily close below the zone's low, the stop is the zone's high (dead if price trades above it first). It is read on daily candles and on weekly candles (the zone is built from weeks, the break is a daily close in the following week). A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
+    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it (long setups only). Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high = a daily close above the pattern's top. Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance, or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - range, triangle and cup earned about nothing, so read the record before acting. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
   }
 
   /* ---------- Price action backtest: every past setup that would have been listed, traded by the same rule (entry at the next open, the planned
      stop and target, a 60-session time exit, 0.10% costs), from setups_hist/<year>.json; each stock's candles load when a row is opened. ---------- */
+  var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear"];          // the kinds that remain (the others were removed after the backtest; older published data may still carry them)
   var PA_OUT = { target: "Target hit", stop: "Stopped", time: "Time exit", open: "Still open", trend: "Closed below 30-week average" };
   function setPaView(v) { state.paView = v; save(); closeOi(); renderPaView(); if (v === "hist") loadHist(); else renderSetups(); }
   function renderPaView() {
@@ -1852,7 +1781,7 @@
     (state.paYear === "all" ? idx.years : [parseInt(state.paYear, 10)]).forEach(function (y) { rows = rows.concat(state.hist.years[y] || []); });
     var minRR = parseFloat(state.paMinRR), maxRisk = state.paMaxRisk === "any" ? Infinity : parseFloat(state.paMaxRisk), q = state.paQ.trim().toUpperCase(), res = state.paResult;
     rows = rows.filter(function (r) {
-      return (!state.paFo || r.fo) && (state.paSide === "all" || r.side === state.paSide) && (state.paKind === "all" || r.kind === state.paKind) && r.rr >= minRR && r.risk_pct <= maxRisk
+      return PA_KINDS.indexOf(r.kind) >= 0 && r.side === "long" && (!state.paFo || r.fo) && (state.paKind === "all" || r.kind === state.paKind) && r.rr >= minRR && r.risk_pct <= maxRisk
         && (!q || r.symbol.indexOf(q) >= 0) && (res === "all" || (res === "win" ? r.out !== "open" && r.R > 0 : res === "loss" ? r.out !== "open" && r.R <= 0 : r.out === res));
     });
     var key = { "new": function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }, old: function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; },
@@ -1867,7 +1796,7 @@
   }
   function renderHist() {
     if (state.mode !== "setups" || state.paView !== "hist" || !state.hist.index) return;
-    $("paFo").checked = state.paFo; $("paKind").value = state.paKind; $("paSide").value = state.paSide; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk;
+    $("paFo").checked = state.paFo; $("paKind").value = state.paKind; $("paMinRR").value = state.paMinRR; $("paMaxRisk").value = state.paMaxRisk;
     $("paYear").value = state.paYear; $("paResult").value = state.paResult; $("paHSort").value = state.paHSort; $("paShow").value = state.paShow;
     var rows = histList(), st = histStats(rows), show = parseInt(state.paShow, 10) || rows.length, shown = rows.slice(0, show);
     state.hist.list = rows;
@@ -2071,7 +2000,7 @@
     }
     for (var sl = Math.floor(m / 12); sl < m; sl += Math.ceil(m / 6)) svg.appendChild(svgEl("text", { x: x(sl), y: H - 8, "text-anchor": "middle" }, shortDate(dd[sl]) + " " + dd[sl].slice(2, 4)));
     var acc = "var(--accent)";
-    if (s.kind === "zone" || s.kind === "candle") {                  // the weekly zone, from the week it formed to the right edge
+    if (s.kind === "zone") {                                          // the weekly zone, from the week it formed to the right edge
       var zx = x(xi(g.from)) - pw / N * 0.5, zshort = s.side === "short";
       svg.appendChild(svgEl("rect", { x: zx, y: y(g.level), width: right - zx, height: Math.max(y(g.base) - y(g.level), 2), fill: acc, "fill-opacity": "0.16", stroke: acc, "stroke-opacity": "0.7" }));
       svg.appendChild(svgEl("text", { x: zx + 4, y: zshort ? y(g.level) - 5 : y(g.base) + 12, style: "fill:" + acc + ";font-weight:600" }, "Weekly " + (zshort ? "resistance" : "support") + " zone " + paPx(g.base) + "–" + paPx(g.level)));
@@ -2111,27 +2040,6 @@
       svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
       svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
     });
-    if (s.kind === "pause") {                                        // the run of selling (shaded red), the halt zone (box), the zone's low as the trigger line
-      var a0 = xi(g.from), a1 = xi(g.run_to), z0 = xi(g.zone_from), z1 = xi(g.to), hiR = -Infinity, loR = Infinity;
-      for (var q = a0; q <= a1 && q < cs.length; q++) { hiR = Math.max(hiR, cs[q][1]); loR = Math.min(loR, cs[q][2]); }
-      if (hiR > loR) {
-        var rx0 = x(a0) - pw / N * 0.5, rx1 = x(a1) + pw / N * 0.5;
-        svg.appendChild(svgEl("rect", { x: rx0, y: y(hiR), width: Math.max(rx1 - rx0, 4), height: Math.max(y(loR) - y(hiR), 2), fill: "var(--down)", "fill-opacity": "0.09", stroke: "var(--down)", "stroke-dasharray": "4 3" }));
-        svg.appendChild(svgEl("text", { x: Math.min(rx0 + 3, right - 150), y: y(hiR) - 4, style: "fill:var(--down);font-weight:600;font-size:11px" }, g.run + " red " + (g.tf === "weekly" ? "weeks" : "days") + " - selling pressure"));
-      }
-      var hx0 = x(z0) - pw / N * 0.5, hx1 = x(z1) + pw / N * 0.5;
-      svg.appendChild(svgEl("rect", { x: hx0, y: y(g.base), width: Math.max(hx1 - hx0, 4), height: Math.max(y(g.level) - y(g.base), 2), fill: acc, "fill-opacity": "0.16", stroke: acc, "stroke-opacity": "0.8" }));
-      svg.appendChild(svgEl("text", { x: Math.min(hx0, right - 90), y: y(g.base) - 5, style: "fill:" + acc + ";font-weight:700;font-size:11px" }, "Halt zone " + paPx(g.level) + "–" + paPx(g.base)));
-      svg.appendChild(svgEl("line", { x1: hx0, x2: right, y1: y(g.level), y2: y(g.level), stroke: acc, "stroke-dasharray": "5 3", "stroke-width": "1.4" }));
-    }
-    if (g.candle_date) {                                             // the signal candle: a marker and its name
-      var ci = xi(g.candle_date), cc = cs[ci], cshort = s.side === "short";
-      if (cc) {
-        var cx = x(ci), cy = cshort ? y(cc[1]) - 7 : y(cc[2]) + 7, tri = cshort ? [cx - 5, cy - 7, cx + 5, cy - 7, cx, cy] : [cx - 5, cy + 7, cx + 5, cy + 7, cx, cy];
-        svg.appendChild(svgEl("polygon", { points: tri.join(","), fill: acc }));
-        svg.appendChild(svgEl("text", { x: Math.min(cx, right - 80), y: cshort ? cy - 11 : cy + 20, "text-anchor": cx > right - 100 ? "end" : "middle", style: "fill:" + acc + ";font-weight:700;font-size:11px" }, g.candle));
-      }
-    }
     if (s.kind === "multiyear" && s.side !== "short") {                // the exit line: the 30-week average of the weekly closes (a step line on the daily chart: it changes once a week)
       var wsrc = weekly ? cd : (cd.w && cd.w.c && cd.w.c.length > 20 ? cd.w : weeklyFromDaily(cd)), wcl = wsrc.c.map(function (c) { return c[3]; }), wk = 0, dpath = "", pen = false, lastPt = null, ORG = "#d9822b";
       var smaAt = function (k) { if (k < 29) return null; var t = 0; for (var q = k - 29; q <= k; q++) t += wcl[q]; return t / 30; };
@@ -2148,7 +2056,7 @@
       }
     }
     var labels = [{ p: s.target, t: s.kind === "multiyear" && s.side !== "short" ? "Ref. move" : "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
-    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "pause" ? "Zone low" : s.kind === "candle" ? "Zone edge" : s.kind === "zone" ? "Zone top" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
+    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "zone" ? "Zone top" : "Breakout", c: acc });
     if (hist) {                                                     // where the trade ended
       var ec = hist.R > 0 ? "var(--up)" : "var(--down)", ex = x(xi(hist.exit_date)), ey = y(hist.exit);
       svg.appendChild(svgEl("circle", { cx: ex, cy: ey, r: "5", fill: "var(--panel)", stroke: ec, "stroke-width": "2.5" }));
@@ -2170,9 +2078,11 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
-    renderMomentum(); renderMomNear(); renderMovers();
+    renderMomentum(); renderMovers();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
+    Array.prototype.forEach.call($("obSel").options, function (o) { var bear = o.value.indexOf("bear") >= 0; o.hidden = o.disabled = bear && state.mode === "swing"; });   // no supply zones on the Swing tab
+    if (state.mode === "swing" && state.ob.indexOf("bear") >= 0) state.ob = "all";
     renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
     $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");
@@ -2203,10 +2113,7 @@
   [["sFlow", "sFlow", "checked"], ["sWd", "sWd", "checked"], ["sSw", "sSw", "checked"], ["sVol", "sVol", "checked"], ["sState", "sState", "value"], ["sTlGap", "sTlGap", "value"], ["sTlPx", "sTlPx", "value"], ["sAge", "sAge", "value"]].forEach(function (c) {
     $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target[c[2]]; save(); render(); });
   });
-  [["mnSide", "mnSide"], ["mnSort", "mnSort"], ["mnZone", "mnZone"], ["mnTl", "mnTl"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target.value; save(); renderMomNear(); }); });
   $("mVt").addEventListener("change", function (e) { state.mVt = e.target.value; save(); renderMomentum(); });
-  $("mnVt").addEventListener("change", function (e) { state.mnVt = e.target.value; save(); renderMomNear(); });
-  $("mnPool").addEventListener("change", function (e) { state.mnPool = parseInt(e.target.value, 10); save(); renderMomNear(); });
   $("sMinSc").addEventListener("change", function (e) { state.sMinSc = parseInt(e.target.value, 10); save(); render(); });
   $("sReset").addEventListener("click", function () {
     state.sMinR = 0; state.sMaxStop = "auto"; state.near = "auto"; state.sSort = "conf"; state.cfOnly = false; state.sFlow = false; state.sMinSc = 0; state.sState = "any";
@@ -2366,7 +2273,7 @@
   $("modeReplay").addEventListener("click", enterReplay);
   $("modeSwing").addEventListener("click", enterSwing);
   $("modeSetups").addEventListener("click", enterSetups);
-  [["paFo", "checked"], ["paEdge", "checked"], ["paKind", "value"], ["paStatus", "value"], ["paMinRR", "value"], ["paMaxRisk", "value"], ["paSort", "value"], ["paSide", "value"]].forEach(function (k) {
+  [["paFo", "checked"], ["paEdge", "checked"], ["paKind", "value"], ["paStatus", "value"], ["paMinRR", "value"], ["paMaxRisk", "value"], ["paSort", "value"]].forEach(function (k) {
     $(k[0]).addEventListener("change", function (e) { state[k[0]] = e.target[k[1]]; save(); if (state.paView === "hist") renderHist(); else renderSetups(); });
   });
   $("paQ").addEventListener("input", function (e) { state.paQ = e.target.value; if (state.paView === "hist") renderHist(); else renderSetups(); });

@@ -644,7 +644,7 @@ from is a missed move - e.g. a bearish zone formed ten days ago with price 10% b
 and whether it is waiting or retesting; "Rank by: Closest to the zone first" and the table sort "closest to the zone" put the
 imminent setups on top. Raise the distance (or choose Any) to see every zone; the Max stop filter limits the risk.
 
-**Swing (daily) order blocks and manual backtesting.** The same panel, column, filter and chart exist on the **Swing** tab
+**Swing (daily) order blocks and manual backtesting.** (Only bullish / demand zones are published and shown on the Swing tab now; supply zones lost money - see "Removed tools".) The same panel, column, filter and chart exist on the **Swing** tab
 for daily candles (`signals/swing_blocks.py`, built each evening by `scripts/build_dashboard_swing.py`: zones formed in the last
 40 sessions that are still fresh or being retested, scored the same way, "with the trend" meaning the structure-breaking close is
 above / below the close 20 sessions earlier; `swing_candles.json` carries the daily candles and levels for the chart). The Swing tab has an **As of** picker (and ◀ day / day ▶ buttons) for manual backtesting on daily charts: choose any of the
@@ -690,17 +690,28 @@ What it says: **the zone's own strength is what pays on the long side** - the si
 
 **Short (supply) zones lose whatever the filter:** all 3,666 trades averaged **-0.64%** (PF 0.73, negative in every year). The best filters only cut the loss - price within 1.5% of the zone -0.32%, stop 3% or less -0.41%, both -0.24% - and the trendline made it worse (-0.95%). Combinations chosen on 2021-2023 lost -0.6% to -1.5% on 2024-2026. For scale: the filters that work give about +0.6% to +0.9% a trade and only 4-7 qualifying trades a month across the whole universe (strength 70+: 299 trades in six years), each held about 8 days - a few percent a year of capital, far below the Momentum top-10 long (+3.3% a pick). Costs are 0.22% (delivery); today's F&O stocks only and a mostly rising market, as elsewhere.
 
-### Momentum stocks near a zone or trendline (Swing tab)
+### Removed tools (and why)
 
-A table under the momentum lists for picking quickly: choose the **List** (the market's side by default: strongest for longs when the index is above its 50-day average, weakest for shorts when below), the **Momentum pool** (top 20 / 30 / 50 by momentum rank) and **Sort by** nearest zone, nearest trendline (price to the confirming line) or momentum rank; **Zone within** and **Trendline within** (1-8%) drop stocks that are further away. For each stock it shows the nearest zone in the trade's direction (the same numbers as the Strongest order blocks panel: zone, test, distance to its near edge, stop distance, strength), the price's distance to the confirming trendline, how far that line is from the zone, R-factor and the daily range. Click a row for the chart; **As of** works as everywhere in the Swing tab.
+To keep the dashboard clean, the tools that lost money or showed no edge in the 6-year backtests were **deleted** (Nov 2026). The evidence, so nobody has to rebuild them to find out:
 
-Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov only 4 were within 5% of a bullish zone and 3 within 8% of their support line - strong stocks run away from their zones and lines. The 6-year test (`signals/momentum_zone_backtest.py`, 218 F&O stocks, Nov 2020 - Nov 2026, 38,871 filled trades) found no edge from combining the two: the top-30 momentum pool averaged -0.06R a trade long and -0.13R short against +0.02R / -0.07R for the rest of the universe, and the earlier +0.69R figure (20 trades in one rising stretch) did not hold up. It is a quick way to find setups with a defined entry and stop, not proof that they are better.
+| Removed | Evidence |
+|---|---|
+| Price action **shorts** (every bearish setup) | -0.7% a trade overall; the F&O-only restriction did not help |
+| W / M patterns | W pattern -0.15R (200 trades), M pattern -0.05R (258); -0.56% a trade in %-terms |
+| Head and shoulders / inverse | -0.67R (short, 35), -0.21R (inverse, 36) |
+| Triple tops / bottoms | -0.10R (short, 82), -0.31R (long, 69) |
+| Bull / bear flags | bull +0.07R (416) but -0.03% a trade in %-terms, bear -0.46R (183) |
+| Candle at a weekly zone (hammer, engulfing, piercing, star and mirrors) | +0.02R long (623), -0.07R short (738): no edge on its own |
+| Bearish continuation (halt zone) | -0.49R (64 setups), profit factor 0.42 |
+| Swing **supply (short) zones** | -0.64% a trade (3,666 trades), negative in every year; no filter fixed it |
+| Swing **Weakest** momentum list | as shorts: no edge over a random short (-3 to -5 points), -3.3% a pick over 20 sessions |
+| **Momentum near a zone or trendline** table | 38,871 filled trades: top-30 pool -0.06R long, -0.13R short against +0.02R / -0.07R for the rest |
 
-**Volume thrust (optional confirmation).** Both momentum views have a **Volume thrust** filter (Off / ≥ 1.2× / ≥ 1.5× / ≥ 2×) and the table a **Volume** column: the average volume of the last 3 sessions divided by the average of the 20 sessions before those (1.0× = normal, 1.5× = half again as much). It is applied *after* taking the top N, so "top 30, thrust ≥ 1.5×" is a subset of the top 30. `signals/momentum.py::volume_thrust` is the reference (the page has a JS twin, checked against it on every pool size and threshold); the swing build now publishes each stock's daily volume in `swing_candles.json` (`v`), so the filter shows nothing until the first build after this change. In the 6-year test it did not act as a confirmation: on the long side results got worse as the threshold rose (top 30 with thrust ≥ 1.5×: -0.16R a trade; ≥ 2×: -0.35R, PF 0.48), so the filter defaults to Off and is best read as "where has volume spiked".
+Kept: the Momentum top-10 long strategy, the Multi-year breakout, the weekly support zone, range / triangle / cup (about break-even - read their record), the long Swing zones with their strength filters, the Movers list and the research code and scripts (the backtests above can be re-run: `scripts/backtest_swing_filters.py`, `signals/momentum_zone_backtest.py`, `signals/weekly_zone_backtest.py`). Older published data may still carry the removed kinds until the next nightly build; the page ignores them.
 
 ### Price action (the fourth mode)
 
-**Price action** lists weekly-structure setups with a daily trigger - bullish shapes as longs, bearish shapes as shorts (F&O stocks only) - for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
+**Price action** lists weekly-structure setups with a daily trigger - long setups only (the short setups and several weak shapes were removed - see "Removed tools") - for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
 
 | Setup | Structure (completed weekly candles) | Trigger (daily) |
 |---|---|---|
@@ -709,35 +720,12 @@ Expect short lists once you ask for "near": of the strongest 50 stocks on 4 Nov 
 | Triangle breakout | falling or flat swing highs and rising swing lows that converge (symmetric / ascending) | a close above the upper line |
 | Cup and handle | two rims within 8% around a rounded 12-45% dip, then a 2-15% handle in the upper half | a close above the rim |
 | Multi-year breakout | the highest weekly high of the last 2-5 years, set at least 26 weeks ago, price within 15% of it | a close above that high - **held, not sold at a target**: out on the first weekly close below the 30-week average (next open), or at the stop |
-| Bearish continuation - halt zone (short, F&O only) | drop, halt, drop again: clear selling - at least 3 red candles in a row, each with a real body (>= 40% of its range) closing in the lowest 40% of its range and below the candle before, together down >= 2 ATR - then a halt zone of at least 2 (at most 8 daily / 6 weekly) small-bodied candles (body <= half the run's average) that stays under the last red candle's high and under its 20-day (10-week) average and is no taller than 2 ATR; on daily and on weekly candles | a daily close below the zone's low (weekly: during the week after the zone); stop = the zone's high; dead if price trades above it first or a candle rallies / breaks the zone's rules |
-| W pattern (double bottom) / **M pattern (double top, short)** | two swing lows (highs) within 4%, 4-40 weeks apart, a rebound of 8% or more strictly between them, reached from above (below) | a close through the neckline |
-| Triple bottom / **triple top (short)** | three swing lows (highs) within 4% | a close through the neckline |
-| Inverse head and shoulders / **head and shoulders (short)** | a head 3% or more beyond two shoulders that are within 8% of each other; the neckline joins the two rebounds | a close through the neckline |
-| Bull flag / **bear flag (short)** | a pole of 20% or more in 8 weeks or fewer, then 2-6 weeks giving back 3% to half of it | a close through the pole's end |
-| **Candle at weekly support** / **candle at weekly resistance (short)** | a live weekly demand (supply) zone that price has pulled back to from outside, within 6 sessions of arriving | a hammer, bullish engulfing, piercing line or morning star (shooting star, bearish engulfing, dark cloud cover or evening star for a short) whose low (high) reaches the zone and which does not close beyond it |
-
-The bearish shapes are the same detectors run on inverted prices, so the two sides cannot drift apart; a short's stop is above the level, its target the next weekly *support* (or the pattern's height projected down), and shorts are listed only for F&O stocks because a cash short cannot be carried overnight. A head and shoulders outranks a triple, and a triple a double, so the same swing points are named once.
 
 Each row gives the **reason** in words, the entry (the latest close once triggered, or the level to close above while waiting), the **stop** (just under the zone, or the lower of the breakout level and the trigger day's low), the **target** (the next weekly resistance - a confirmed weekly swing high or the last three weeks' high - or the pattern's height projected up when nothing is overhead, marked `*`), risk %, reward % and **reward : risk**, which is the default sort. Each row also shows **this type's record** - what that kind of setup did in the past (average R per trade and the number of trades). Filters: **F&O stocks only**, kind of setup, **direction** (long / short), triggered / waiting, minimum reward : risk, maximum risk, and "probability beats break-even". Click a row for the chart, with a **Daily / Weekly** toggle (weekly is where the structure is read, daily where the trigger and stop are set): the structure in blue (zone, box, triangle lines, cup, or the swing points and neckline), the reward as a green box from entry to target and the risk as a red box from entry to stop, with the tags for and against it underneath. `signals/price_action.py` holds the detectors (nothing looks ahead: a test cuts the history at arbitrary days and requires the same earlier triggers), `signals/price_action_model.py` the outcomes and the probability, `signals/price_action_board.py` the list.
 
 **Probability** = how often similar past setups reached the target before the stop (entry at the next open, 60-session time exit, 0.10% costs), from a logistic regression on the planned reward : risk and risk %, the trigger day's volume against its 20-day average, the market's trend (equal-weight index against its 50- and 200-session averages), the stock's own trend (above its 200-session average, momentum rank, distance from the 52-week high) and the kind of setup. Setups from a year ago count half as much as today's, and the figure shown is scaled down by how far the model's year-by-year predictions (each year scored by a model fitted only on setups that had already finished) were above what happened. Next to it is the hit rate that reward : risk **needs** to break even. **Open interest is a tag, not an input**: long buildup / short covering / short buildup / long unwinding over the last five sessions, from the swing build's saved OI - there are only a few weeks of it, too little to measure what it adds.
 
 **Backtest: past setups.** The Price action tab has a second view, **Backtest: past setups**, for going through history by hand. It lists every setup that would have been on the list in the past (planned reward : risk of 1.5 or more, 2021 on), each traded by the same rule as the statistics above - entry at the next session's open, the planned stop and target (the stop counts if one candle touches both), an exit at the close after 60 sessions if neither is reached, 0.10% round-trip costs - with how it ended and the result in R (1R = the amount risked). Pick a **year** (or all), a **kind of setup**, **direction**, **F&O only**, **reward : risk**, **risk**, and a **result** (target hit, stopped, time exit, profit, loss, still open); the line above the table gives the result of exactly the trades you selected (hit rate, share in profit, average R, total R, profit factor, sessions held), so you can compare kinds, years and directions yourself. Open any row for the daily chart cut a few sessions after the exit - the structure, the entry, the stop and target and a ring where the trade ended - with a Daily / Weekly toggle, the reason it was listed and what happened, and **Previous / Next** (or the arrow keys) to step through the list. The data is `setups_hist/<year>.json` plus one small candle file per stock (`setups_hist/c/<symbol>.json`, loaded when a row is opened) on the `dashboard-setups` branch, built nightly by `price_action_board.history`. Only stocks listed today are in it (survivorship bias flatters longs and works against shorts).
-
-**Candles at support.** A reversal candle at a live weekly zone is a classic confirmation, so it is tested like everything else. The signal candle must form as price pulls back to a weekly demand zone (supply zone for a short) from outside it, reach the zone without closing beyond its far edge, and be big enough to matter (a range of at least 0.6 ATR); the stop goes just beyond the candle's extreme, the target is the next weekly resistance (support for a short), and the chart marks the candle with a triangle and its name. The bearish candles are the bullish ones run on negated prices, so the two sides are exact mirrors, and a cooldown of 10 sessions keeps one signal per stretch. Result over the same history:
-
-| Candle | Trades | Reached target | Average per trade | PF |
-|---|---|---|---|---|
-| Hammer | 469 | 31% | +0.01R | 1.01 |
-| Piercing line | 66 | 41% | +0.13R | 1.19 |
-| Bullish engulfing | 62 | 39% | +0.09R | 1.15 |
-| Morning star | 26 | 35% | -0.36R | 0.68 |
-| Shooting star (short) | 454 | 26% | +0.02R | 1.02 |
-| Dark cloud cover (short) | 124 | 23% | -0.20R | 0.75 |
-| Bearish engulfing (short) | 114 | 23% | -0.30R | 0.62 |
-| Evening star (short) | 46 | 33% | -0.02R | 0.97 |
-
-So a reversal candle at weekly support is **not an edge on its own**: all candles at support together made +0.02R a trade, the plain hammer (the most common signal) +0.01R, the better-looking piercing line and bullish engulfing +0.13R and +0.09R on only 66 and 62 trades, and the morning star lost. Candles at resistance for shorts did worse. A candle is best read as one more tag on a setup you already like, with its own record shown on the row. (A first run showed candles at support at +0.10R; that came from a bug that dropped signals depending on the order zones were processed in, found and fixed before release, and the corrected figure is the one above.)
 
 **Yes / No in the summary tags**: next to volume, trends and momentum the stock's tag row also says `Global macro supportive: Yes / No`, `Value migration into (out of, for a short) its sector: Yes / No` and `Catalyst: Yes / No`, each with the short reason (hover for the full sentence) - macro Yes = verdict Supportive; value migration Yes = money flowing into the sector for a long, out of it for a short; catalyst Yes = a board meeting in the next three weeks (it can move the stock either way, so that tag is neutral) or an event-sized move, gap or fresh 52-week extreme in the last three weeks in the trade's direction (green). "No data" is shown when a source was unavailable. The three blocks below hold the detail.
 
@@ -755,31 +743,17 @@ So a reversal candle at weekly support is **not an edge on its own**: all candle
 
 Every source fails soft (a missing factor shows as "no data" and counts neither way); `scripts/probe_context_sources.py` (workflow **Context sources probe**, no login) reports which ones answer.
 
-What the history says (F&O stocks, Dec 2021 - Nov 2026, 4,516 setups with reward : risk of 1.5 or more, costs included): **+0.04R a trade, profit factor 1.05** overall (multi-year breakouts traded with the 30-week exit; with a fixed target for every kind it was -0.02R) - longs +0.12R (3,156), **shorts -0.16R (1,360)**.
+What the history says (the five remaining kinds, F&O stocks, Dec 2021 - Nov 2026, 1,812 setups with reward : risk of 1.5 or more, costs included): **+0.23R a trade, profit factor 1.30** - but 163 of those are multi-year breakouts (+2.07R each, carried by five 2023 runners; see below), and the other 1,649 average **+0.05R**.
 
 | Setup | Trades | Reached target | Average per trade | PF |
 |---|---|---|---|---|
 | Multi-year breakout, 30-week exit (21% end in profit; no target) | 163 | - | +2.07R | 3.52 |
 | Weekly support zone | 92 | 43% | +0.11R | 1.15 |
 | Triangle breakout | 275 | 32% | +0.10R | 1.14 |
-| Bull flag | 416 | 16% | +0.07R | 1.08 |
 | Weekly range breakout | 1,093 | 23% | +0.03R | 1.04 |
-| Candle at weekly support | 623 | 33% | +0.02R | 1.02 |
 | Cup and handle | 189 | 17% | +0.00R | 1.00 |
-| M pattern (double top) (short) | 258 | 22% | -0.05R | 0.94 |
-| Candle at weekly resistance (short) | 738 | 26% | -0.07R | 0.91 |
-| Triple top (short) | 82 | 18% | -0.10R | 0.87 |
-| W pattern (double bottom) | 200 | 27% | -0.15R | 0.79 |
-| Inverse head and shoulders | 36 | 19% | -0.21R | 0.76 |
-| Bearish continuation (halt zone), daily (short) | 58 | 16% | -0.45R | 0.47 |
-| Bearish continuation (halt zone), weekly (short) | 6 | 0% | -0.86R | 0.00 |
-| Triple bottom | 69 | 20% | -0.31R | 0.61 |
-| Bear flag (short) | 183 | 13% | -0.46R | 0.49 |
-| Head and shoulders (short) | 35 | 11% | -0.67R | 0.33 |
 
-The bearish continuation (strong selling, a halt zone, then a break below it) is strict on purpose - clear selling and a real halt only - so it is rare: 64 listed setups in five years over 218 stocks (58 daily, 6 weekly) and it **lost money**: -0.49R a trade, 14% reached the target, profit factor 0.42; only 2025 was positive. Many were stopped out within a few sessions because the stop is the zone's high, and in this period (a rising market, only today's F&O stocks) stocks that halted after a fall more often bounced than broke again. An earlier single pause-candle version of the same idea made 119 setups at about -0.06R (+0.01R daily); with a zone it is worse. Too few trades to be sure, and neither version was tuned to the backtest.
-
-By year: 2021 -0.36R, 2022 -0.07R, 2023 +0.72R, 2024 -0.20R, 2025 -0.17R, 2026 -0.20R - one strong year carries the total. The continuation shapes (multi-year high, flag, triangle, range) held up better than the reversal shapes, and every short type lost or only broke even - consistent with the rest of this project (only stocks in F&O today are in the data, which works against shorts). The multi-year breakout used to be sold at a target (9% reached it, +0.33R a trade); held until a weekly close below the 30-week average it makes **+2.07R a trade over 163 trades** (126 stopped out, 37 closed by the exit, median hold 7 sessions, mean 54) - but that is carried by a handful of runners: the best five trades (TRENT +122R, BEL +49R, BAJAJ-AUTO +47R, GMRAIRPORT +41R, COLPAL +35R, all from 2023) are 87% of the total, without them it is +0.27R, 2023 alone is +6.9R a trade and the other four years are -0.3R to -1.0R (-0.51R over 106 trades excluding 2023). So the exit does what it should - it lets the profitable trades run - but the result is a few big winners paid for by many small losses, not a steady edge. The probability orders setups on unseen years (lowest quarter 15% hit, highest 30%) but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
+By year: 2021 -0.85R (14 trades), 2022 -0.14R, 2023 **+1.36R**, 2024 -0.18R, 2025 -0.22R, 2026 -0.31R - one strong year carries the total. The multi-year breakout used to be sold at a target (9% reached it, +0.33R a trade); held until a weekly close below the 30-week average it makes **+2.07R a trade over 163 trades** (126 stopped out, 37 closed by the exit, median hold 7 sessions, mean 54) - but that is carried by a handful of runners: the best five trades (TRENT +122R, BEL +49R, BAJAJ-AUTO +47R, GMRAIRPORT +41R, COLPAL +35R, all from 2023) are 87% of the total, without them it is +0.27R, 2023 alone is +6.9R a trade and the other four years are -0.3R to -1.0R. The probability orders setups on unseen years but is no more accurate overall than quoting the base rate, and a higher probability did not mean a better result in R - so read "this type's record" alongside it. It is a planner with honest odds, not an edge. The page's banner and each row show the same figures for the full universe as of each night's build.
 
 ### What the 6-year research found (Nov 2026)
 
@@ -799,7 +773,7 @@ So the one thing with repeatable evidence is the Momentum watchlist's long side,
 
 ### Momentum watchlist (Swing tab)
 
-The Swing tab lists the ten **strongest** and ten **weakest** liquid F&O stocks (₹20 cr+ traded) under a banner that says which side the market favours. Rank = the average of each stock's percentile ranks of its 20- and 60-session returns; the **market switch** is the equal-weight index of those stocks against its own 50-session average (above: the strongest list is the one to use, below: the weakest is the market's direction). Each card shows 5/20/60-day returns, the 14-session daily range (size the stop from it), distance from the 20-day high/low and turnover. It is computed in the browser from the daily candles the page already loads (`signals/momentum.py` is the reference; the page has a JS twin that is checked against it), so change **As of** to see the list on any past close.
+The Swing tab lists the ten **strongest** liquid F&O stocks (₹20 cr+ traded) under a banner that says whether the market is above its 50-day average (the weakest-stocks list was removed: it showed no edge as shorts). Rank = the average of each stock's percentile ranks of its 20- and 60-session returns; the **market switch** is the equal-weight index of those stocks against its own 50-session average (above: the strongest list is the one to use, below: the weakest is the market's direction). Each card shows 5/20/60-day returns, the 14-session daily range (size the stop from it), distance from the 20-day high/low and turnover. It is computed in the browser from the daily candles the page already loads (`signals/momentum.py` is the reference; the page has a JS twin that is checked against it), so change **As of** to see the list on any past close.
 
 How good is it? `python scripts/backtest_momentum.py` (`signals/momentum_backtest.py`) enters at the next open, holds 5 or 10 sessions, charges 0.10% round trip, and measures **accuracy = the share of picks that ended in profit**, against a random pick in the same direction on the same days (23 Jun - 30 Oct 2026, 850 picks per hold):
 

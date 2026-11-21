@@ -102,7 +102,7 @@ def main() -> None:
         for row in snap["stocks"]:                                    # daily order blocks (signals/swing_blocks.py)
             df = frames.get(row["symbol"])
             lines = swing_trendlines.analyze(df) if df is not None else {}
-            row["zones"] = swing_blocks.scan_daily(df, lines) if df is not None else []
+            row["zones"] = swing_blocks.scan_daily(df, lines, sides=("bull",)) if df is not None else []
             if lines:
                 row["tl"] = lines                                     # live support / resistance trendlines (the chart draws them)
             n += bool(row["zones"])

@@ -31,14 +31,9 @@ def weekly_chart(df: pd.DataFrame) -> dict:
 
 
 def setup_name(kind: str, side: str, geo: dict) -> str:
-    """The setup's name as shown: a triangle says which, a candle says which candle and where."""
+    """The setup's name as shown: a triangle says which."""
     if kind == "triangle":
         return f"{geo['shape']} triangle breakout"
-    if kind == "candle":
-        return f"{geo['candle']} at weekly {'support' if side == 'long' else 'resistance'}"
-    if kind == "pause":
-        unit = "week" if geo["tf"] == "weekly" else "day"
-        return f"Bearish continuation ({geo['tf']}): {geo['run']} red {unit}s, then a {geo['zone']}-{unit} halt zone"
     return pa.NAMES[(kind, side)]
 
 
@@ -87,8 +82,6 @@ def _model_summary(listed: pd.DataFrame, model: dict | None, v: dict | None, cal
                by_kind=[{"kind": k, "side": sd, "name": name, **stat(listed[(listed["kind"] == k) & (listed["side"] == sd)])}
                         for (k, sd), name in pa.NAMES.items() if ((listed["kind"] == k) & (listed["side"] == sd)).any()],
                by_side=[{"side": sd, **stat(listed[listed["side"] == sd])} for sd in ("long", "short") if (listed["side"] == sd).any()],
-               by_candle=[{"side": sd, "candle": nm, **stat(g)} for (sd, nm), g in listed[listed["kind"] == "candle"].groupby(["side", "candle"])],
-               by_tf=[{"side": sd, "tf": tf, **stat(g)} for (sd, tf), g in listed[listed["kind"] == "pause"].groupby(["side", "tf"])],
                by_year=[{"year": int(y), **stat(g)} for y, g in listed.groupby(listed["date"].dt.year)])
     if model:
         out.update(base_rate=round(model["base_rate"] * 100, 1), miss_r=round(model["miss_r"], 2), weights={f: round(b, 2) for f, b in zip(model["features"], model["beta"][1:])})
@@ -177,8 +170,6 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
     summary = _model_summary(listed, model, v, calibration)
     record = {(r["kind"], r["side"]): {"n": r["n"], "hit": r["hit"], "win": r["win"], "avg_r": r["avg_r"]} for r in summary.get("by_kind", [])}     # each type's own past result
-    record.update({("pause", r["side"], r["tf"]): {"n": r["n"], "hit": r["hit"], "win": r["win"], "avg_r": r["avg_r"]} for r in summary.get("by_tf", [])})            # a continuation: its own timeframe
-    record.update({("candle", r["side"], r["candle"]): {"n": r["n"], "hit": r["hit"], "win": r["win"], "avg_r": r["avg_r"]} for r in summary.get("by_candle", [])})     # a candle: its own
     rows, candles = [], {}
     for symbol, (triggers, pending) in scans.items():
         df = frames[symbol]
@@ -228,7 +219,7 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 "trail": {"weeks": pm.TREND_WEEKS, "sma": None if sma30 is None else round(sma30, 2)} if trend else None,
                 "vol": None if np.isnan(f["vol"]) else round(float(f["vol"]), 2), "above200": None if np.isnan(f["above200"]) else bool(f["above200"]),
                 "mom": None if np.isnan(mom_raw) else round(float(mom_raw) * 100), "market_up": market_up,
-                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get(("candle", t["side"], t["geo"].get("candle"))) if t["kind"] == "candle" else record.get(("pause", t["side"], t["geo"].get("tf"))) if t["kind"] == "pause" else record.get((t["kind"], t["side"])),
+                "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])),
                 "macro": stock_macro.assess_stock(symbol, sectors.get(symbol), t["side"], macro_factors, world_for(symbol, sectors.get(symbol)), frames, sectors,
                                                   news_for(symbol), asof.date()), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
                 "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "geo": t["geo"]})

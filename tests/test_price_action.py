@@ -372,55 +372,6 @@ W_KNOTS = [(0, 130), (20, 100), (26, 115), (32, 101), (36, 108)]
 M_KNOTS = [(0, 70), (20, 100), (26, 87), (32, 99), (36, 93)]
 
 
-def test_w_pattern_is_two_equal_lows_with_the_neckline_between():
-    f = _found(W_KNOTS)
-    w = f[("double", "long")]
-    assert abs(w["level"] - 115 * 1.01) < 1e-6 and abs(w["base"] - 100 * 0.99) < 1e-6 and w["gap"] == 12 and abs(w["height"] - (w["level"] - w["base"])) < 1e-9
-    assert [x for x, _ in w["pts"]] == [20, 26, 32] and "W pattern" in w["why"] and ("double", "short") not in f
-
-
-def test_m_pattern_is_the_mirror_and_comes_back_in_real_prices():
-    f = _found(M_KNOTS)
-    m = f[("double", "short")]
-    assert abs(m["level"] - 87 * 0.99) < 1e-6 and abs(m["base"] - 100 * 1.01) < 1e-6          # neckline = the trough's low, base = the higher top
-    assert m["level"] < m["base"] and abs(m["height"] - (m["base"] - m["level"])) < 1e-9 and "M pattern: two highs" in m["why"] and ("double", "long") not in f
-    assert [round(v, 2) for _, v in m["pts"]] == [101.0, 86.13, 99.99]
-
-
-def test_no_w_when_the_lows_differ_or_price_is_already_through():
-    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 107), (36, 110)])     # second low 7% higher
-    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 101), (36, 119)])     # already closed above the neckline
-    assert ("double", "long") not in _found([(0, 101), (20, 100), (26, 115), (32, 101), (36, 108)])     # no fall into it: not a reversal
-
-
-def test_head_and_shoulders_both_ways_and_it_outranks_the_smaller_shapes():
-    f = _found([(0, 130), (20, 100), (24, 110), (28, 90), (32, 111), (36, 99), (39, 105)])
-    h = f[("hs", "long")]
-    assert abs(h["base"] - 90 * 0.99) < 1e-6 and 111 < h["level"] < 114 and [x for x, _ in h["pts"]] == [20, 24, 28, 32, 36] and "inverse head and shoulders" in h["why"]
-    assert ("triple", "long") not in f and ("double", "long") not in f
-    f = _found([(0, 70), (20, 100), (24, 91), (28, 111), (32, 90), (36, 101), (39, 95)])
-    h = f[("hs", "short")]
-    assert abs(h["base"] - 111 * 1.01) < 1e-6 and 87 < h["level"] < 91 and h["why"].startswith("head and shoulders") and h["height"] > 15
-
-
-def test_triple_bottom_and_triple_top():
-    f = _found([(0, 130), (16, 100), (21, 112), (26, 101), (31, 113), (36, 100.5), (39, 106)])
-    t = f[("triple", "long")]
-    assert abs(t["level"] - 113 * 1.01) < 1e-6 and abs(t["base"] - 99.0) < 1e-6 and len(t["pts"]) == 5 and ("hs", "long") not in f and ("double", "long") not in f
-    f = _found([(0, 70), (16, 100), (21, 89), (26, 99), (31, 88), (36, 99.5), (39, 94)])
-    assert abs(f[("triple", "short")]["level"] - 88 * 0.99) < 1e-6 and "triple top: three highs" in f[("triple", "short")]["why"]
-
-
-def test_bull_and_bear_flag_use_the_real_pole_top():
-    f = _found([(0, 100), (30, 100), (36, 130), (39, 124)])
-    b = f[("flag", "long")]
-    assert abs(b["level"] - 130 * 1.01) < 1e-6 and b["pts"][1][0] == 36 and b["flag_weeks"] == 3 and abs(b["height"] - (131.3 - 99.0)) < 1e-6 and "bull flag" in b["why"]
-    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 130), (39, 112)])                 # gave back more than half the pole
-    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 112), (39, 108)])                 # a 12% pole is not a pole
-    f = _found([(0, 100), (30, 100), (36, 72), (39, 76)])
-    assert abs(f[("flag", "short")]["level"] - 72 * 0.99) < 1e-6 and "bear flag" in f[("flag", "short")]["why"] and f[("flag", "short")]["height"] > 25
-
-
 def test_multi_year_breakout_needs_an_old_high_and_a_close_near_it():
     f = _found([(0, 100), (60, 200), (100, 150), (149, 190)])
     m = f[("multiyear", "long")]
@@ -458,11 +409,11 @@ def test_short_outcome_is_the_mirror():
 def test_features_are_turned_to_face_the_trade():
     dates = pd.bdate_range("2026-01-01", periods=3)
     ctx = {"mkt50": pd.Series([True] * 3, index=dates), "mkt200": pd.Series([False] * 3, index=dates), "mom": pd.DataFrame({"A": [0.9, 0.9, 0.9]}, index=dates)}
-    t = {"kind": "double", "rr": 2.0, "risk_pct": 3.0, "reward_pct": 6.0, "target_kind": "support", "f": {"vol": 1.5, "above200": 1.0, "off_high": -0.02, "off_low": 0.30}}
+    t = {"kind": "cup", "rr": 2.0, "risk_pct": 3.0, "reward_pct": 6.0, "target_kind": "support", "f": {"vol": 1.5, "above200": 1.0, "off_high": -0.02, "off_low": 0.30}}
     lg, sh = pm._row("A", {**t, "side": "long"}, dates[-1], ctx), pm._row("A", {**t, "side": "short"}, dates[-1], ctx)
     assert (lg["mkt50"], lg["mkt200"], lg["above200"], lg["is_short"]) == (1.0, 0.0, 1.0, 0.0) and abs(lg["mom"] - 0.9) < 1e-9 and lg["off_high"] == -0.02
     assert (sh["mkt50"], sh["mkt200"], sh["above200"], sh["is_short"]) == (0.0, 1.0, 0.0, 1.0) and abs(sh["mom"] - 0.1) < 1e-9 and sh["off_high"] == -0.30
-    assert lg["is_double"] == 1.0 and lg["is_flag"] == 0.0 and set(pm.FEATURES) <= set(lg)
+    assert lg["is_cup"] == 1.0 and lg["is_range"] == 0.0 and set(pm.FEATURES) <= set(lg)
 
 
 def test_oi_tag_agrees_with_the_side():
@@ -528,71 +479,3 @@ def _sig(extra, i=None, side="long"):
     return pa.reversal_candle(o, h, l, c, (len(c) - 1) if i is None else i, 2.0, 0.6, side)
 
 
-def test_hammer_has_a_long_lower_wick_a_top_third_body_and_no_upper_wick():
-    r = _sig([[96, 96.3, 92, 96.2]])                                 # body 0.2, lower wick 4.0, upper 0.1
-    assert r["kind"] == "hammer" and r["low"] == 92 and "lower wick of 4.00 against a body of 0.20" in r["why"]
-    assert _sig([[96, 100, 92, 96.2]]) is None                        # a long upper wick: not a hammer
-    assert _sig([[93, 93.2, 92.2, 93.1]]) is None                     # range 1.0 < 0.6 ATR (1.2): too small to matter
-    assert _sig([[95, 96, 92, 93]]) is None                           # body in the bottom of the range: no rejection of lower prices
-
-
-def test_bullish_engulfing_needs_a_real_red_candle_covered_by_a_bigger_green_body():
-    r = _sig([[100, 100.5, 96, 96.5], [96, 102, 95.5, 101]])         # red body 3.5, then green 96 -> 101 covers 100 -> 96.5
-    assert r["kind"] == "engulfing" and r["low"] == 95.5 and "swallowed" in r["why"]
-    assert _sig([[100, 100.5, 96, 96.5], [97, 101, 96.5, 99]]) is None or _sig([[100, 100.5, 96, 96.5], [97, 101, 96.5, 99]])["kind"] != "engulfing"   # closes inside the red body
-    assert _sig([[100, 100.1, 99.9, 99.95], [99.9, 102, 99.5, 101]]) is None or _sig([[100, 100.1, 99.9, 99.95], [99.9, 102, 99.5, 101]])["kind"] != "engulfing"   # the red candle was a doji
-
-
-def test_piercing_line_and_morning_star():
-    r = _sig([[102, 102.5, 97.5, 98], [97, 101.5, 96.5, 100.5]])     # red 102 -> 98 (mid 100), opens below 98, closes 100.5: through the midpoint, under the open
-    assert r["kind"] == "piercing" and "midpoint (100.00)" in r["why"]
-    s = _sig([[104, 104.2, 99.8, 100], [99.2, 99.6, 98.6, 99.0], [99.5, 103.5, 99.3, 103]])      # long red, small star below, green back above the midpoint (102)
-    assert s["kind"] == "star" and s["low"] == 98.6
-
-
-def test_bearish_candles_are_exact_mirrors_in_the_real_chart():
-    def flip(rows):                                                   # a real bearish chart is the bullish one with prices negated (high / low swap)
-        return [[-o, -l, -h, -c] for o, h, l, c in rows]
-    cases = {"hammer": [[96, 96.3, 92, 96.2]], "engulfing": [[100, 100.5, 96, 96.5], [96, 102, 95.5, 101]], "piercing": [[102, 102.5, 97.5, 98], [97, 101.5, 96.5, 100.5]]}
-    for kind, rows in cases.items():
-        bull = _sig(rows)
-        o, h, l, c = _candles([[-x for x in b] for b in flip(BASE)] + flip(rows))                        # the mirrored chart seen from the short side
-        bear = pa.reversal_candle(-o, -l, -h, -c, len(c) - 1, 2.0, 0.6, "short")                          # the function negates it back: same pattern
-        assert bear["kind"] == bull["kind"] == kind and abs(bear["low"] - bull["low"]) < 1e-9
-    assert "upper wick" in bear["why"] or kind != "hammer"
-    o, h, l, c = _candles([[100, 101, 99, 100.5]] * 5 + [[104, 108.3, 103.8, 104.2]])                   # shooting star: long UPPER wick, small body at the bottom
-    s = pa.reversal_candle(-o, -l, -h, -c, 5, 2.0, 0.6, "short")
-    assert s["kind"] == "hammer" and "upper wick of 4.10" in s["why"] and "buyers pushed it up and sellers took all of it back" in s["why"]
-    assert pa.CANDLE_NAMES["short"]["hammer"] == "Shooting star" and pa.CANDLE_NAMES["long"]["engulfing"] == "Bullish engulfing"
-
-
-def test_candle_triggers_need_a_live_zone_a_pullback_and_respect_the_cooldown_in_date_order():
-    n = 330
-    idx = pd.bdate_range("2023-01-02", periods=n)
-    c = np.full(n, 120.0)
-    c[:] = np.concatenate([np.full(230, 120.0), np.linspace(120, 101, 40), np.full(n - 270, 101.0)])      # a slow pullback that arrives at the zone around session 262
-    o, h, l = c.copy(), c + 1.0, c - 1.0
-    for k in (272, 275):                                              # two hammers 3 sessions apart at the zone
-        o[k], h[k], l[k], c[k] = 100.4, 100.7, 96.0, 100.6
-    d = {"o": o, "h": h, "l": l, "c": c}
-    zones = [{"lo": 97.0, "hi": 102.0, "known": idx[100], "formed": idx[95], "impulse": 3.0}, {"lo": 98.0, "hi": 103.0, "known": idx[120], "formed": idx[110], "impulse": 2.0}]
-    wk_of = np.maximum(np.arange(n) // 5 - 1, 0)
-    wH = np.full(n // 5 + 2, 130.0)
-    out = pa.candle_triggers(d, zones, idx, wk_of, wH, wH - 2, "long", P)
-    assert [t["i"] for t in out] == [272]                              # the second hammer is inside the cooldown, and two zones do not double count
-    assert out[0]["name"] == "Hammer" and out[0]["stop"] < 96.0 and out[0]["geo"]["candle_date"] == idx[272].strftime("%Y-%m-%d")
-    assert pa.candle_triggers(d, zones[::-1], idx, wk_of, wH, wH - 2, "long", P)[0]["i"] == 272      # zone order does not matter
-    c2 = c.copy(); c2[268] = 94.0                                      # a close under the far edge first: the zone has failed
-    assert pa.candle_triggers({**d, "c": c2}, zones[:1], idx, wk_of, wH, wH - 2, "long", P) == []
-    flat = {**d, "c": np.full(n, 101.0), "o": np.full(n, 101.0), "h": np.full(n, 102.0), "l": np.full(n, 100.0)}
-    assert pa.candle_triggers({**flat, "l": np.where(np.arange(n) == 272, 96.0, 100.0)}, zones[:1], idx, wk_of, wH, wH - 2, "long", P) == []        # never came from outside the zone
-
-
-def test_candle_kind_flows_through_the_model_and_board():
-    assert "candle" in pa.KINDS and ("candle", "long") in pa.NAMES and ("candle", "short") in pa.NAMES and "is_candle" in pm.FEATURES
-    frames = {f"S{k:02d}": _daily(k) for k in range(14)}
-    _, ev, _ = pb.collect(frames)
-    if len(ev) and (ev["kind"] == "candle").any():
-        c = ev[ev["kind"] == "candle"]
-        assert c["candle"].notna().all() and set(c["candle"]) <= {n for side in pa.CANDLE_NAMES.values() for n in side.values()}
-        assert ev[ev["kind"] != "candle"]["candle"].isna().all()
