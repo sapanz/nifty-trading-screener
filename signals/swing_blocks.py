@@ -26,8 +26,8 @@ POOL_TOLERANCE_PCT = 0.4      # daily swing extremes within 0.4% count as one po
 def scan_daily(df: pd.DataFrame, lines: dict | None = None, sides: tuple[str, ...] = ("bull", "bear")) -> list[dict]:
     """The (up to two) best bullish and bearish live zones as of the last candle (testing beats fresh, then the most recent). With the
     stock's live trendlines (signals/swing_trendlines.analyze, computed here if not given) each zone also carries "cf": 1 when
-    the trendline that confirms its direction runs through it. `sides` = which directions to return: the Swing tab's build asks for ("bull",) only -
-    supply (bearish) zones lost money whatever the filter (README, "Which Swing zone filters pay?") and were removed from it."""
+    the trendline that confirms its direction runs through it. `sides` = which directions to return (both by default). Supply (bearish) zones lost money in the backtest (README, "Which Swing zone
+    filters pay?"); the Swing tab shows them anyway, F&O stocks only, with that record next to them."""
     if df is None or len(df) < 40:
         return []
     lines = trendlines_daily(df) if lines is None else lines

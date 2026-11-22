@@ -241,7 +241,7 @@
       <label><input type="checkbox" id="sVol"> Volume thrust ≥ 2×</label>
       <button type="button" class="sbtn" id="sReset">Reset filters</button>
     </div>
-    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div id="sBearCol"><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
+    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div id="sBearCol"><h3 class="down">▼ Bearish</h3><p class="oiNote" id="sBearNote" hidden style="margin:0 0 8px;color:var(--down)">Short side, F&amp;O stocks only. Backtest, 6 years: supply zones lost money - −0.64% a trade (profit factor 0.73), negative in every year; the best filters (price within 1.5% of the zone, stop 3% or less) still lost −0.24%. Shown at your request: paper-trade it or keep it small.</p><div id="sBear"></div></div></div>
   </section>
   <section id="momentum" aria-labelledby="momH" hidden>
     <h2 id="momH">Momentum watchlist <small id="momCount"></small></h2>
@@ -250,7 +250,7 @@
     <div class="controls">
       <label>Volume thrust <select id="mVt" aria-label="Keep only stocks whose recent volume confirms the move"><option value="any">Off</option><option value="1.2">≥ 1.2×</option><option value="1.5">≥ 1.5×</option><option value="2">≥ 2×</option></select></label>
     </div>
-    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div></div>
+    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
     <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
   </section>
   <section id="movers" aria-labelledby="mvH" hidden>
@@ -1038,10 +1038,10 @@
     $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort; $("sCf").checked = state.cfOnly;
     $("sFlow").checked = state.sFlow; $("sMinSc").value = String(state.sMinSc); $("sState").value = state.sState; $("sTlGap").value = state.sTlGap; $("sTlPx").value = state.sTlPx; $("sWd").checked = state.sWd; $("sSw").checked = state.sSw; $("sVol").checked = state.sVol; $("sAge").value = state.sAge;
     Array.prototype.forEach.call(document.querySelectorAll("#strongest .swingOnly"), function (e) { e.hidden = state.mode !== "swing"; });
-    $("sBearCol").hidden = state.mode === "swing";                 // supply zones were removed from the Swing tab (they lost money in the backtest)
+    $("sBearNote").hidden = state.mode !== "swing";
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
-    [["bull", "sBull"], ["bear", "sBear"]].filter(function (pair) { return state.mode !== "swing" || pair[0] === "bull"; }).forEach(function (pair) {
+    [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
       var list = strongestList(pair[0]); total += list.length;
       var box = $(pair[1]); box.textContent = "";
       if (!list.length) box.appendChild(el("p", { "class": "oiNote" }, state.mode === "live" && !state.blocks ? "Waiting for the first 5-minute scan…" : state.mode === "swing" ? "No daily zone matches these filters - loosen one (the default \"Distance to zone\" hides zones more than 3% away) or press “Reset filters”." : "None right now" + (nearLimit() < Infinity ? " with price within " + (nearLimit() || "the") + (nearLimit() ? "% of the zone" : " zone") : "") + (maxStop() < Infinity ? " and a stop within " + maxStop() + "%" : "") + " - widen “Distance to zone” or “Max stop” to see more."));
@@ -1147,7 +1147,7 @@
     var keep = function (x) { return !minVt || (x.vt !== null && x.vt >= minVt); };       // the thrust is a confirmation applied AFTER taking the top N
     return { asof: dates[last], universe: out.length, market: { vs_ma_pct: Math.round(vsMa * 10) / 10, up: index[last] > ma },
              hasVolume: out.some(function (x) { return x.vt !== null; }),
-             strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep) };
+             strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep), weak: out.slice().sort(cmp(-1)).slice(0, topN || MOM.topN) };
   }
 
   /* The "Momentum top-10 long" strategy: the rules and the numbers behind them come from the 6-year backtest (README); the constants mirror signals/momentum.py. */
@@ -1217,18 +1217,19 @@
     var minVt = state.mVt === "any" ? 0 : parseFloat(state.mVt);
     var m = state.mode === "swing" && state.data && state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, minVt ? 30 : MOM.topN, minVt) : null;
     sec.hidden = !m; if (!m) return;
-    m.strong = m.strong.slice(0, MOM.topN);
+    m.strong = m.strong.slice(0, MOM.topN); m.weak = m.weak.slice(0, MOM.topN);
     $("mVt").value = state.mVt;
     var up = m.market.up, pct = Math.abs(m.market.vs_ma_pct).toFixed(1);
     $("momCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks" + (minVt ? " · top 30 with volume thrust ≥ " + minVt + "×" : "");
     var banner = $("momBanner"); banner.className = "momBanner" + (up ? "" : " warn");
     banner.textContent = up
       ? "The market is " + pct + "% above its 50-day average, so the long side is the one with the market behind it: the strongest stocks are the list to use."
-      : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average - this is a time to stand aside or trade small. The list is shown for study.";
+      : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average, and the weakest stocks showed no edge as shorts (they lost 3.3% a pick over 20 sessions) - this is a time to stand aside or trade small. Both lists are shown for study.";
     renderMomPlan(m, minVt ? (momentumLists(state.swingCandles, state.data.stocks, state.data.asof, MOM.topN, 0) || m) : m);
     $("mBullTag").textContent = up ? "use this list" : "against the market"; $("mBullTag").className = "tag" + (up ? " use" : "");
-    $("mBullCol").className = up ? "" : "dim";
-    [["strong", "mBull", true]].forEach(function (g) {
+    $("mBearTag").textContent = up ? "context only" : "market's direction · no edge over random shorts in tests"; $("mBearTag").className = "tag";
+    $("mBullCol").className = up ? "" : "dim"; $("mBearCol").className = up ? "dim" : "";
+    [["strong", "mBull", true], ["weak", "mBear", false]].forEach(function (g) {
       var box = $(g[1]); box.textContent = "";
       m[g[0]].forEach(function (x, i) {
         var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Momentum score " + x.score + " (average percentile of the 20- and 60-session return)" });
@@ -2093,8 +2094,6 @@
     renderMomentum(); renderMovers();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
-    Array.prototype.forEach.call($("obSel").options, function (o) { var bear = o.value.indexOf("bear") >= 0; o.hidden = o.disabled = bear && state.mode === "swing"; });   // no supply zones on the Swing tab
-    if (state.mode === "swing" && state.ob.indexOf("bear") >= 0) state.ob = "all";
     renderSortOptions();
     renderStatus(); renderSectors(); renderSelect(); renderHead(); renderRows();
     $("sortSel").value = SORT_OPTS[state.mode === "swing" ? "swing" : "live"].some(function (o) { return o[0] === state.sortKey; }) ? state.sortKey : (state.mode === "swing" ? "r" : "volume");

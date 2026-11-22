@@ -644,7 +644,7 @@ from is a missed move - e.g. a bearish zone formed ten days ago with price 10% b
 and whether it is waiting or retesting; "Rank by: Closest to the zone first" and the table sort "closest to the zone" put the
 imminent setups on top. Raise the distance (or choose Any) to see every zone; the Max stop filter limits the risk.
 
-**Swing (daily) order blocks and manual backtesting.** (Only bullish / demand zones are published and shown on the Swing tab now; supply zones lost money - see "Removed tools".) The same panel, column, filter and chart exist on the **Swing** tab
+**Swing (daily) order blocks and manual backtesting.** (Supply / bearish zones are shown too, with their losing record next to them - see "Removed tools".) The same panel, column, filter and chart exist on the **Swing** tab
 for daily candles (`signals/swing_blocks.py`, built each evening by `scripts/build_dashboard_swing.py`: zones formed in the last
 40 sessions that are still fresh or being retested, scored the same way, "with the trend" meaning the structure-breaking close is
 above / below the close 20 sessions earlier; `swing_candles.json` carries the daily candles and levels for the chart). The Swing tab has an **As of** picker (and ◀ day / day ▶ buttons) for manual backtesting on daily charts: choose any of the
@@ -703,9 +703,9 @@ To keep the dashboard clean, the tools that lost money or showed no edge in the 
 | Bull / bear flags | bull +0.07R (416) but -0.03% a trade in %-terms, bear -0.46R (183) |
 | Candle at a weekly zone (hammer, engulfing, piercing, star and mirrors) | +0.02R long (623), -0.07R short (738): no edge on its own |
 | Bearish continuation (halt zone) | -0.49R (64 setups), profit factor 0.42 |
-| Swing **supply (short) zones** | -0.64% a trade (3,666 trades), negative in every year; no filter fixed it |
-| Swing **Weakest** momentum list | as shorts: no edge over a random short (-3 to -5 points), -3.3% a pick over 20 sessions |
 | **Momentum near a zone or trendline** table | 38,871 filled trades: top-30 pool -0.06R long, -0.13R short against +0.02R / -0.07R for the rest |
+
+*Restored on request (Nov 2026):* the Swing **supply (short) zones** (F&O stocks) and the **Weakest** momentum list are back, with their record next to them - supply zones -0.64% a trade (profit factor 0.73, negative every year, best filters -0.24%), the weakest list -3.3% a pick over 20 sessions as shorts. They are shown for study, not because they pay.
 
 Kept: the Momentum top-10 long strategy, the Multi-year breakout, the weekly support zone, range / triangle / cup (about break-even - read their record), the long Swing zones with their strength filters, the Movers list and the research code and scripts (the backtests above can be re-run: `scripts/backtest_swing_filters.py`, `signals/momentum_zone_backtest.py`, `signals/weekly_zone_backtest.py`). Older published data may still carry the removed kinds until the next nightly build; the page ignores them.
 
