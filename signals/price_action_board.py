@@ -34,6 +34,8 @@ def setup_name(kind: str, side: str, geo: dict) -> str:
     """The setup's name as shown: a triangle says which."""
     if kind == "triangle":
         return f"{geo['shape']} triangle breakout"
+    if kind == "retest":
+        return "Range breakdown retest (short)"
     return pa.NAMES[(kind, side)]
 
 

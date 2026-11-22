@@ -271,7 +271,7 @@
     <div id="paHistStats" class="momBanner histOnly" hidden></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
-      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option></select></label>
+      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="retest">Range breakdown retest (short)</option></select></label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
       <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="trend">Closed below 30-week average</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
       <label class="liveOnly">Status <select id="paStatus" aria-label="Triggered or waiting"><option value="all">All</option><option value="triggered">Triggered</option><option value="pending">Waiting for the trigger</option></select></label>
@@ -1710,7 +1710,7 @@
     var d = state.setups; if (!d) return [];
     var minRR = parseFloat(state.paMinRR), maxRisk = state.paMaxRisk === "any" ? Infinity : parseFloat(state.paMaxRisk), q = state.paQ.trim().toUpperCase();
     var rows = d.setups.filter(function (s) {
-      return PA_KINDS.indexOf(s.kind) >= 0 && (s.side || "long") === "long" && (!state.paFo || s.fo) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
+      return PA_KINDS.indexOf(s.kind) >= 0 && (!state.paFo || s.fo) && (state.paKind === "all" || s.kind === state.paKind) && (state.paStatus === "all" || s.status === state.paStatus) && s.rr >= minRR && s.risk_pct <= maxRisk
         && (!state.paEdge || (s.p !== null && s.p >= s.breakeven)) && (!q || s.symbol.indexOf(q) >= 0);
     });
     var edge = function (s) { return s.p === null ? -1e9 : s.p - s.breakeven; }, pv = function (s) { return s.p === null ? -1 : s.p; };
@@ -1753,12 +1753,12 @@
       body.appendChild(tr);
     });
     var walk = m.walk ? " Checked year by year on " + m.walk.n + " setups it had not seen: the lowest quarter of estimates hit " + m.walk.rows[0].actual + "% and the highest " + m.walk.rows[m.walk.rows.length - 1].actual + "% (it had said " + m.walk.rows[0].predicted + "% and " + m.walk.rows[m.walk.rows.length - 1].predicted + "%), so the figure shown is scaled by " + m.calibration + "." : "";
-    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it (long setups only). Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high = a daily close above the pattern's top. Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance, or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - range, triangle and cup earned about nothing, so read the record before acting. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
+    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it (long setups only). Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; range / triangle / cup and handle / multi-year high = a daily close above the pattern's top. Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance, or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - range, triangle and cup earned about nothing, so read the record before acting. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Range breakdown retest (a short, F&O stocks only): a base (8-40 weeks, at most 30% wide, whose floor was tested at least twice) breaks down on a daily close under its floor; within 15 sessions price comes back to retest the broken floor from below and a candle there closes back under it with a long upper wick (at least half its range) - the failure; sell on a daily close below that candle's low, the stop is its high, the target the next weekly support or the base's height projected down. In the 6-year backtest this lost money (-0.7% a trade, profit factor 0.77) - it is shown because you asked for it. A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. Not a recommendation to trade.";
   }
 
   /* ---------- Price action backtest: every past setup that would have been listed, traded by the same rule (entry at the next open, the planned
      stop and target, a 60-session time exit, 0.10% costs), from setups_hist/<year>.json; each stock's candles load when a row is opened. ---------- */
-  var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear"];          // the kinds that remain (the others were removed after the backtest; older published data may still carry them)
+  var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "retest"];          // the kinds that remain (the others were removed after the backtest; older published data may still carry them)
   var PA_OUT = { target: "Target hit", stop: "Stopped", time: "Time exit", open: "Still open", trend: "Closed below 30-week average" };
   function setPaView(v) { state.paView = v; save(); closeOi(); renderPaView(); if (v === "hist") loadHist(); else renderSetups(); }
   function renderPaView() {
@@ -1794,7 +1794,7 @@
     (state.paYear === "all" ? idx.years : [parseInt(state.paYear, 10)]).forEach(function (y) { rows = rows.concat(state.hist.years[y] || []); });
     var minRR = parseFloat(state.paMinRR), maxRisk = state.paMaxRisk === "any" ? Infinity : parseFloat(state.paMaxRisk), q = state.paQ.trim().toUpperCase(), res = state.paResult;
     rows = rows.filter(function (r) {
-      return PA_KINDS.indexOf(r.kind) >= 0 && r.side === "long" && (!state.paFo || r.fo) && (state.paKind === "all" || r.kind === state.paKind) && r.rr >= minRR && r.risk_pct <= maxRisk
+      return PA_KINDS.indexOf(r.kind) >= 0 && (!state.paFo || r.fo) && (state.paKind === "all" || r.kind === state.paKind) && r.rr >= minRR && r.risk_pct <= maxRisk
         && (!q || r.symbol.indexOf(q) >= 0) && (res === "all" || (res === "win" ? r.out !== "open" && r.R > 0 : res === "loss" ? r.out !== "open" && r.R <= 0 : r.out === res));
     });
     var key = { "new": function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }, old: function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; },
@@ -2000,6 +2000,7 @@
     var start = Math.max(0, Math.min((g.from ? at(g.from) : n - minBars) - lead, n - minBars)), cs = all.slice(start), dd = ds.slice(start), m = cs.length;
     var PAD = hist ? 3 : Math.max(weekly ? 8 : 20, Math.round(m * 0.22)), N = m + PAD, W = 720, H = 390, L = 46, R = 122, T = 12, B = 24, pw = W - L - R, ph = H - T - B;
     var lo = Math.min(s.stop, s.target, g.base, g.level), hi = Math.max(s.stop, s.target, g.base, g.level);
+    if (s.kind === "retest") { lo = Math.min(lo, g.floor); hi = Math.max(hi, g.top); }
     if (hist) { lo = Math.min(lo, hist.exit); hi = Math.max(hi, hist.exit); }
     cs.forEach(function (c) { lo = Math.min(lo, c[2]); hi = Math.max(hi, c[1]); });
     var pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
@@ -2053,6 +2054,17 @@
       svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
       svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
     });
+    if (s.kind === "retest") {                                        // the base (box), the broken floor, the breakdown and the failed retest
+      var bx0 = x(xi(g.from)) - pw / N * 0.5, bx1 = x(Math.min(m - 1, xi(g.retest_date) + 1)) + pw / N * 0.5;
+      svg.appendChild(svgEl("rect", { x: bx0, y: y(g.top), width: Math.max(bx1 - bx0, 4), height: Math.max(y(g.floor) - y(g.top), 2), fill: acc, "fill-opacity": "0.08", stroke: acc, "stroke-dasharray": "5 3" }));
+      svg.appendChild(svgEl("text", { x: bx0 + 4, y: y(g.top) + 12, style: "fill:" + acc + ";font-weight:600" }, "Base " + paPx(g.floor) + "–" + paPx(g.top)));
+      svg.appendChild(svgEl("line", { x1: x(xi(g.break_date)), x2: right, y1: y(g.floor), y2: y(g.floor), stroke: "var(--down)", "stroke-dasharray": "2 3", "stroke-width": "1.2" }));
+      [[g.break_date, "Breakdown", "high"], [g.retest_date, "Retest fails", "high"]].forEach(function (mk) {
+        var ci = xi(mk[0]), cc = cs[ci]; if (!cc) return; var cx = x(ci), cy = y(cc[1]) - 6;
+        svg.appendChild(svgEl("polygon", { points: [cx - 5, cy - 7, cx + 5, cy - 7, cx, cy].join(","), fill: "var(--down)" }));
+        svg.appendChild(svgEl("text", { x: Math.min(cx, right - 70), y: cy - 10, "text-anchor": cx > right - 90 ? "end" : "middle", style: "fill:var(--down);font-weight:700;font-size:11px" }, mk[1]));
+      });
+    }
     if (s.kind === "multiyear" && s.side !== "short") {                // the exit line: the 30-week average of the weekly closes (a step line on the daily chart: it changes once a week)
       var wsrc = weekly ? cd : (cd.w && cd.w.c && cd.w.c.length > 20 ? cd.w : weeklyFromDaily(cd)), wcl = wsrc.c.map(function (c) { return c[3]; }), wk = 0, dpath = "", pen = false, lastPt = null, ORG = "#d9822b";
       var smaAt = function (k) { if (k < 29) return null; var t = 0; for (var q = k - 29; q <= k; q++) t += wcl[q]; return t / 30; };
@@ -2069,7 +2081,8 @@
       }
     }
     var labels = [{ p: s.target, t: s.kind === "multiyear" && s.side !== "short" ? "Ref. move" : "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
-    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "zone" ? "Zone top" : "Breakout", c: acc });
+    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "retest" ? "Failure low" : s.kind === "zone" ? "Zone top" : "Breakout", c: acc });
+    if (s.kind === "retest" && Math.abs(g.floor / s.entry - 1) > 0.004) labels.push({ p: g.floor, t: "Broken floor", c: "var(--down)" });
     if (hist) {                                                     // where the trade ended
       var ec = hist.R > 0 ? "var(--up)" : "var(--down)", ex = x(xi(hist.exit_date)), ey = y(hist.exit);
       svg.appendChild(svgEl("circle", { cx: ex, cy: ey, r: "5", fill: "var(--panel)", stroke: ec, "stroke-width": "2.5" }));

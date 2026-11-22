@@ -7,6 +7,8 @@ Five kinds, all found on COMPLETED weekly candles and triggered by a DAILY close
   range     8-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top.
   triangle  falling (or flat) highs and rising lows that converge - symmetric / ascending; a daily close above the upper line.
   cup       cup and handle: two rims at a similar level around a rounded 12-45% dip, then a shallow handle; a daily close above the rim.
+  retest    SHORT, F&O only: a base (8-40 weeks, at most 30% wide, floor tested twice) breaks down, price comes back up to retest the broken floor from below, and a
+            candle with a long upper wick fails there; the short triggers on a daily close below that candle's low, the stop is its high.
 Removed after the 6-year backtest (see the README, "Removed tools"): W / M patterns, head and shoulders, triple tops and bottoms, flags, reversal
 candles at a zone, the bearish halt-zone continuation and every short setup - they lost money or showed no edge.
 
@@ -28,10 +30,10 @@ import pandas as pd
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup", "multiyear")
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
-         ("multiyear", "long"): "Multi-year breakout"}
-KIND_NAMES = {k: NAMES[(k, "long")] for k in KINDS}
+         ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)"}
+KIND_NAMES = {k: next(n for (kk, _), n in NAMES.items() if kk == k) for k in KINDS}    # the name of each kind (its long side when it has one)
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,16 @@ class Params:
     zone_impulse_atr: float = 2.0
     zone_expiry_weeks: int = 104
     near_pct: float = 3.0               # "pending": the close is within this % below the breakout level
+    floor_max_width: float = 0.30       # a base for the breakdown-retest short: at most this wide (highest high / lowest low - 1) ...
+    floor_min_tests: int = 2            # ... with its floor tested at least this many times, spaced at least 2 weeks apart
+    retest_break_window: int = 40       # a range's breakdown must come within this many sessions of the range being seen
+    retest_window: int = 15             # the retest of the broken floor must come within this many sessions of the breakdown
+    retest_near_pct: float = 1.0        # ... the retest candle's high gets within this % of the floor
+    retest_fail_close_pct: float = 1.0  # ... the failure candle closes no higher than this % above the band's top
+    retest_reclaim_pct: float = 3.0     # ... and no close may get back above the band's top by more than this % (the breakdown has then failed)
+    retest_wick_frac: float = 0.5       # the failure candle's upper wick is at least this share of its range ...
+    retest_min_range_atr: float = 0.5   # ... and the candle is at least this many ATRs tall
+    retest_trigger_days: int = 3        # the short triggers on a close below the failure candle's low within this many sessions
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
 
@@ -196,6 +208,117 @@ def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Param
             pat = {**pat, "height": abs(pat["hto"] - pat["hfrom"]), "why": describe(kind, side, pat)}
         found[(kind, side)] = pat
     return found
+
+
+def floor_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """A base whose FLOOR is a candidate for a breakdown short, as of week w: the shortest stretch of 8-40 weeks, at most `floor_max_width` wide, whose
+    lowest low was tested at least `floor_min_tests` times (weekly lows within touch_tol of it, 2+ weeks apart), and whose last week still closed above the
+    floor and in the lower 60% of the box. Looser than `range_at` (no requirement on the top), because only the floor matters for the short."""
+    for n in range(p.range_min_weeks, min(p.range_max_weeks, w + 1) + 1):                 # the shortest base first: the most recent consolidation, not old lows
+        a = w - n + 1
+        h, l, c = H[a:w + 1], L[a:w + 1], C[a:w + 1]
+        floor, top = float(l.min()), float(h.max())
+        width = top / floor - 1
+        if not (p.range_min_width <= width <= p.floor_max_width) or c[-1] < floor or c[-1] > floor + 0.6 * (top - floor):
+            continue
+        tests = np.flatnonzero(l <= floor * (1 + p.touch_tol))
+        spaced = [tests[0]] if len(tests) else []
+        for t in tests[1:]:
+            if t - spaced[-1] >= 2:
+                spaced.append(t)
+        if len(spaced) < p.floor_min_tests:
+            continue
+        return {"floor": floor, "top": top, "band_top": float(l[tests].max()), "start": a, "end": w, "weeks": n}
+    return None
+
+
+# ---------------------------------------------------------------- breakdown, retest from below, failure (short)
+def _atr(h: np.ndarray, l: np.ndarray, c: np.ndarray, n: int = 14) -> np.ndarray:
+    prev = np.r_[c[0], c[:-1]]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev), np.abs(l - prev)))
+    return pd.Series(tr).rolling(n).mean().to_numpy()
+
+
+def retest_search(d: dict, atr: np.ndarray, floor: float, band_top: float, s0: int, break_window: int, p: Params) -> tuple[str, dict] | None:
+    """After a floor band (`floor` = a range's lowest low or a support zone's low, `band_top` = the top of the band where price bounced) at session s0
+    onward: the first daily close below the floor is the breakdown; then, within `retest_window` sessions, a candle whose high gets back to the floor
+    (within retest_near_pct), that closes back under the band's top (within retest_fail_close_pct) and has a long upper wick
+    (>= retest_wick_frac of its range, close in its lower half) is the failure; the short triggers on a later close under that candle's low within
+    `retest_trigger_days` sessions without trading above its high. A close back above the band's top (by more than retest_reclaim_pct) ends the setup.
+    Returns ("trigger", info) / ("pending", info) (the failure candle is formed and the trigger is still possible on the latest bar) / None."""
+    o, h, l, c = d["o"], d["h"], d["l"], d["c"]
+    n = len(c)
+    b = None
+    for i in range(s0, min(n, s0 + break_window)):
+        if c[i] < floor:
+            b = i
+            break
+    if b is None:
+        return None
+    for j in range(b + 1, min(n, b + 1 + p.retest_window)):
+        if c[j] > band_top * (1 + p.retest_reclaim_pct / 100):
+            return None                                                          # price got back above the band: the breakdown failed
+        rng = h[j] - l[j]
+        a = atr[j]
+        if rng <= 0 or not a > 0:
+            continue
+        if (h[j] >= floor * (1 - p.retest_near_pct / 100) and c[j] <= band_top * (1 + p.retest_fail_close_pct / 100) and h[j] - max(o[j], c[j]) >= p.retest_wick_frac * rng
+                and c[j] - l[j] <= 0.5 * rng and rng >= p.retest_min_range_atr * a):
+            dead = False
+            for i in range(j + 1, min(n, j + 1 + p.retest_trigger_days)):
+                if h[i] > h[j]:
+                    dead = True                                                  # it traded above the failure candle's high: this candle is not the failure
+                    break
+                if c[i] < l[j]:
+                    return "trigger", {"i": i, "b": b, "j": j}
+            if not dead and j + p.retest_trigger_days >= n - 1:
+                return "pending", {"i": n - 1, "b": b, "j": j}
+        # not the failure (or it failed to trigger): keep looking within the retest window
+    return None
+
+
+def retest_scan(d: dict, dates: pd.DatetimeIndex, wk_of: np.ndarray, wdates: pd.DatetimeIndex, wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, p: Params) -> tuple[list[dict], list[dict]]:
+    """Breakdown-retest shorts from weekly bases (`floor_at`). A weekly support zone that fails was tried as a second source and lost more (-2.3% a trade
+    against -0.7%), so it was dropped. Returns (triggers, pending) with the raw pieces; scan_stock plans them."""
+    n = len(dates)
+    atr = _atr(d["h"], d["l"], d["c"])
+    out, pend, seen = [], [], set()
+
+    def item(source, floor, top, start_i, end_i, res, kind, band_top):
+        j, b, i = res[1]["j"], res[1]["b"], res[1]["i"]
+        return {"source": source, "floor": floor, "band_top": band_top, "top": top, "from_date": start_i, "to_date": end_i, "i": i, "b": b, "j": j, "kind": kind}
+
+    for w in range(40, len(wC)):
+        pat = floor_at(wH, wL, wC, w, p)
+        if pat is None:
+            continue
+        floor, top, band_top = pat["floor"], pat["top"], pat["band_top"]
+        key = (pat["start"], round(np.log(floor) / 0.01))
+        if key in seen:
+            continue
+        seen.add(key)
+        s0 = int(np.searchsorted(dates.values, wdates.values[w], side="right"))
+        res = retest_search(d, atr, floor, band_top, s0, p.retest_break_window, p)
+        if res:
+            (out if res[0] == "trigger" else pend).append(item("range", floor, top, wdates[pat["start"]], wdates[pat["end"]], res, res[0], band_top))
+    return out, pend
+
+
+def retest_why(t: dict, d: dict, dates: pd.DatetimeIndex) -> str:
+    h, l, c, o = d["h"], d["l"], d["c"], d["o"]
+    j = t["j"]
+    rng = h[j] - l[j]
+    wick = (h[j] - max(o[j], c[j])) / rng * 100
+    what = "base"
+    return (f"{what} {t['floor']:,.1f}-{t['top']:,.1f} broke down on {dates[t['b']].strftime('%d %b')}; price came back to {h[j]:,.1f} on {dates[j].strftime('%d %b')} - the old floor "
+            f"as resistance - and failed there (upper wick {wick:.0f}% of the candle, close {c[j]:,.1f}); short below its low {l[j]:,.1f}, stop at its high {h[j]:,.1f}")
+
+
+def retest_geo(t: dict, d: dict, dates: pd.DatetimeIndex) -> dict:
+    j = t["j"]
+    return {"from": t["from_date"].strftime("%Y-%m-%d"), "to": t["to_date"].strftime("%Y-%m-%d"), "level": round(float(d["l"][j]), 2), "base": round(float(d["h"][j]), 2),
+            "floor": round(float(t["floor"]), 2), "band_top": round(float(t["band_top"]), 2), "top": round(float(t["top"]), 2), "break_date": dates[t["b"]].strftime("%Y-%m-%d"), "retest_date": dates[j].strftime("%Y-%m-%d"),
+            "source": t["source"]}
 
 
 # ---------------------------------------------------------------- resistance and the plan
@@ -362,5 +485,28 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             if pl is not None:
                 pending.append({"kind": "zone", "side": "long", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
                                 "reason": f"{why}; price is in the zone since {dates[entered].strftime('%d %b')} - buy on a daily close back above {hi:,.1f}"})
+    # --- breakdown, retest from below, failure (short): a range's floor or a failed support zone, then an upper-wick rejection there
+    rt, rp = retest_scan(d, dates, wk_of, wdates, wH, wL, wC, p)
+    last_rt = -10 ** 9
+    for t in sorted(rt, key=lambda x: x["i"]):
+        i, j = t["i"], t["j"]
+        if i < 260 or i - last_rt < p.cooldown_days or int(wk_of[i]) < 40:
+            continue
+        w = int(wk_of[i])
+        pl = plan(d["c"][i], d["h"][j] * (1 + buf), wH, w, abs(t["top"] - t["floor"]), t["floor"], p, "short", wL)
+        last_rt = i
+        if pl is not None:
+            triggers.append({"kind": "retest", "side": "short", "i": i, "w": w, "level": float(d["l"][j]), **pl, "geo": retest_geo(t, d, dates), "f": _features(d, i),
+                             "reason": retest_why(t, d, dates) + f"; daily close {d['c'][i]:,.1f} below it"})
+    for t in rp:
+        j = t["j"]
+        w = int(wk_of[n - 1])
+        if w < 40 or n - 1 < 260:
+            continue
+        entry = d["l"][j] * (1 - buf)
+        pl = plan(entry, d["h"][j] * (1 + buf), wH, w, abs(t["top"] - t["floor"]), t["floor"], p, "short", wL)
+        if pl is not None:
+            pending.append({"kind": "retest", "side": "short", "i": n - 1, "w": w, "level": float(d["l"][j]), "entry": entry, **pl, "geo": retest_geo(t, d, dates), "f": _features(d, n - 1),
+                            "reason": retest_why(t, d, dates) + f"; waiting for a daily close below {d['l'][j]:,.1f}"})
     triggers.sort(key=lambda t: t["i"])
     return triggers, pending
