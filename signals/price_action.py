@@ -1,7 +1,7 @@
 """Price-action setups: weekly structure, traded on the daily chart (long side only).
 
 Five kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
-  multiyear a close above the highest weekly high of the last 2-5 years, set at least 26 weeks ago.
+  multiyear a close above the highest weekly high of the last 2-5 years, set at least 52 weeks ago (a high more than a year old).
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
   range     8-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top.
@@ -52,6 +52,7 @@ class Params:
     zone_impulse_atr: float = 2.0
     zone_expiry_weeks: int = 104
     near_pct: float = 3.0               # "pending": the close is within this % below the breakout level
+    multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
 
 
@@ -159,14 +160,14 @@ def cup_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> di
 # ---- reversal and continuation shapes. Each is written ONCE, bullish way up; the bearish twin (M pattern, head and shoulders, triple top, bear
 # ---- flag) is the same function run on inverted prices (1 / price, highs and lows swapped), so the two sides cannot drift apart.
 def multiyear_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
-    """The highest weekly high of the last 2-5 years, set at least 26 weeks ago, with the last close within 15% under it."""
+    """The highest weekly high of the last 2-5 years, set at least `multiyear_min_weeks` (52) weeks ago, with the last close within 15% under it."""
     n = min(w + 1, 260)
     if n < 104:
         return None
     a = w - n + 1
     t = a + int(np.argmax(H[a:w + 1]))
     level = H[t]
-    if w - t < 26 or C[w] > level or C[w] < level * 0.85:
+    if w - t < p.multiyear_min_weeks or C[w] > level or C[w] < level * 0.85:
         return None
     b = t + int(np.argmin(L[t:w + 1]))
     return {"level": float(level), "base": float(L[b]), "hfrom": float(L[b]), "hto": float(level), "start": t, "end": w, "weeks": w - t + 1,
@@ -175,8 +176,8 @@ def multiyear_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params)
 
 def describe(kind: str, side: str, pat: dict) -> str:
     """The reason in words (real prices): the multi-year breakout, the one 'new-style' pattern."""
-    level, base = pat["level"], pat["base"]
-    return f"{pat['years']:.0f}-year high {level:,.1f}, set {pat['end'] - pat['start']} weeks ago; the base since then went down to {base:,.1f}"
+    level, base, weeks = pat["level"], pat["base"], pat["end"] - pat["start"]
+    return f"{pat['years']:.0f}-year high {level:,.1f}, set {weeks} weeks ago (about {weeks / 4.345:.0f} months); the base since then went down to {base:,.1f}"
 
 
 # (kind, side, detector, new-style): the old-style detectors return `height` / `why` themselves.

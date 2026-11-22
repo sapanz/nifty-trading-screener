@@ -378,6 +378,8 @@ def test_multi_year_breakout_needs_an_old_high_and_a_close_near_it():
     assert abs(m["level"] - 202.0) < 1e-6 and abs(m["base"] - 148.5) < 1e-6 and m["start"] == 60 and "3-year high" in m["why"]
     assert ("multiyear", "long") not in _found([(0, 100), (60, 200), (100, 150), (149, 160)])          # more than 15% under the high
     assert ("multiyear", "long") not in _found([(0, 100), (130, 200), (149, 195)])                     # the high is only 19 weeks old
+    assert ("multiyear", "long") not in _found([(0, 100), (105, 200), (149, 195)])                     # 44 weeks old: not "multi-year" (it must be at least a year old)
+    assert "months" in m["why"] and ("multiyear", "long") in _found([(0, 100), (90, 200), (149, 195)])  # 59 weeks old is fine
     assert ("multiyear", "long") not in _found([(0, 100), (40, 200), (80, 150), (99, 190)])            # under two years of history
 
 
