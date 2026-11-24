@@ -162,6 +162,7 @@
   #momentum .scols > div.dim .scard { opacity: .72; }
   #movers { grid-column: 1 / -1; } #movers[hidden] { display: none; }
   #leaderTr { grid-column: 1 / -1; } #leaderTr[hidden] { display: none; }
+  #fwdLog { grid-column: 1 / -1; } #fwdLog[hidden] { display: none; } #fwChart { margin: 8px 14px 0; } #fwChart svg { width: 100%; height: 110px; display: block; }
   #ltTable tbody tr.srow { cursor: pointer; } #ltTable tbody tr.srow:hover { background: var(--chip); }
   #ltTable th, #ltTable td { text-align: right; } #ltTable th:nth-child(-n+2), #ltTable td:nth-child(-n+2) { text-align: left; } #ltTable th { cursor: default; position: static; }
   #ltTable td.mute { color: var(--muted); } #ltTable td.cr { padding: 4px 10px 10px; text-align: left; } #ltTable td.cr svg { width: 100%; max-width: 760px; height: auto; display: block; }
@@ -329,6 +330,20 @@
     <div id="ltStats" class="momBanner"></div>
     <div class="tablewrap"><table id="ltTable"><thead id="ltHead"></thead><tbody id="ltRows"></tbody></table></div>
   </section>
+  <section id="fwdLog" aria-labelledby="fwH" hidden>
+    <h2 id="fwH">Forward test <small id="fwCount"></small></h2>
+    <div class="controls">
+      <div class="mode" role="group" aria-label="Strategy">
+        <button type="button" id="fwAll" aria-pressed="true">Both</button>
+        <button type="button" id="fwL" aria-pressed="false">Leaders</button>
+        <button type="button" id="fwS" aria-pressed="false">F&amp;O futures SMA</button>
+      </div>
+      <label>Status <select id="fwStatus" aria-label="Status of the signal"><option value="all">All</option><option value="open">Holding</option><option value="closed">Closed</option><option value="pending">Waiting</option><option value="skipped">Skipped</option></select></label>
+    </div>
+    <div id="fwStats" class="momBanner"></div>
+    <div id="fwChart"></div>
+    <div class="tablewrap"><table id="fwTable"><thead><tr><th>Stock</th><th class="l">Strategy</th><th>Signal</th><th>Bought</th><th>Entry</th><th>Stop</th><th>Sold</th><th>Exit</th><th>Net %</th><th>R</th><th>Status</th></tr></thead><tbody id="fwRows"></tbody></table></div>
+  </section>
   <section id="setups" aria-labelledby="paH" hidden>
     <h2 id="paH">Price action setups <small id="paCount"></small></h2>
     <div class="controls">
@@ -492,7 +507,7 @@
      rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
      the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
   function liveJson(name, branch) {
-    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : name.indexOf("swing_days/") === 0 ? "swingdays" : name === "setups.json" ? "setups" : name === "setups_candles.json" ? "setupsc" : name === "sma_support.json" ? "smas" : name === "sma_hist.json" ? "smah" : name === "leader_trades.json" ? "leader" : "swing") : srcOverride();
+    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : name.indexOf("swing_days/") === 0 ? "swingdays" : name === "setups.json" ? "setups" : name === "setups_candles.json" ? "setupsc" : name === "sma_support.json" ? "smas" : name === "sma_hist.json" ? "smah" : name === "leader_trades.json" ? "leader" : name === "forward_log.json" ? "fwd" : "swing") : srcOverride();
     if (branch && name.indexOf("setups_hist/") === 0) { var hb = new URLSearchParams(location.search).get("setupsh"); if (hb) return fetchJson(hb.replace(/\/?$/, "/") + name.slice(12), true); }
     if (branch && name.indexOf("sma_hist/c/") === 0) { var sc = new URLSearchParams(location.search).get("smahc"); if (sc) return fetchJson(sc.replace(/\/?$/, "/") + name.slice(11), true); }
     if (branch && name.indexOf("leader_hist/c/") === 0) { var lc = new URLSearchParams(location.search).get("leaderc"); if (lc) return fetchJson(lc.replace(/\/?$/, "/") + name.slice(14), true); }
@@ -668,7 +683,7 @@
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing")); $("modeSetups").setAttribute("aria-pressed", String(m === "setups"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
     var pa = m === "setups"; $("setups").hidden = !pa; $("secSectors").hidden = pa; $("secTable").hidden = pa; if (pa) $("strongest").hidden = true;
-    $("momentum").hidden = true; $("momNear").hidden = true; $("smaSup").hidden = true; $("leaderTr").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
+    $("momentum").hidden = true; $("momNear").hidden = true; $("smaSup").hidden = true; $("leaderTr").hidden = true; $("fwdLog").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
@@ -677,6 +692,7 @@
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
     liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
     liveJson("leader_trades.json", "dashboard-setups").then(function (d) { state.lt = d; renderLeaderTrades(); }).catch(function () { state.lt = false; renderLeaderTrades(); });
+    liveJson("forward_log.json", "dashboard-forward").then(function (d) { state.fwd = d; renderForward(); }).catch(function () { state.fwd = false; renderForward(); });
     liveJson("sma_support.json", "dashboard-setups").then(function (d) { state.sma = d; renderSmaSupport(); }).catch(function () { state.sma = null; renderSmaSupport(); });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
@@ -1460,6 +1476,42 @@
     svg.appendChild(svgEl("text", { x: Math.min(x(extI) + 8, right - 10), y: y(r[LT.exit]) - 8, "text-anchor": x(extI) > right - 70 ? "end" : "start", style: "fill:" + col + ";font-weight:700;font-size:11px" }, (r[LT.out] === 2 ? "Now " : "Exit ") + paPx(r[LT.exit])));
     return svg;
   }
+  function renderForward() {
+    var sec = $("fwdLog"); if (state.mode !== "swing") { sec.hidden = true; return; }
+    sec.hidden = false;
+    var d = state.fwd, stats = $("fwStats"), body = $("fwRows"), S = state.fwStrat || "all", F = state.fwStatus || "all";
+    [["fwAll", "all"], ["fwL", "L"], ["fwS", "S"]].forEach(function (b) { $(b[0]).setAttribute("aria-pressed", String(S === b[1])); });
+    $("fwStatus").value = F; body.textContent = ""; $("fwChart").textContent = "";
+    if (d === undefined || d === null) { stats.textContent = "Loading…"; $("fwCount").textContent = ""; return; }
+    if (d === false || !d.summary) { stats.textContent = "Nothing logged yet - the first signals are recorded with the next Price action build."; $("fwCount").textContent = ""; return; }
+    var sm = d.summary.strategies[S], extra = d.extra_cost_pct || 0;
+    var rows = d.entries.filter(function (e) { return (S === "all" || e.strat === S) && (F === "all" || (F === "skipped" ? (e.st === "skipped" || e.st === "expired") : e.st === F)); });
+    $("fwCount").textContent = (d.summary.since ? "since " + shortDate(d.summary.since) + " · " : "") + sm.logged + " signals logged · as of the " + shortDate(d.asof) + " close";
+    var parts = [sm.closed + " closed", sm.open + " holding", sm.pending + " waiting", sm.skipped + " skipped"];
+    if (sm.closed) parts.push("won " + sm.win + "%", "average " + fmtPct(sm.avg_net) + " net of " + (0.1 + extra).toFixed(1) + "% costs", sm.pf !== null ? "profit factor " + sm.pf : "no losing trade yet", "at 1% risk per trade " + fmtPct(sm.equity_1pct) + " (worst drawdown " + sm.max_dd_1pct.toFixed(2) + "%)");
+    if (d.summary.nifty_pct !== undefined && d.summary.nifty_pct !== null) parts.push("Nifty 50 over the same days " + fmtPct(d.summary.nifty_pct));
+    stats.textContent = parts.join(" · ");
+    var cv = sm.curve;
+    if (cv.length > 1) {
+      var W = 600, H = 110, P = 8, vals = cv.map(function (p) { return p[1]; }), lo = Math.min(0, Math.min.apply(null, vals)), hi = Math.max(0, Math.max.apply(null, vals)), span = (hi - lo) || 1;
+      var X = function (i) { return P + (W - 2 * P) * i / (cv.length - 1); }, Y = function (v) { return H - P - (H - 2 * P) * (v - lo) / span; };
+      $("fwChart").innerHTML = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Equity curve at 1% risk per trade"><line x1="' + P + '" x2="' + (W - P) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="4 4"/><polyline fill="none" stroke="var(--accent)" stroke-width="2" points="' +
+        cv.map(function (p, i) { return X(i).toFixed(1) + "," + Y(p[1]).toFixed(1); }).join(" ") + '"/></svg>';
+    }
+    var cell = function (t, m) { return el("td", m ? { "class": "mute" } : null, t); }, dd = function (t) { return t ? shortDate(t) + " " + t.slice(2, 4) : "—"; };
+    if (!rows.length) { var tr0 = el("tr"); tr0.appendChild(el("td", { colspan: "11", "class": "mute" }, "No signals match.")); body.appendChild(tr0); return; }
+    rows.forEach(function (e) {
+      var plan = e.plan || {}, tr = el("tr"), closed = e.st === "closed", net = closed ? e.pct - extra : e.st === "open" ? e.pct : null;
+      var risk = e.entry && e.stop ? (e.entry - e.stop) / e.entry * 100 : null, r = closed && risk > 0 ? net / risk : null;
+      tr.appendChild(el("td", { style: "font-weight:700" }, e.sym)); tr.appendChild(el("td", { "class": "l" }, d.names[e.strat] || e.strat)); tr.appendChild(cell(dd(e.sig))); tr.appendChild(cell(dd(e.ent)));
+      tr.appendChild(cell(e.entry ? paPx(e.entry) : e.strat === "S" ? "above " + paPx(plan.entry) : "next open")); tr.appendChild(cell(e.stop ? paPx(e.stop) : e.strat === "S" ? paPx(plan.stop) : "—"));
+      tr.appendChild(cell(dd(e.ext))); tr.appendChild(cell(closed ? paPx(e.exit) + " (" + e.why + ")" : e.st === "open" ? paPx(e.last) + " (last)" : "—"));
+      tr.appendChild(el("td", { "class": net === null ? "mute" : cls(net) }, net === null ? "—" : (net > 0 ? "+" : "") + net.toFixed(2) + "%")); tr.appendChild(cell(r === null ? "—" : (r > 0 ? "+" : "") + r.toFixed(2)));
+      tr.appendChild(el("td", e.st === "skipped" || e.st === "expired" ? { "class": "mute" } : null, { pending: "Waiting", open: "Holding", closed: "Closed", skipped: "Skipped (" + (e.why || "") + ")", expired: "Not triggered" }[e.st] || e.st));
+      body.appendChild(tr);
+    });
+  }
+
   function renderLeaderTrades() {
     var sec = $("leaderTr"); if (state.mode !== "swing") { sec.hidden = true; return; }
     var d = state.lt; sec.hidden = false;
@@ -2460,7 +2512,7 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
-    renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers(); renderLeaderTrades();
+    renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers(); renderLeaderTrades(); renderForward();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
@@ -2498,6 +2550,8 @@
     $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderSmaSupport(); });
   });
   [["ltYear", "value"], ["ltResult", "value"], ["ltSort", "value"], ["ltShow", "value"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderLeaderTrades(); }); });
+  [["fwAll", "all"], ["fwL", "L"], ["fwS", "S"]].forEach(function (b) { $(b[0]).addEventListener("click", function () { state.fwStrat = b[1]; renderForward(); }); });
+  $("fwStatus").addEventListener("change", function (e) { state.fwStatus = e.target.value; renderForward(); });
   $("ltViewNow").addEventListener("click", function () { state.ltView = "now"; save(); renderLeaderTrades(); });
   $("ltViewHist").addEventListener("click", function () { state.ltView = "hist"; save(); renderLeaderTrades(); });
   $("smaViewLive").addEventListener("click", function () { state.smaView = "live"; save(); renderSmaSupport(); });

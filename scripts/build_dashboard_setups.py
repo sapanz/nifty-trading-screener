@@ -24,13 +24,14 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import config, data, leader_trades, macro, momentum, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
+from signals import config, data, forward_log, leader_trades, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
 logger = logging.getLogger("dashboard_setups")
 IST = ZoneInfo("Asia/Kolkata")
 OUT_DIR = Path("dashboard_setups_site")
+FWD_DIR = Path("dashboard_forward_site")
 BRANCH = "dashboard-setups"
 TITLE, EMOJI = "Dashboard price action", "🧱"
 YEARS = int(os.environ.get("PA_YEARS", "6"))
@@ -179,6 +180,7 @@ def main() -> None:
     if not payload["universe"]:
         raise RuntimeError("No candles - nothing to publish")
     OUT_DIR.mkdir(exist_ok=True)
+    lead = sma = None
     secure.write_json(OUT_DIR / "setups.json", payload)
     secure.write_json(OUT_DIR / "setups_candles.json", candles)
     try:                                                                  # the Swing tab's "Bullish SMA support" list (signals/sma_support.py); a failure here must not stop the rest
@@ -204,16 +206,25 @@ def main() -> None:
         logger.info("Leader trades: %d trades in %d stocks, %d still held", len(lead["rows"]), len(lead["symbols"]), sum(1 for r in lead["rows"] if r[7] == 2))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Leader trades failed: %s", exc)
-    try:                                                                  # research only (nothing published): the leader rule on the whole market-cap universe vs the F&O stocks
-        for label, fr, fset, kw in (("F&O stocks, 10 / 30", frames_all, fo, {}), ("market-cap universe, 10 / 30", frames, set(frames), {}), ("market-cap universe, 20 / 60", frames, set(frames), {"top_n": 20, "pool": 60}),
-                                    ("market-cap universe, 30 / 90", frames, set(frames), {"top_n": 30, "pool": 90}), ("market-cap universe excluding F&O, 10 / 30", {k: v for k, v in frames.items() if k not in fo}, set(frames) - fo, {}),
-                                    ("F&O stocks, 10 / 30, bought only after the signal high breaks next day", frames_all, fo, {"entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT}),
-                                    ("market-cap universe, 10 / 30, bought only after the signal high breaks next day", frames, set(frames), {"entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT}),
-                                    ("market-cap universe, 20 / 60, bought only after the signal high breaks next day", frames, set(frames), {"top_n": 20, "pool": 60, "entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT})):
-            tr, ds, _ = leader_trades.trades(fr, fset, **kw)
-            logger.info("Leader research - %s: %s", label, json.dumps(leader_trades.summary(tr, ds)))
+    try:                                                                  # the forward log: today's signals frozen, earlier ones resolved by the candles since (own branch; never replaced when it cannot be read)
+        if not (token and repository):
+            raise RuntimeError("no GITHUB_TOKEN / GITHUB_REPOSITORY")
+        ledger = forward_log.load(repository, token)
+        if ledger.get("asof") and ledger["asof"] > payload["asof"]:
+            raise RuntimeError(f"the saved ledger ({ledger['asof']}) is newer than this build ({payload['asof']})")
+        now_iso = datetime.now(IST).isoformat()
+        new = (forward_log.leader_signals(lead, frames) if lead else []) + (forward_log.sma_signals(sma, payload["asof"]) if sma else [])
+        added = forward_log.add(ledger, new, now_iso)
+        forward_log.update(ledger, frames_all)
+        fwd = forward_log.payload(ledger, payload["asof"], now_iso, series.get("nifty"))
+        FWD_DIR.mkdir(exist_ok=True)
+        secure.write_json(FWD_DIR / forward_log.FILE, fwd)
+        publish_directory(str(FWD_DIR), repository, token, forward_log.BRANCH, f"forward log {payload['asof']}")
+        logger.info("Forward log: %d new signals, %d entries (%s)", added, len(fwd["entries"]), {k: fwd["summary"]["strategies"]["all"][k] for k in ("pending", "open", "closed", "skipped")})
+    except forward_log.LedgerUnavailable as exc:
+        logger.warning("Forward log skipped - the saved ledger could not be read, so it is left as it is (%s)", exc)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Leader research failed: %s", exc)
+        logger.warning("Forward log failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
     hist_dir = OUT_DIR / "setups_hist"
     (hist_dir / "c").mkdir(parents=True, exist_ok=True)
