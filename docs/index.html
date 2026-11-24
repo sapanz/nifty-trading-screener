@@ -161,6 +161,10 @@
   #momentum .tag.use { background: var(--accent); color: #fff; }
   #momentum .scols > div.dim .scard { opacity: .72; }
   #movers { grid-column: 1 / -1; } #movers[hidden] { display: none; }
+  #leaderTr { grid-column: 1 / -1; } #leaderTr[hidden] { display: none; }
+  #ltTable tbody tr.srow { cursor: pointer; } #ltTable tbody tr.srow:hover { background: var(--chip); }
+  #ltTable th, #ltTable td { text-align: right; } #ltTable th:nth-child(-n+2), #ltTable td:nth-child(-n+2) { text-align: left; } #ltTable th { cursor: default; position: static; }
+  #ltTable td.mute { color: var(--muted); } #ltTable td.cr { padding: 4px 10px 10px; text-align: left; } #ltTable td.cr svg { width: 100%; max-width: 760px; height: auto; display: block; }
   #momNear { grid-column: 1 / -1; } #momNear[hidden] { display: none; }
   #smaSup { grid-column: 1 / -1; } #smaSup[hidden] { display: none; }
   #smaTable tbody tr.srow { cursor: pointer; } #smaTable tbody tr.srow:hover { background: var(--chip); }
@@ -308,6 +312,21 @@
     <h2 id="mvH">Movers - widest daily range <small id="mvCount"></small></h2>
     <div id="mvBox"></div>
   </section>
+  <section id="leaderTr" aria-labelledby="ltH" hidden>
+    <h2 id="ltH">High-range leader trades <small id="ltCount"></small></h2>
+    <div class="controls">
+      <div class="mode" role="group" aria-label="Held now or past trades">
+        <button type="button" id="ltViewNow" aria-pressed="true">Holding now</button>
+        <button type="button" id="ltViewHist" aria-pressed="false">Backtest: past trades</button>
+      </div>
+      <label class="ltHist" hidden>Year <select id="ltYear" aria-label="Year of the signal"><option value="all">All</option></select></label>
+      <label class="ltHist" hidden>Result <select id="ltResult" aria-label="How the trade ended"><option value="all">All</option><option value="stop">Stopped</option><option value="time">Time exit</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still held</option></select></label>
+      <label class="ltHist" hidden>Sort by <select id="ltSort" aria-label="Order of the past trades"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="best">Best result</option><option value="worst">Worst result</option></select></label>
+      <label class="ltHist" hidden>Show <select id="ltShow" aria-label="Rows to show"><option value="50">50</option><option value="100">100</option><option value="250">250</option><option value="0">All</option></select></label>
+    </div>
+    <div id="ltStats" class="momBanner"></div>
+    <div class="tablewrap"><table id="ltTable"><thead id="ltHead"></thead><tbody id="ltRows"></tbody></table></div>
+  </section>
   <section id="setups" aria-labelledby="paH" hidden>
     <h2 id="paH">Price action setups <small id="paCount"></small></h2>
     <div class="controls">
@@ -451,11 +470,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sStateBear: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", smaView: "live", smaYear: "all", smaResult: "all", smaShow: "100", smaHSort: "new", smaHist: null, smaHC: {}, smaSide: "long", smaTf: "D", smaSec: "on", smaVol: "auto", smaFo: false, smaSort: "vr", sma: null, mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paSide: "all", paCf: false, paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sStateBear: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", ltView: "now", ltYear: "all", ltResult: "all", ltSort: "new", ltShow: "100", lt: null, ltC: {}, smaView: "live", smaYear: "all", smaResult: "all", smaShow: "100", smaHSort: "new", smaHist: null, smaHC: {}, smaSide: "long", smaTf: "D", smaSec: "on", smaVol: "auto", smaFo: false, smaSort: "vr", sma: null, mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paSide: "all", paCf: false, paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sStateBear", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "smaView", "smaYear", "smaResult", "smaShow", "smaHSort", "smaSide", "smaTf", "smaSec", "smaVol", "smaFo", "smaSort", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paSide", "paCf", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sStateBear: state.sStateBear, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, smaView: state.smaView, smaYear: state.smaYear, smaResult: state.smaResult, smaShow: state.smaShow, smaHSort: state.smaHSort, smaSide: state.smaSide, smaTf: state.smaTf, smaSec: state.smaSec, smaVol: state.smaVol, smaFo: state.smaFo, smaSort: state.smaSort, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paSide: state.paSide, paCf: state.paCf, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sStateBear", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "ltView", "ltYear", "ltResult", "ltSort", "ltShow", "smaView", "smaYear", "smaResult", "smaShow", "smaHSort", "smaSide", "smaTf", "smaSec", "smaVol", "smaFo", "smaSort", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paSide", "paCf", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sStateBear: state.sStateBear, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, ltView: state.ltView, ltYear: state.ltYear, ltResult: state.ltResult, ltSort: state.ltSort, ltShow: state.ltShow, smaView: state.smaView, smaYear: state.smaYear, smaResult: state.smaResult, smaShow: state.smaShow, smaHSort: state.smaHSort, smaSide: state.smaSide, smaTf: state.smaTf, smaSec: state.smaSec, smaVol: state.smaVol, smaFo: state.smaFo, smaSort: state.smaSort, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paSide: state.paSide, paCf: state.paCf, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -471,9 +490,10 @@
      rate limit), so a fresh snapshot shows up within a minute. The raw-file CDN caches for ~5 minutes whatever
      the query string, so it is only the fallback - e.g. if the API's 60 requests/hour limit is ever hit. */
   function liveJson(name, branch) {
-    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : name.indexOf("swing_days/") === 0 ? "swingdays" : name === "setups.json" ? "setups" : name === "setups_candles.json" ? "setupsc" : name === "sma_support.json" ? "smas" : name === "sma_hist.json" ? "smah" : "swing") : srcOverride();
+    var o = branch ? new URLSearchParams(location.search).get(name === "swing_candles.json" ? "swingc" : name.indexOf("swing_days/") === 0 ? "swingdays" : name === "setups.json" ? "setups" : name === "setups_candles.json" ? "setupsc" : name === "sma_support.json" ? "smas" : name === "sma_hist.json" ? "smah" : name === "leader_trades.json" ? "leader" : "swing") : srcOverride();
     if (branch && name.indexOf("setups_hist/") === 0) { var hb = new URLSearchParams(location.search).get("setupsh"); if (hb) return fetchJson(hb.replace(/\/?$/, "/") + name.slice(12), true); }
     if (branch && name.indexOf("sma_hist/c/") === 0) { var sc = new URLSearchParams(location.search).get("smahc"); if (sc) return fetchJson(sc.replace(/\/?$/, "/") + name.slice(11), true); }
+    if (branch && name.indexOf("leader_hist/c/") === 0) { var lc = new URLSearchParams(location.search).get("leaderc"); if (lc) return fetchJson(lc.replace(/\/?$/, "/") + name.slice(14), true); }
     if (o && name.indexOf("swing_days/") === 0) return fetchJson(o.replace(/\/?$/, "/") + name.slice(11), true);
     if (o) return fetchJson(branch ? o : (name === "data.json" ? o : o.replace(/data\.json(\?.*)?$/, name)), true);
     var r = ownerRepo(), api = "https://api.github.com/repos/" + r[0] + "/" + r[1] + "/contents/" + name + "?ref=" + (branch || "dashboard-data");
@@ -646,7 +666,7 @@
     $("modeLive").setAttribute("aria-pressed", String(m === "live")); $("modeReplay").setAttribute("aria-pressed", String(m === "replay")); $("modeSwing").setAttribute("aria-pressed", String(m === "swing")); $("modeSetups").setAttribute("aria-pressed", String(m === "setups"));
     $("replay").hidden = m !== "replay"; $("swingBar").hidden = m !== "swing";
     var pa = m === "setups"; $("setups").hidden = !pa; $("secSectors").hidden = pa; $("secTable").hidden = pa; if (pa) $("strongest").hidden = true;
-    $("momentum").hidden = true; $("momNear").hidden = true; $("smaSup").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
+    $("momentum").hidden = true; $("momNear").hidden = true; $("smaSup").hidden = true; $("leaderTr").hidden = true; $("movers").hidden = true;                                   // the Swing render shows it again once data is there
     if (m === "swing") state.sortKey = "r"; else if (from === "swing") state.sortKey = "volume";
     state.sortDir = -1;
   }
@@ -654,6 +674,7 @@
     closeOi(); setMode("swing");
     $("pill").className = "pill"; $("pill").textContent = "Loading swing data…"; $("rows").textContent = "";
     liveJson("swing_candles.json", "dashboard-swing").then(function (d) { state.swingCandles = d; renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers(); if (state.sel && state.tab === "chart") renderOi(); }).catch(function () { state.swingCandles = null; });
+    liveJson("leader_trades.json", "dashboard-setups").then(function (d) { state.lt = d; renderLeaderTrades(); }).catch(function () { state.lt = false; renderLeaderTrades(); });
     liveJson("sma_support.json", "dashboard-setups").then(function (d) { state.sma = d; renderSmaSupport(); }).catch(function () { state.sma = null; renderSmaSupport(); });
     liveJson("swing_days/index.json", "dashboard-swing").then(function (d) { state.swingDates = (d.dates || []).slice(); fillSwingDates(); }).catch(function () { state.swingDates = []; fillSwingDates(); });
     liveJson("swing.json", "dashboard-swing").then(function (d) {
@@ -1405,6 +1426,101 @@
       body.appendChild(tr);
     });
   }
+  /* ---------- High-range leader trades: every day's leaders traded by the Momentum rules, one position per stock, held on its own clock (leader_trades.json) ---------- */
+  var LT = { s: 0, sig: 1, ent: 2, entry: 3, stop: 4, ext: 5, exit: 6, out: 7, pct: 8, mv: 9, mom: 10, atr: 11, last: 12, sell: 13 };
+  function weekdaysBetween(fromIso, toIso) { var d = new Date(fromIso + "T00:00:00Z"), end = new Date(toIso + "T00:00:00Z"), n = 0; while (d < end) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6 !== 0) n++; } return n; }
+  function ltChart(r, cd) {
+    var n = cd.c.length, at = function (date) { for (var i = 0; i < n; i++) if (cd.d[i] >= date) return i; return n - 1; };
+    var sigI = at(dayIso(r[LT.sig])), entI = at(dayIso(r[LT.ent])), extI = at(dayIso(r[LT.ext])), a = Math.max(0, sigI - 40), b = Math.min(n - 1, extI + 10), m = b - a + 1, PAD = 4, N = m + PAD;
+    var W = 720, H = 320, L = 52, R = 110, T = 10, Bm = 22, pw = W - L - R, ph = H - T - Bm, lo = Math.min(r[LT.stop], r[LT.entry], r[LT.exit]), hi = Math.max(r[LT.stop], r[LT.entry], r[LT.exit]);
+    for (var i = a; i <= b; i++) { lo = Math.min(lo, cd.c[i][2]); hi = Math.max(hi, cd.c[i][1]); }
+    var pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
+    var y = function (v) { return T + (hi - v) / (hi - lo) * ph; }, x = function (i) { return L + (i - a + 0.5) / N * pw; }, cw = pw / N * 0.62, right = W - R;
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Candles with the entry, the stop and the exit of a leader trade" });
+    for (var k = 0; k <= 4; k++) { var gv = lo + (hi - lo) * k / 4; svg.appendChild(svgEl("line", { x1: L, x2: right, y1: y(gv), y2: y(gv), stroke: "var(--line)" })); svg.appendChild(svgEl("text", { x: L - 4, y: y(gv) + 4, "text-anchor": "end" }, gv.toFixed(gv >= 1000 ? 0 : 1))); }
+    for (var sl = a + Math.floor(m / 10); sl <= b; sl += Math.ceil(m / 6)) svg.appendChild(svgEl("text", { x: x(sl), y: H - 7, "text-anchor": "middle" }, shortDate(cd.d[sl]) + " " + cd.d[sl].slice(2, 4)));
+    var win = r[LT.pct] > 0, col = win ? "var(--up)" : "var(--down)", bx = x(entI) - cw / 2, bw = Math.max(x(extI) + cw / 2 - bx, 6);
+    svg.appendChild(svgEl("rect", { x: bx, y: Math.min(y(r[LT.entry]), y(r[LT.stop])), width: bw, height: Math.max(Math.abs(y(r[LT.entry]) - y(r[LT.stop])), 1), fill: "var(--down)", "fill-opacity": "0.16" }));
+    [[r[LT.entry], "var(--ink)", "Bought"], [r[LT.stop], "var(--down)", "Stop"]].forEach(function (q) {
+      svg.appendChild(svgEl("line", { x1: bx, x2: right, y1: y(q[0]), y2: y(q[0]), stroke: q[1], "stroke-width": "1.1", "stroke-dasharray": "4 3" }));
+      svg.appendChild(svgEl("text", { x: right + 4, y: y(q[0]) + 4, style: "fill:" + q[1] + ";font-weight:600" }, q[2] + " " + paPx(q[0])));
+    });
+    for (var u = a; u <= b; u++) { var kk = cd.c[u], up = kk[3] >= kk[0], cc = up ? "var(--up)" : "var(--down)";
+      svg.appendChild(svgEl("line", { x1: x(u), x2: x(u), y1: y(kk[1]), y2: y(kk[2]), stroke: cc }));
+      svg.appendChild(svgEl("rect", { x: x(u) - cw / 2, y: y(Math.max(kk[0], kk[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(kk[0]) - y(kk[3])), 1), fill: cc })); }
+    var sx = x(sigI), sy = y(cd.c[sigI][2]) + 6;
+    svg.appendChild(svgEl("polygon", { points: [sx - 5, sy + 7, sx + 5, sy + 7, sx, sy].join(","), fill: "var(--accent)" }));
+    svg.appendChild(svgEl("text", { x: Math.min(sx, right - 50), y: sy + 20, "text-anchor": "middle", style: "fill:var(--accent);font-weight:700;font-size:11px" }, "Leader signal"));
+    svg.appendChild(svgEl("circle", { cx: x(entI), cy: y(r[LT.entry]), r: "4", fill: "var(--ink)" }));
+    svg.appendChild(svgEl("circle", { cx: x(extI), cy: y(r[LT.exit]), r: "5", fill: "var(--panel)", stroke: col, "stroke-width": "2.5" }));
+    svg.appendChild(svgEl("text", { x: Math.min(x(extI) + 8, right - 10), y: y(r[LT.exit]) - 8, "text-anchor": x(extI) > right - 70 ? "end" : "start", style: "fill:" + col + ";font-weight:700;font-size:11px" }, (r[LT.out] === 2 ? "Now " : "Exit ") + paPx(r[LT.exit])));
+    return svg;
+  }
+  function renderLeaderTrades() {
+    var sec = $("leaderTr"); if (state.mode !== "swing") { sec.hidden = true; return; }
+    var d = state.lt; sec.hidden = false;
+    var hist = state.ltView === "hist", body = $("ltRows"), head = $("ltHead"), stats = $("ltStats");
+    $("ltViewNow").setAttribute("aria-pressed", String(!hist)); $("ltViewHist").setAttribute("aria-pressed", String(hist));
+    Array.prototype.forEach.call(sec.querySelectorAll(".ltHist"), function (n) { n.hidden = !hist; });
+    ["ltYear", "ltResult", "ltSort", "ltShow"].forEach(function (k) { $(k).value = state[k]; });
+    body.textContent = ""; head.textContent = "";
+    if (d === null || d === undefined) { stats.textContent = "Loading…"; $("ltCount").textContent = ""; return; }
+    if (d === false) { stats.textContent = "Not built yet - the list arrives with the next Price action build."; $("ltCount").textContent = ""; return; }
+    if (!state.ltYearsBuilt) { var years = {}; d.rows.forEach(function (r) { years[dayIso(r[LT.sig]).slice(0, 4)] = true; }); var sel = $("ltYear"); sel.textContent = ""; sel.appendChild(el("option", { value: "all" }, "All")); Object.keys(years).sort().reverse().forEach(function (y) { sel.appendChild(el("option", { value: y }, y)); }); state.ltYearsBuilt = true; $("ltYear").value = state.ltYear; }
+    var hr = el("tr"), cell = function (t, m) { return el("td", m ? { "class": "mute" } : null, t); }, dd = function (n) { var t = dayIso(n); return shortDate(t) + " " + t.slice(2, 4); };
+    var open = function (r, tr) {
+      var sym = d.symbols[r[LT.s]], openRow = null;
+      var toggle = function () {
+        if (openRow) { openRow.remove(); openRow = null; return; }
+        openRow = el("tr"); var td = el("td", { colspan: "12", "class": "cr" }); td.appendChild(el("div", { "class": "oiNote" }, "Loading the chart…")); openRow.appendChild(td); tr.parentNode.insertBefore(openRow, tr.nextSibling);
+        var done = function (cd) { if (!openRow) return; td.textContent = ""; td.appendChild(ltChart(r, cd)); };
+        if (state.ltC[sym]) done(state.ltC[sym]);
+        else liveJson("leader_hist/c/" + encodeURIComponent(sym) + ".json", "dashboard-setups").then(function (raw) { var cd = { d: raw.o.map(dayIso), c: raw.c }; state.ltC[sym] = cd; done(cd); }).catch(function () { if (openRow) td.textContent = "The chart for this stock is not available."; });
+      };
+      tr.addEventListener("click", toggle); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") toggle(); });
+    };
+    if (!hist) {                                                  // the trades still running: bought, and to be sold at the close of their own 20th session
+      ["#", "Stock", "Bought on", "Entry", "Stop", "Last close", "Open P&L", "Sell at the close of", "Sessions left", "Status"].forEach(function (c) { hr.appendChild(el("th", null, c)); }); head.appendChild(hr);
+      var held = d.rows.filter(function (r) { return r[LT.out] === 2; }).sort(function (a, b) { return a[LT.sell] - b[LT.sell]; });
+      $("ltCount").textContent = "as of the " + shortDate(d.asof) + " close · " + held.length + " held";
+      stats.textContent = "New entries: " + (d.market_up ? "ON" : "OFF") + ". A bought stock is held until its own sell date (or its stop) even after it leaves the leader list; no second position in a stock you already hold.";
+      if (!held.length) { var tr0 = el("tr"), td0 = el("td", { colspan: "10", "class": "mute" }, "Nothing is held right now."); tr0.appendChild(td0); body.appendChild(tr0); return; }
+      held.forEach(function (r, i) {
+        var sym = d.symbols[r[LT.s]], left = Math.max(0, weekdaysBetween(d.asof, dayIso(r[LT.sell]))), pnl = (r[LT.last] / r[LT.entry] - 1) * 100, stopped = r[LT.last] <= r[LT.stop];
+        var tr = el("tr", { "class": "srow", tabindex: "0", role: "button", title: "Show the chart" });
+        tr.appendChild(cell(String(i + 1), true)); tr.appendChild(el("td", { style: "font-weight:700" }, sym)); tr.appendChild(cell(dd(r[LT.ent]))); tr.appendChild(cell(paPx(r[LT.entry])));
+        tr.appendChild(cell(paPx(r[LT.stop]) + " (-" + ((1 - r[LT.stop] / r[LT.entry]) * 100).toFixed(0) + "%)")); tr.appendChild(cell(paPx(r[LT.last])));
+        tr.appendChild(el("td", { "class": cls(pnl) }, (pnl > 0 ? "+" : "") + pnl.toFixed(1) + "%")); tr.appendChild(cell(shortDate(dayIso(r[LT.sell])) + " " + dayIso(r[LT.sell]).slice(2, 4)));
+        tr.appendChild(cell(left === 0 ? "sell today" : String(left)));
+        tr.appendChild(el("td", { "class": stopped ? "down" : "" }, stopped ? "Stop hit" : "Holding"));
+        open(r, tr); body.appendChild(tr);
+      });
+      return;
+    }
+    ["#", "Stock", "Signal", "Entry date", "Entry", "Stop", "Exit date", "Exit", "Result", "Return", "Held", "Movers / momentum rank"].forEach(function (c) { hr.appendChild(el("th", null, c)); }); head.appendChild(hr);
+    var year = state.ltYear === "all" ? "" : state.ltYear, res = state.ltResult;
+    var rows = d.rows.filter(function (r) {
+      return (!year || dayIso(r[LT.sig]).slice(0, 4) === year) && (res === "all" || (res === "win" ? r[LT.out] !== 2 && r[LT.pct] > 0 : res === "loss" ? r[LT.out] !== 2 && r[LT.pct] <= 0 : r[LT.out] === ["stop", "time", "open"].indexOf(res)));
+    });
+    var key = { "new": function (a, b) { return b[LT.ent] - a[LT.ent]; }, old: function (a, b) { return a[LT.ent] - b[LT.ent]; }, best: function (a, b) { return b[LT.pct] - a[LT.pct]; }, worst: function (a, b) { return a[LT.pct] - b[LT.pct]; } }[state.ltSort];
+    rows.sort(key);
+    var done = rows.filter(function (r) { return r[LT.out] !== 2; }), n = done.length, show = parseInt(state.ltShow, 10) || rows.length, shown = rows.slice(0, show);
+    $("ltCount").textContent = "past trades · " + rows.length.toLocaleString("en-IN") + " match · showing " + shown.length;
+    if (n) { var win = 0, stopN = 0, sum = 0, gw = 0, gl = 0, heldN = 0; done.forEach(function (r) { var p = r[LT.pct]; sum += p; if (p > 0) { win++; gw += p; } else gl -= p; if (r[LT.out] === 0) stopN++; heldN += (r[LT.ext] - r[LT.ent]) * 5 / 7; });
+      stats.textContent = "Result of these " + n.toLocaleString("en-IN") + " finished trades: " + (win / n * 100).toFixed(0) + "% ended in profit, " + (stopN / n * 100).toFixed(0) + "% stopped out, average " + (sum / n > 0 ? "+" : "") + (sum / n).toFixed(2) + "% a trade" + (gl ? ", profit factor " + (gw / gl).toFixed(2) : "") + ", held " + Math.round(heldN / n) + " sessions on average."; }
+    else stats.textContent = rows.length ? "Only trades still running match." : "No past trade matches these filters.";
+    var outName = ["Stopped", "Time exit", "Still held"];
+    shown.forEach(function (r, i) {
+      var sym = d.symbols[r[LT.s]], tr = el("tr", { "class": "srow", tabindex: "0", role: "button", title: "Show the chart" });
+      tr.appendChild(cell(String(i + 1), true)); tr.appendChild(el("td", { style: "font-weight:700" }, sym)); tr.appendChild(cell(dd(r[LT.sig]))); tr.appendChild(cell(dd(r[LT.ent]))); tr.appendChild(cell(paPx(r[LT.entry])));
+      tr.appendChild(cell(paPx(r[LT.stop]))); tr.appendChild(cell(r[LT.out] === 2 ? "sell by " + dd(r[LT.sell]) : dd(r[LT.ext]))); tr.appendChild(cell(paPx(r[LT.exit])));
+      tr.appendChild(el("td", { "class": r[LT.out] === 0 ? "down" : "" }, outName[r[LT.out]]));
+      tr.appendChild(el("td", { "class": cls(r[LT.pct]) }, (r[LT.pct] > 0 ? "+" : "") + r[LT.pct].toFixed(2) + "%"));
+      tr.appendChild(cell(Math.round((r[LT.ext] - r[LT.ent]) * 5 / 7) + " sessions")); tr.appendChild(cell("#" + r[LT.mv] + " / #" + r[LT.mom], true));
+      open(r, tr); body.appendChild(tr);
+    });
+  }
+
   function renderSmaSupport() {
     var sec = $("smaSup"); if (state.mode !== "swing") { sec.hidden = true; return; }
     sec.hidden = false;
@@ -2337,7 +2453,7 @@
     if (state.mode !== "swing") { annotateLevels(state.data); attachR(state.data); }
     if (obActive()) attachBlocks(state.data);
     if (obActive()) renderStrongest(); else $("strongest").hidden = true;
-    renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers();
+    renderMomentum(); renderMomNear(); renderSmaSupport(); renderMovers(); renderLeaderTrades();
     $("lvl").parentNode.hidden = state.mode === "swing";
     $("obSel").parentNode.hidden = !obActive();
     renderSortOptions();
@@ -2374,6 +2490,9 @@
   [["smaYear", "value"], ["smaResult", "value"], ["smaShow", "value"], ["smaHSort", "value"], ["smaSide", "value"], ["smaTf", "value"], ["smaSec", "value"], ["smaVol", "value"], ["smaSort", "value"], ["smaFo", "checked"]].forEach(function (c) {
     $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderSmaSupport(); });
   });
+  [["ltYear", "value"], ["ltResult", "value"], ["ltSort", "value"], ["ltShow", "value"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderLeaderTrades(); }); });
+  $("ltViewNow").addEventListener("click", function () { state.ltView = "now"; save(); renderLeaderTrades(); });
+  $("ltViewHist").addEventListener("click", function () { state.ltView = "hist"; save(); renderLeaderTrades(); });
   $("smaViewLive").addEventListener("click", function () { state.smaView = "live"; save(); renderSmaSupport(); });
   $("smaViewHist").addEventListener("click", function () { state.smaView = "hist"; save(); loadSmaHist(); renderSmaSupport(); });
   $("mVt").addEventListener("change", function (e) { state.mVt = e.target.value; save(); renderMomentum(); });

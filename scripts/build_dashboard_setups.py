@@ -24,7 +24,7 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import data, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe  # noqa: E402
+from signals import data, macro, news, nse_events, peers, leader_trades, price_action_board, runtime, secure, sma_support, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -138,6 +138,15 @@ def main() -> None:
         logger.info("SMA support backtest: %d trades in %d stocks", len(past_sma["rows"]), len(past_sma["symbols"]))
     except Exception as exc:  # noqa: BLE001
         logger.warning("SMA support list failed: %s", exc)
+    try:                                                                  # the Swing tab's "High-range leader trades": every day's leaders traded by the Momentum rules, with entries, exits and what is held now
+        lead = leader_trades.history(frames, fo)
+        secure.write_json(OUT_DIR / "leader_trades.json", lead)
+        (OUT_DIR / "leader_hist" / "c").mkdir(parents=True, exist_ok=True)
+        for symbol in lead["symbols"]:
+            secure.write_json(OUT_DIR / "leader_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames[symbol]))
+        logger.info("Leader trades: %d trades in %d stocks, %d still held", len(lead["rows"]), len(lead["symbols"]), sum(1 for r in lead["rows"] if r[7] == 2))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Leader trades failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
     hist_dir = OUT_DIR / "setups_hist"
     (hist_dir / "c").mkdir(parents=True, exist_ok=True)
