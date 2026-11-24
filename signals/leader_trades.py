@@ -125,10 +125,10 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
     return out, [d.strftime("%Y-%m-%d") for d in dates], info
 
 
-def history(frames: dict[str, pd.DataFrame], fo: set[str]) -> dict:
+def history(frames: dict[str, pd.DataFrame], tradable: set[str], fo: set[str] | None = None) -> dict:
     """The page's file (leader_trades.json): every trade as a compact row [symbol index, signal day, entry day, entry, stop, exit day, exit, out, net %, Movers rank,
     momentum rank, ATR%, last close] with days as days since 2000-01-01, plus `sell_by` day for each (the planned exit session) and today's leaders."""
-    tr, dates, info = trades(frames, fo)
+    tr, dates, info = trades(frames, tradable)
     day = lambda i: int((pd.Timestamp(dates[min(i, len(dates) - 1)]) - EPOCH).days)           # noqa: E731
     symbols, rows = [], []
     for t in tr:
@@ -143,7 +143,7 @@ def history(frames: dict[str, pd.DataFrame], fo: set[str]) -> dict:
         rows.append([symbols.index(t["symbol"]), day(t["sig"]), day(t["ent"]), round(t["entry"], 2), round(t["stop"], 2), day(t["ext"]), round(t["exit"], 2), t["out"], round(t["pct"], 2),
                      t["mv"], t["mom"], round(t["atr"], 1), round(t["last"], 2), int((sell - EPOCH).days)])
     rows.sort(key=lambda r: (r[2], r[9]))
-    return {"cols": COLS + ["sell"], "symbols": symbols, "rows": rows, **info, "hold": momentum.HOLD_SESSIONS, "stop_atr": momentum.STOP_ATR}
+    return {"cols": COLS + ["sell"], "symbols": symbols, "fo": [s for s in symbols if s in (fo or set())], "rows": rows, **info, "hold": momentum.HOLD_SESSIONS, "stop_atr": momentum.STOP_ATR}
 
 
 def summary(trade_list: list[dict], dates: list[str]) -> dict:

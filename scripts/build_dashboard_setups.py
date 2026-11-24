@@ -99,11 +99,11 @@ def main() -> None:
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
-    # The leader trades keep every F&O stock (`frames_all`); every other list is the market-cap universe.
+    # Every list - the leader trades included (cash segment) - is the market-cap universe; `frames_all` (that plus every F&O stock) is kept for the F&O comparison in the research log.
     frames_all = frames
     if mcap_min:
         frames = {sym: df for sym, df in frames_all.items() if sym in big}
-        logger.info("Market-cap filter (> %d cr): %d stocks in the universe (%d F&O); the leader trades keep all %d F&O stocks", mcap_min, len(frames), sum(1 for sym in frames if sym in fo), sum(1 for sym in frames_all if sym in fo))
+        logger.info("Market-cap filter (> %d cr): %d stocks in the universe (%d F&O); %d more F&O stocks below the line are used only in the research log", mcap_min, len(frames), sum(1 for sym in frames if sym in fo), sum(1 for sym in frames_all if sym in fo and sym not in frames))
     # Optional context for the selected stock - each source fails soft and the page says what is missing.
     series, macro_status = macro.fetch_global()
     for key, index_key in (("nifty", "NSE_INDEX|Nifty 50"), ("vix", "NSE_INDEX|India VIX")):
@@ -176,11 +176,11 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("SMA support list failed: %s", exc)
     try:                                                                  # the Swing tab's "High-range leader trades": every day's leaders traded by the Momentum rules, with entries, exits and what is held now
-        lead = leader_trades.history(frames_all, fo)
+        lead = leader_trades.history(frames, set(frames), fo)
         secure.write_json(OUT_DIR / "leader_trades.json", lead)
         (OUT_DIR / "leader_hist" / "c").mkdir(parents=True, exist_ok=True)
         for symbol in lead["symbols"]:
-            secure.write_json(OUT_DIR / "leader_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames_all[symbol]))
+            secure.write_json(OUT_DIR / "leader_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames[symbol]))
         logger.info("Leader trades: %d trades in %d stocks, %d still held", len(lead["rows"]), len(lead["symbols"]), sum(1 for r in lead["rows"] if r[7] == 2))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Leader trades failed: %s", exc)

@@ -57,7 +57,7 @@ def test_the_query_the_build_sends_and_the_workflow_that_carries_the_login():
     wf = (root / ".github" / "workflows" / "dashboard_setups.yml").read_text()
     assert "SCREENER_EMAIL" in wf and "SCREENER_PASSWORD" in wf
     build = (root / "scripts" / "build_dashboard_setups.py").read_text()
-    assert "fetch_screen_symbols" in build and "fetch_extra_constituents" in build and "on_nse | fo" in build and "frames_all" in build and "leader_trades.history(frames_all, fo)" in build and "mcap_min_cr" in build
+    assert "fetch_screen_symbols" in build and "fetch_extra_constituents" in build and "on_nse | fo" in build and "frames_all" in build and "leader_trades.history(frames, set(frames), fo)" in build and "mcap_min_cr" in build
     html = (root / "docs" / "index.html").read_text()
     assert html.count("market cap above") >= 3
 
