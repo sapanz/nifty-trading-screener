@@ -130,6 +130,12 @@ def main() -> None:
         sma = sma_support.build(frames, sectors, fo, datetime.now(IST))
         secure.write_json(OUT_DIR / "sma_support.json", sma)
         logger.info("SMA support: %d setups (%d daily, %d weekly), %d sectors measured", len(sma["rows"]), sum(r["tf"] == "D" for r in sma["rows"]), sum(r["tf"] == "W" for r in sma["rows"]), sma["sectors"])
+        past_sma = sma_support.history(frames, sectors, fo)                 # the same rules traded over the whole history: entries and exits for the page's backtest view
+        secure.write_json(OUT_DIR / "sma_hist.json", past_sma)
+        (OUT_DIR / "sma_hist" / "c").mkdir(parents=True, exist_ok=True)
+        for symbol in past_sma["symbols"]:
+            secure.write_json(OUT_DIR / "sma_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames[symbol]))
+        logger.info("SMA support backtest: %d trades in %d stocks", len(past_sma["rows"]), len(past_sma["symbols"]))
     except Exception as exc:  # noqa: BLE001
         logger.warning("SMA support list failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).

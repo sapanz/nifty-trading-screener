@@ -213,3 +213,31 @@ def test_the_close_filter_is_gone():
     o[t], c[t], l[t], h[t] = sma[t] * 1.006, sma[t] * 1.016, sma[t] * 1.004, sma[t] * 1.02
     sig = [x for x in ss.signals(_frame(c, o, h, l), "D", None) if x["i"] == t]
     assert sig and "cl" not in sig[0]
+
+
+def test_the_backtest_list_has_compact_rows_with_entry_exit_and_the_cols_in_order():
+    c = _uptrend_with_a_pullback(330)
+    o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
+    sma = pd.Series(c).rolling(21).mean().to_numpy()
+    t = 300                                                      # a signal with enough history after it for the order to fill and the trade to end
+    o[t], c[t], l[t], h[t] = sma[t] * 1.006, sma[t] * 1.016, sma[t] * 1.004, sma[t] * 1.02
+    frames = {"A": _frame(c, o, h, l, vol=[1e6] * 330), "B": _frame(c, o, h, l, vol=[1e6] * 330)}
+    frames["A"].iloc[t, frames["A"].columns.get_loc("volume")] = 3e6                       # the signal candle trades on 3x the volume
+    frames["B"].iloc[t, frames["B"].columns.get_loc("volume")] = 3e6
+    h_ = ss.history(frames, {"A": "Up", "B": "Up"}, {"A"})
+    json.dumps(h_)
+    assert h_["cols"] == ss.HIST_COLS and set(h_["symbols"]) <= {"A", "B"} and h_["fo"] == [s for s in h_["symbols"] if s == "A"]
+    col = {k: i for i, k in enumerate(h_["cols"])}
+    rows = [r for r in h_["rows"] if r[col["tf"]] == 0 and r[col["side"]] == 0]
+    assert rows and all(r[col["ent"]] >= r[col["sig"]] and r[col["ext"]] >= r[col["ent"]] and r[col["vr"]] >= ss.HIST_MIN_VOLUME for r in rows)
+    r = rows[0]
+    assert r[col["stop"]] < r[col["entry"]] < r[col["target"]] and r[col["out"]] in (0, 1, 2) and abs(r[col["pct"]]) < 100
+    assert all(row[col["side"]] == 0 or h_["symbols"][row[col["s"]]] == "A" for row in h_["rows"])      # shorts only for F&O stocks
+    assert h_["rows"] == sorted(h_["rows"], key=lambda x: (x[col["ent"]], x[col["s"]]))
+
+
+def test_the_page_has_the_sma_backtest_view():
+    html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    for needle in ('id="smaViewHist"', "Backtest: past trades", 'id="smaHistRows"', "function renderSmaHist", "function smaTradeChart", 'liveJson("sma_hist.json", "dashboard-setups")', '"smah"', "sma_hist/c/"):
+        assert needle in html, needle
+    assert "sma_hist" in (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text()

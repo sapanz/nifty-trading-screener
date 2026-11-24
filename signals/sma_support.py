@@ -276,6 +276,45 @@ def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]
             "defaults": {"D": TF["D"]["vol_default"], "W": TF["W"]["vol_default"]}}
 
 
+EPOCH = pd.Timestamp("2000-01-01")
+HIST_MIN_VOLUME = 1.0                       # the backtest list keeps the trades whose volume was at least this multiple of the 20-day (20-week) average
+HIST_COLS = ["s", "tf", "side", "sig", "ent", "entry", "stop", "target", "ext", "exit", "out", "pct", "r", "vr", "sec"]
+HIST_OUT = ["stop", "target", "time"]
+
+
+def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]) -> dict:
+    """The backtest list for the page: every closed trade of the rules (both sides and timeframes, shorts for F&O stocks only) whose volume was at least
+    HIST_MIN_VOLUME x its average, as compact rows - the symbol's index in `symbols`, tf (0 daily / 1 weekly), side (0 long / 1 short), the signal / entry /
+    exit dates as days since 2000-01-01, the entry, stop, target and exit prices, the exit reason (0 stop / 1 target / 2 time), the net % (costs in), the R, the volume
+    ratio and the sector flag. The sector and volume filters of the page then work on it."""
+    flags = sector_flags(frames, sectors)
+    symbols, rows = [], []
+    day = lambda d: int((pd.Timestamp(d).normalize() - EPOCH).days)             # noqa: E731
+    for symbol, df in frames.items():
+        sec = sectors.get(symbol)
+        dates = pd.DatetimeIndex(df.index).normalize()
+        mine = []
+        for tf in ("D", "W"):
+            for side in SIDES:
+                if side == "short" and symbol not in fo:
+                    continue
+                for sig in signals(df, tf, flag_for(flags.get(sec), tf, side), side):
+                    if sig["vr"] is None or sig["vr"] < HIST_MIN_VOLUME:
+                        continue
+                    tr = outcome(df, sig)
+                    if tr is None or tr["reason"] == "open":
+                        continue
+                    pct, r = pct_and_r(tr, sig)
+                    mine.append([0, 0 if tf == "D" else 1, 0 if side == "long" else 1, day(sig["date"]), day(dates[tr["entry_i"]]), round(tr["entry"], 2), round(sig["stop"], 2),
+                                 round(sig["target"], 2), day(dates[tr["exit_i"]]), round(tr["exit"], 2), HIST_OUT.index(tr["reason"]), round(pct, 2), round(r, 2),
+                                 round(sig["vr"], 2), int(bool(sig["sector_ok"]))])
+        if mine:
+            symbols.append(symbol)
+            rows += [[len(symbols) - 1] + m[1:] for m in mine]
+    rows.sort(key=lambda x: (x[4], x[0]))
+    return {"cols": HIST_COLS, "symbols": symbols, "sectors": {s: sectors.get(s) for s in symbols}, "fo": [s for s in symbols if s in fo], "rows": rows, "min_volume": HIST_MIN_VOLUME}
+
+
 def reason(r: dict, cfg: dict) -> str:
     unit = "sessions" if r["tf"] == "D" else "weeks"
     long = r["side"] == "long"
