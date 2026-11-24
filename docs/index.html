@@ -276,6 +276,7 @@
       <label>Timeframe <select id="smaTf" aria-label="Daily or weekly"><option value="D">Daily - 21-day average</option><option value="W">Weekly - 30-week average</option></select></label>
       <label><span id="smaSecLbl">Sector support</span> <select id="smaSec" aria-label="Sector support"><option value="on">Required</option><option value="off">Off</option></select></label>
       <label>Volume vs 20-avg <select id="smaVol" aria-label="Volume support"><option value="auto">Default (daily 1.5x, weekly 1.2x)</option><option value="any">Off</option><option value="1">at least 1.0x</option><option value="1.2">at least 1.2x</option><option value="1.5">at least 1.5x</option><option value="2">at least 2x</option></select></label>
+      <label id="smaTrendLbl">Trend <select id="smaTrend" aria-label="Trend strength"><option value="any">Any</option><option value="clear">Clear uptrend only (top fifth)</option></select></label>
       <label><input type="checkbox" id="smaFo"> F&amp;O stocks only</label>
       <label class="smaHist" hidden>Year <select id="smaYear" aria-label="Year of the signal"><option value="all">All</option></select></label>
       <label class="smaHist" hidden>Result <select id="smaResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="time">Time exit</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option></select></label>
@@ -285,11 +286,11 @@
     </div>
     <div id="smaHistStats" class="momBanner smaHist" hidden></div>
     <div class="tablewrap smaHist" hidden><table id="smaHistTable">
-      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Signal</th><th>Entry date</th><th>Entry</th><th>Exit date</th><th>Exit</th><th>Result</th><th>Return</th><th>R</th><th>Volume</th></tr></thead>
+      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Signal</th><th>Entry date</th><th>Entry</th><th>Exit date</th><th>Exit</th><th>Result</th><th>Return</th><th>R</th><th>Volume</th><th>Trend</th></tr></thead>
       <tbody id="smaHistRows"></tbody>
     </table></div>
     <div class="tablewrap smaLive"><table id="smaTable">
-      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Status</th><th id="smaEntryH">Buy above</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>R:R</th><th title="Signal candle's volume / the average of the 20 sessions (weeks) before it">Volume</th><th title="How far the average moved over the last 10 sessions (8 weeks)">Slope</th></tr></thead>
+      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Status</th><th id="smaEntryH">Buy above</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>R:R</th><th title="Signal candle's volume / the average of the 20 sessions (weeks) before it">Volume</th><th title="How far the average moved over the last 10 sessions (8 weeks)">Slope</th><th title="Where the stock\'s trend ranks among every signal (0-100, daily bullish only)">Trend</th></tr></thead>
       <tbody id="smaRows"></tbody>
     </table></div>
   </section>
@@ -470,11 +471,11 @@
     live: [["volume", "Volume"], ["r", "R-factor"], ["oi_chg", "OI change %"], ["turnover_cr", "Turnover"], ["vol_vs_avg", "Vol vs 20d"], ["change_pct", "Change %"], ["pdh_dist", "Above prev-day high %"], ["pdl_depth", "Below prev-day low %"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]],
     swing: [["r", "R-factor"], ["oi_chg", "OI change % (5 day)"], ["chg_5d", "5-day change %"], ["vol_vs_avg", "Vol vs 20d"], ["volume", "Volume"], ["change_pct", "1-day change %"], ["oi_1d", "OI change % (1 day)"], ["ob_sl", "Order block: smallest stop %"], ["ob_dist", "Order block: closest to the zone"]]
   };
-  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sStateBear: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", ltView: "now", ltYear: "all", ltResult: "all", ltSort: "new", ltShow: "100", lt: null, ltC: {}, smaView: "live", smaYear: "all", smaResult: "all", smaShow: "100", smaHSort: "new", smaHist: null, smaHC: {}, smaSide: "long", smaTf: "D", smaSec: "on", smaVol: "auto", smaFo: false, smaSort: "vr", sma: null, mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paSide: "all", paCf: false, paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
+  var state = { oiGroup: 1, sel: null, oiLive: null, mode: "live", index: null, day: null, dayDate: "", slot: 16, dayCache: {}, data: null, sector: "", fo: false, topN: 25, dir: "all", q: "", sortKey: "volume", sortDir: -1, lvl: "all", ob: "all", blocks: null, rblocks: null, hasOb: false, candles: null, swingCandles: null, swingLatest: null, swingDates: [], swingAsof: "", tab: "oi", sMinR: 0, sMaxStop: "auto", near: "auto", sSort: "conf", cfOnly: false, sFlow: false, sMinSc: 0, sState: "any", sStateBear: "any", sTlGap: "any", sTlPx: "any", sWd: false, sSw: false, sVol: false, sAge: "any", ltView: "now", ltYear: "all", ltResult: "all", ltSort: "new", ltShow: "100", lt: null, ltC: {}, smaTrend: "any", smaView: "live", smaYear: "all", smaResult: "all", smaShow: "100", smaHSort: "new", smaHist: null, smaHC: {}, smaSide: "long", smaTf: "D", smaSec: "on", smaVol: "auto", smaFo: false, smaSort: "vr", sma: null, mnSide: "auto", mnPool: 30, mnSort: "zone", mnZone: "any", mnTl: "any", mnVt: "any", mVt: "any", setups: null, setupsCandles: null, paSel: null, paFo: false, paKind: "all", paSide: "all", paCf: false, paStatus: "all", paMinRR: "1.5", paMaxRisk: "any", paSort: "rr", paEdge: false, paQ: "", paTf: "D", paSide: "all", paView: "live", paYear: "", paResult: "all", paHSort: "new", paShow: "50", hist: { index: null, years: {}, candles: {} }, paHist: null };
 
   function $(id) { return document.getElementById(id); }
-  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sStateBear", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "ltView", "ltYear", "ltResult", "ltSort", "ltShow", "smaView", "smaYear", "smaResult", "smaShow", "smaHSort", "smaSide", "smaTf", "smaSec", "smaVol", "smaFo", "smaSort", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paSide", "paCf", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
-  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sStateBear: state.sStateBear, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, ltView: state.ltView, ltYear: state.ltYear, ltResult: state.ltResult, ltSort: state.ltSort, ltShow: state.ltShow, smaView: state.smaView, smaYear: state.smaYear, smaResult: state.smaResult, smaShow: state.smaShow, smaHSort: state.smaHSort, smaSide: state.smaSide, smaTf: state.smaTf, smaSec: state.smaSec, smaVol: state.smaVol, smaFo: state.smaFo, smaSort: state.smaSort, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paSide: state.paSide, paCf: state.paCf, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem("dash") || "{}"); ["sector", "fo", "topN", "dir", "sortKey", "sortDir", "lvl", "ob", "sMinR", "sMaxStop", "near", "sSort", "cfOnly", "sFlow", "sMinSc", "sState", "sStateBear", "sTlGap", "sTlPx", "sWd", "sSw", "sVol", "sAge", "smaTrend", "ltView", "ltYear", "ltResult", "ltSort", "ltShow", "smaView", "smaYear", "smaResult", "smaShow", "smaHSort", "smaSide", "smaTf", "smaSec", "smaVol", "smaFo", "smaSort", "mnSide", "mnPool", "mnSort", "mnZone", "mnTl", "mnVt", "mVt", "paFo", "paKind", "paSide", "paCf", "paStatus", "paMinRR", "paMaxRisk", "paSort", "paEdge", "paTf", "paSide", "paView", "paYear", "paResult", "paHSort", "paShow"].forEach(function (k) { if (k in s) state[k] = s[k]; }); } catch (e) {} }
+  function save() { try { localStorage.setItem("dash", JSON.stringify({ lvl: state.lvl, ob: state.ob, sMinR: state.sMinR, sMaxStop: state.sMaxStop, near: state.near, sSort: state.sSort, cfOnly: state.cfOnly, sFlow: state.sFlow, sMinSc: state.sMinSc, sState: state.sState, sStateBear: state.sStateBear, sTlGap: state.sTlGap, sTlPx: state.sTlPx, sWd: state.sWd, sSw: state.sSw, sVol: state.sVol, sAge: state.sAge, smaTrend: state.smaTrend, ltView: state.ltView, ltYear: state.ltYear, ltResult: state.ltResult, ltSort: state.ltSort, ltShow: state.ltShow, smaView: state.smaView, smaYear: state.smaYear, smaResult: state.smaResult, smaShow: state.smaShow, smaHSort: state.smaHSort, smaSide: state.smaSide, smaTf: state.smaTf, smaSec: state.smaSec, smaVol: state.smaVol, smaFo: state.smaFo, smaSort: state.smaSort, mnSide: state.mnSide, mnPool: state.mnPool, mnSort: state.mnSort, mnZone: state.mnZone, mnTl: state.mnTl, mnVt: state.mnVt, mVt: state.mVt, paFo: state.paFo, paKind: state.paKind, paSide: state.paSide, paCf: state.paCf, paStatus: state.paStatus, paMinRR: state.paMinRR, paMaxRisk: state.paMaxRisk, paSort: state.paSort, paEdge: state.paEdge, paTf: state.paTf, paSide: state.paSide, paView: state.paView, paYear: state.paYear, paResult: state.paResult, paHSort: state.paHSort, paShow: state.paShow, sector: state.sector, fo: state.fo, topN: state.topN, dir: state.dir, sortKey: state.sortKey, sortDir: state.sortDir })); } catch (e) {} }
 
   function ownerRepo() {
     return [location.hostname.split(".")[0], location.pathname.split("/").filter(Boolean)[0] || ""];
@@ -1298,7 +1299,8 @@
   function smaRowsList() {
     var d = state.sma; if (!d) return [];
     var vth = state.smaVol === "auto" ? (d.defaults || { D: 1.5, W: 1.2 })[state.smaTf] : state.smaVol === "any" ? 0 : parseFloat(state.smaVol);
-    var rows = d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide && (state.smaSec !== "on" || r.sector_ok) && (!vth || (r.vr !== null && r.vr >= vth)) && (!state.smaFo || r.fo); });
+    var clearOnly = state.smaTrend === "clear" && state.smaTf === "D" && state.smaSide === "long", clearAt = d.clear_percentile || 80;
+    var rows = d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide && (state.smaSec !== "on" || r.sector_ok) && (!vth || (r.vr !== null && r.vr >= vth)) && (!clearOnly || (r.trend !== null && r.trend !== undefined && r.trend >= clearAt)) && (!state.smaFo || r.fo); });
     var key = { vr: function (a, b) { return (b.vr || 0) - (a.vr || 0); }, rr: function (a, b) { return b.rr - a.rr; }, risk: function (a, b) { return a.risk_pct - b.risk_pct; }, slope: function (a, b) { return b.slope - a.slope; } }[state.smaSort];
     return rows.slice().sort(function (a, b) { return key(a, b) || (b.vr || 0) - (a.vr || 0); });
   }
@@ -1332,7 +1334,7 @@
     return svg;
   }
   /* ---------- the SMA support backtest view: every past trade of the rules (sma_hist.json, rows are compact arrays), with the entry, the exit and a chart ---------- */
-  var SMA_COL = { s: 0, tf: 1, side: 2, sig: 3, ent: 4, entry: 5, stop: 6, target: 7, ext: 8, exit: 9, out: 10, pct: 11, r: 12, vr: 13, sec: 14 };
+  var SMA_COL = { s: 0, tf: 1, side: 2, sig: 3, ent: 4, entry: 5, stop: 6, target: 7, ext: 8, exit: 9, out: 10, pct: 11, r: 12, vr: 13, sec: 14, tr: 15 };
   function dayIso(n) { return new Date(Date.UTC(2000, 0, 1) + n * 864e5).toISOString().slice(0, 10); }
   function loadSmaHist() {
     if (state.smaHist || state.smaHistLoading) return; state.smaHistLoading = true;
@@ -1349,7 +1351,7 @@
     var vth = state.smaVol === "auto" ? ((state.sma && state.sma.defaults) || { D: 1.5, W: 1.2 })[state.smaTf] : state.smaVol === "any" ? 0 : parseFloat(state.smaVol);
     var side = state.smaSide === "short" ? 1 : 0, tf = state.smaTf === "W" ? 1 : 0, year = state.smaYear === "all" ? "" : state.smaYear, res = state.smaResult;
     var rows = d.rows.filter(function (r) {
-      return r[C.tf] === tf && r[C.side] === side && (state.smaSec !== "on" || r[C.sec] === 1) && (!vth || r[C.vr] >= vth) && (!state.smaFo || fo[d.symbols[r[C.s]]]) && (!year || dayIso(r[C.sig]).slice(0, 4) === year)
+      return r[C.tf] === tf && r[C.side] === side && (state.smaSec !== "on" || r[C.sec] === 1) && (!vth || r[C.vr] >= vth) && (!(state.smaTrend === "clear" && tf === 0 && side === 0) || r[C.tr] >= 80) && (!state.smaFo || fo[d.symbols[r[C.s]]]) && (!year || dayIso(r[C.sig]).slice(0, 4) === year)
         && (res === "all" || (res === "win" ? r[C.pct] > 0 : res === "loss" ? r[C.pct] <= 0 : r[C.out] === ["stop", "target", "time"].indexOf(res)));
     });
     var key = { "new": function (a, b) { return b[C.ent] - a[C.ent]; }, old: function (a, b) { return a[C.ent] - b[C.ent]; }, best: function (a, b) { return b[C.pct] - a[C.pct]; }, worst: function (a, b) { return a[C.pct] - b[C.pct]; } }[state.smaHSort];
@@ -1414,10 +1416,11 @@
       tr.appendChild(el("td", { "class": r[C.out] === 1 ? "up" : r[C.out] === 0 ? "down" : "" }, outName[r[C.out]]));
       tr.appendChild(el("td", { "class": cls(r[C.pct]) }, (r[C.pct] > 0 ? "+" : "") + r[C.pct].toFixed(2) + "%")); tr.appendChild(el("td", { "class": cls(r[C.r]) }, (r[C.r] > 0 ? "+" : "") + r[C.r].toFixed(2)));
       tr.appendChild(cell(r[C.vr].toFixed(1) + "×"));
+      tr.appendChild(r[C.tr] >= 0 ? el("td", r[C.tr] >= 80 ? { style: "font-weight:700" } : null, String(r[C.tr])) : cell("-", true));
       var open = null;
       var toggle = function () {
         if (open) { open.remove(); open = null; return; }
-        open = el("tr"); var td = el("td", { colspan: "12", "class": "cr" }); td.appendChild(el("div", { "class": "oiNote" }, "Loading the chart…")); open.appendChild(td); tr.parentNode.insertBefore(open, tr.nextSibling);
+        open = el("tr"); var td = el("td", { colspan: "13", "class": "cr" }); td.appendChild(el("div", { "class": "oiNote" }, "Loading the chart…")); open.appendChild(td); tr.parentNode.insertBefore(open, tr.nextSibling);
         var done = function (cd) { if (!open) return; td.textContent = ""; td.appendChild(smaTradeChart(r, cd)); };
         if (state.smaHC[sym]) done(state.smaHC[sym]);
         else liveJson("sma_hist/c/" + encodeURIComponent(sym) + ".json", "dashboard-setups").then(function (raw) { var cd = { d: raw.o.map(dayIso), c: raw.c }; state.smaHC[sym] = cd; done(cd); }).catch(function () { if (open) td.textContent = "The chart for this stock is not available."; });
@@ -1527,12 +1530,12 @@
     var histView = state.smaView === "hist";
     $("smaViewLive").setAttribute("aria-pressed", String(!histView)); $("smaViewHist").setAttribute("aria-pressed", String(histView));
     Array.prototype.forEach.call(sec.querySelectorAll(".smaHist"), function (n) { n.hidden = !histView; }); Array.prototype.forEach.call(sec.querySelectorAll(".smaLive"), function (n) { n.hidden = histView; });
-    ["smaSide", "smaTf", "smaSec", "smaVol", "smaSort", "smaYear", "smaResult", "smaShow", "smaHSort"].forEach(function (k) { if ($(k)) $(k).value = state[k]; }); $("smaFo").checked = state.smaFo;
+    ["smaSide", "smaTf", "smaSec", "smaVol", "smaTrend", "smaSort", "smaYear", "smaResult", "smaShow", "smaHSort"].forEach(function (k) { if ($(k)) $(k).value = state[k]; }); $("smaTrendLbl").hidden = !(state.smaTf === "D" && state.smaSide === "long"); $("smaFo").checked = state.smaFo;
     if (histView) { renderSmaHist(); return; }
     var body = $("smaRows"); body.textContent = "";
     var d = state.sma, daily = state.smaTf === "D", bull = state.smaSide === "long", avgN = daily ? "21-day" : "30-week";
     $("smaSecLbl").textContent = bull ? "Sector support" : "Sector weakness"; $("smaEntryH").textContent = bull ? "Buy above" : "Sell below";
-    var colspan = "12";
+    var colspan = "13";
     if (!d) { $("smaCount").textContent = ""; var tr0 = el("tr"), td0 = el("td", { colspan: colspan, "class": "mute" }, "Not built yet - the list arrives with the next Price action build (it needs the long candle history that build downloads)."); tr0.appendChild(td0); body.appendChild(tr0); return; }
     var rows = smaRowsList();
     $("smaCount").textContent = (bull ? "bullish" : "bearish") + " · " + (daily ? "daily" : "weekly") + " · as of the " + shortDate(d.asof) + " close · " + rows.length + " shown of " + d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide; }).length + " that pass the average and candle rules";
@@ -1550,6 +1553,7 @@
       tr.appendChild(cell(r.rr.toFixed(1) + " : 1"));
       tr.appendChild(r.vr !== null ? el("td", r.vr >= 1.5 ? { style: "font-weight:700" } : null, r.vr.toFixed(1) + "×") : cell("-", true));
       tr.appendChild(cell((r.slope > 0 ? "+" : "") + r.slope.toFixed(1) + "%"));
+      tr.appendChild(r.trend !== null && r.trend !== undefined ? el("td", r.trend >= (d.clear_percentile || 80) ? { style: "font-weight:700" } : null, String(r.trend)) : cell("-", true));
       var open = null;
       var toggle = function () {
         if (open) { open.remove(); open = null; return; }
@@ -2487,7 +2491,7 @@
     $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target[c[2]]; save(); render(); });
   });
   [["mnSide", "mnSide"], ["mnSort", "mnSort"], ["mnZone", "mnZone"], ["mnTl", "mnTl"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[1]] = e.target.value; save(); renderMomNear(); }); });
-  [["smaYear", "value"], ["smaResult", "value"], ["smaShow", "value"], ["smaHSort", "value"], ["smaSide", "value"], ["smaTf", "value"], ["smaSec", "value"], ["smaVol", "value"], ["smaSort", "value"], ["smaFo", "checked"]].forEach(function (c) {
+  [["smaTrend", "value"], ["smaYear", "value"], ["smaResult", "value"], ["smaShow", "value"], ["smaHSort", "value"], ["smaSide", "value"], ["smaTf", "value"], ["smaSec", "value"], ["smaVol", "value"], ["smaSort", "value"], ["smaFo", "checked"]].forEach(function (c) {
     $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderSmaSupport(); });
   });
   [["ltYear", "value"], ["ltResult", "value"], ["ltSort", "value"], ["ltShow", "value"]].forEach(function (c) { $(c[0]).addEventListener("change", function (e) { state[c[0]] = e.target[c[1]]; save(); renderLeaderTrades(); }); });

@@ -241,3 +241,47 @@ def test_the_page_has_the_sma_backtest_view():
     for needle in ('id="smaViewHist"', "Backtest: past trades", 'id="smaHistRows"', "function renderSmaHist", "function smaTradeChart", 'liveJson("sma_hist.json", "dashboard-setups")', '"smah"', "sma_hist/c/"):
         assert needle in html, needle
     assert "sma_hist" in (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text()
+
+
+def test_the_trend_rank_orders_signals_by_how_clear_the_uptrend_is():
+    rng = np.random.default_rng(4)
+    sigs = [{"slope": float(a), "gap50": float(b), "ret60": float(c)} for a, b, c in zip(rng.uniform(1, 10, 500), rng.uniform(0, 12, 500), rng.uniform(-10, 60, 500))]
+    tables = ss.trend_tables(sigs)
+    weak, strong = {"slope": 1.0, "gap50": 0.1, "ret60": -9.0}, {"slope": 9.9, "gap50": 11.9, "ret60": 59.0}
+    mid = {"slope": 5.0, "gap50": 6.0, "ret60": 25.0}
+    assert ss.trend_rank(weak, tables) <= 5 and ss.trend_rank(strong, tables) >= 95 and ss.trend_rank(weak, tables) < ss.trend_rank(mid, tables) < ss.trend_rank(strong, tables)
+    ranks = [ss.trend_rank(s, tables) for s in sigs]
+    assert 0 <= min(ranks) and max(ranks) <= 100 and abs(sum(r >= ss.CLEAR_PERCENTILE for r in ranks) / len(ranks) - 0.2) < 0.08           # about a fifth of all signals are 'clear'
+
+
+def test_daily_long_signals_carry_the_trend_measures_and_the_files_carry_the_rank():
+    from datetime import datetime
+    c = _uptrend_with_a_pullback(330)
+    o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
+    sma = pd.Series(c).rolling(21).mean().to_numpy()
+    t = 300
+    o[t], c[t], l[t], h[t] = sma[t] * 1.006, sma[t] * 1.016, sma[t] * 1.004, sma[t] * 1.02
+    frames = {"A": _frame(c, o, h, l, vol=[1e6] * 330), "B": _frame(c, o, h, l, vol=[1e6] * 330)}
+    for f in frames.values():
+        f.iloc[t, f.columns.get_loc("volume")] = 3e6
+    sig = [x for x in ss.signals(frames["A"], "D", None) if x["i"] == t][0]
+    assert sig["gap50"] > 0 and sig["ret60"] > 0 and sig["slope"] >= 1.0
+    hist = ss.history(frames, {"A": "Up", "B": "Up"}, {"A"})
+    col = {k: i for i, k in enumerate(hist["cols"])}
+    assert hist["cols"][-1] == "tr" and all((r[col["tr"]] >= 0) == (r[col["tf"]] == 0 and r[col["side"]] == 0) for r in hist["rows"])
+    c2 = _uptrend_with_a_pullback(330)
+    o2, h2, l2 = list(np.r_[c2[0], c2[:-1]]), [x * 1.003 for x in c2], [x * 0.997 for x in c2]
+    sma2 = pd.Series(c2).rolling(21).mean().to_numpy()
+    t2 = 329                                                                       # the signal candle is the last one: a live, waiting setup
+    o2[t2], c2[t2], l2[t2], h2[t2] = sma2[t2] * 1.006, sma2[t2] * 1.016, sma2[t2] * 1.004, sma2[t2] * 1.02
+    frames2 = {"A": _frame(c2, o2, h2, l2), "B": _frame(c2, o2, h2, l2)}
+    live = ss.build(frames2, {"A": "Up", "B": "Up"}, {"A"}, datetime(2025, 3, 3))
+    assert live["clear_percentile"] == ss.CLEAR_PERCENTILE
+    longs = [r for r in live["rows"] if r["tf"] == "D" and r["side"] == "long"]
+    assert longs and all(isinstance(r["trend"], int) and 0 <= r["trend"] <= 100 for r in longs) and all(r["trend"] is None for r in live["rows"] if r["tf"] == "W")
+
+
+def test_the_page_has_the_clear_uptrend_filter():
+    html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    for needle in ('id="smaTrend"', "Clear uptrend only (top fifth)", 'id="smaTrendLbl"', "clearOnly", "tr: 15"):
+        assert needle in html, needle

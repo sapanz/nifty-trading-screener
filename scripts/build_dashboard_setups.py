@@ -127,10 +127,11 @@ def main() -> None:
     secure.write_json(OUT_DIR / "setups.json", payload)
     secure.write_json(OUT_DIR / "setups_candles.json", candles)
     try:                                                                  # the Swing tab's "Bullish SMA support" list (signals/sma_support.py); a failure here must not stop the rest
-        sma = sma_support.build(frames, sectors, fo, datetime.now(IST))
+        trend = sma_support.collect_trend_tables(frames, sectors)           # ranks a daily long signal's trend against every signal the rules ever gave
+        sma = sma_support.build(frames, sectors, fo, datetime.now(IST), trend)
         secure.write_json(OUT_DIR / "sma_support.json", sma)
         logger.info("SMA support: %d setups (%d daily, %d weekly), %d sectors measured", len(sma["rows"]), sum(r["tf"] == "D" for r in sma["rows"]), sum(r["tf"] == "W" for r in sma["rows"]), sma["sectors"])
-        past_sma = sma_support.history(frames, sectors, fo)                 # the same rules traded over the whole history: entries and exits for the page's backtest view
+        past_sma = sma_support.history(frames, sectors, fo, trend)                 # the same rules traded over the whole history: entries and exits for the page's backtest view
         secure.write_json(OUT_DIR / "sma_hist.json", past_sma)
         (OUT_DIR / "sma_hist" / "c").mkdir(parents=True, exist_ok=True)
         for symbol in past_sma["symbols"]:

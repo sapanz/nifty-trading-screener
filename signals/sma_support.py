@@ -145,7 +145,8 @@ def signals(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, side: str 
             if pl is None:
                 continue
             base = V[t - 20:t].mean() if t >= 20 else np.nan
-            out.append({"tf": "D", "side": side, "i": t, "w": int(wk_of[t]), "date": dates[t], "sma": float(s), "slope": float((s / sma[t - sb] - 1) * 100), "entry": entry,
+            out.append({"tf": "D", "side": side, "i": t, "w": int(wk_of[t]), "date": dates[t], "sma": float(s), "slope": float((s / sma[t - sb] - 1) * 100), "gap50": float((s / sma50[t] - 1) * 100),
+                        "ret60": float((C[t] / C[t - 60] - 1) * 100), "entry": entry,
                         "stop": stop, **pl, "vr": float(V[t] / base) if base and base > 0 else None,
                         "sector_ok": _asof(sector_flag, dates[t])})
     else:
@@ -207,6 +208,34 @@ def pct_and_r(trade: dict, sig: dict) -> tuple[float, float]:
     return pct, pct / risk_pct if risk_pct > 0 else float("nan")
 
 
+# ---------------------------------------------------------------- clear uptrend (daily, long)
+CLEAR_PERCENTILE = 80                  # "clear uptrend" = the top fifth of the trend score
+TREND_MEASURES = ("slope", "gap50", "ret60")
+
+
+def trend_tables(daily_long: list[dict]) -> dict:
+    """The distributions the trend score is ranked against: for each of the three measures (how fast the 21-day average rose over 10 sessions, how far it sits above the
+    50-day average, the stock's 60-session return) the sorted values over every daily long signal, and the sorted trend scores themselves (the average percentile of the
+    three). Built from the whole history of signals, so a stock today is ranked against every signal the rules ever gave."""
+    cols = {m: np.sort(np.array([x[m] for x in daily_long], float)) for m in TREND_MEASURES}
+    raw = np.mean([np.searchsorted(cols[m], np.array([x[m] for x in daily_long], float), side="right") / len(daily_long) for m in TREND_MEASURES], axis=0)
+    return {**cols, "scores": np.sort(raw)}
+
+
+def trend_rank(sig: dict, tables: dict) -> int:
+    """0-100: where this signal's trend score sits among every daily long signal (100 = the clearest uptrend). A rank of CLEAR_PERCENTILE or more is a clear uptrend."""
+    pcts = [np.searchsorted(tables[m], sig[m], side="right") / len(tables[m]) for m in TREND_MEASURES]
+    return int(round(float(np.searchsorted(tables["scores"], float(np.mean(pcts)), side="right") / len(tables["scores"])) * 100))
+
+
+def collect_trend_tables(frames: dict[str, pd.DataFrame], sectors: dict[str, str]) -> dict:
+    """The trend tables from the daily long signals of every stock in `frames` (the sector flag does not matter for the distribution)."""
+    sigs = []
+    for df in frames.values():
+        sigs += signals(df, "D", None, "long")
+    return trend_tables(sigs) if sigs else {}
+
+
 # ---------------------------------------------------------------- the live list
 CANDLES = {"D": 90, "W": 80}
 
@@ -244,10 +273,11 @@ def live(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, asof: pd.Time
     return out
 
 
-def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str], now) -> dict:
+def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str], now, tables: dict | None = None) -> dict:
     """The sma_support.json payload: every tradable setup of both timeframes and both sides (shorts for F&O stocks only), with the sector flag and the volume ratio
     (the page filters on them), the reason in words and a small candle series per setup for the chart."""
     flags = sector_flags(frames, sectors)
+    tables = tables if tables is not None else collect_trend_tables(frames, sectors)
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
     rows = []
     for symbol, df in frames.items():
@@ -267,27 +297,28 @@ def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]
                         "symbol": symbol, "fo": symbol in fo, "sector": sec, "tf": tf, "side": side, "status": r["status"], "age": r["age"], "signal_date": r["date"].strftime("%Y-%m-%d"),
                         "price": round(r["price"], 2), "sma": round(r["sma"], 2), "slope": round(r["slope"], 1), "entry": round(r["entry"], 2), "stop": round(r["stop"], 2),
                         "target": round(r["target"], 2), "target_kind": r["target_kind"], "risk_pct": round(r["risk_pct"], 2), "reward_pct": round(r["reward_pct"], 2), "rr": round(r["rr"], 2),
-                        "vr": None if r["vr"] is None else round(r["vr"], 2), "sector_ok": bool(r["sector_ok"]), "sector_known": sec in flags,
+                        "vr": None if r["vr"] is None else round(r["vr"], 2), "sector_ok": bool(r["sector_ok"]), "sector_known": sec in flags, "trend": trend_rank(r, tables) if tf == "D" and side == "long" and tables else None,
                         "reason": reason(r, cfg),
                         "candles": {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(bars.index).normalize()], "c": [[round(float(x), 2) for x in row] for row in bars[["open", "high", "low", "close"]].to_numpy()],
                                     "sma": [None if np.isnan(v) else round(float(v), 2) for v in avg]}})
     rows.sort(key=lambda r: (r["tf"], r["side"], -(r["vr"] or 0)))
-    return {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(), "rows": rows, "universe": len(frames), "sectors": len(flags),
+    return {"asof": asof.strftime("%Y-%m-%d"), "updated_at": now.isoformat(), "rows": rows, "universe": len(frames), "sectors": len(flags), "clear_percentile": CLEAR_PERCENTILE,
             "defaults": {"D": TF["D"]["vol_default"], "W": TF["W"]["vol_default"]}}
 
 
 EPOCH = pd.Timestamp("2000-01-01")
 HIST_MIN_VOLUME = 1.0                       # the backtest list keeps the trades whose volume was at least this multiple of the 20-day (20-week) average
-HIST_COLS = ["s", "tf", "side", "sig", "ent", "entry", "stop", "target", "ext", "exit", "out", "pct", "r", "vr", "sec"]
+HIST_COLS = ["s", "tf", "side", "sig", "ent", "entry", "stop", "target", "ext", "exit", "out", "pct", "r", "vr", "sec", "tr"]
 HIST_OUT = ["stop", "target", "time"]
 
 
-def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]) -> dict:
+def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str], tables: dict | None = None) -> dict:
     """The backtest list for the page: every closed trade of the rules (both sides and timeframes, shorts for F&O stocks only) whose volume was at least
     HIST_MIN_VOLUME x its average, as compact rows - the symbol's index in `symbols`, tf (0 daily / 1 weekly), side (0 long / 1 short), the signal / entry /
     exit dates as days since 2000-01-01, the entry, stop, target and exit prices, the exit reason (0 stop / 1 target / 2 time), the net % (costs in), the R, the volume
-    ratio and the sector flag. The sector and volume filters of the page then work on it."""
+    ratio, the sector flag and `tr` (the trend rank 0-100 of a daily long trade, -1 for the others). The sector, volume and trend filters of the page then work on it."""
     flags = sector_flags(frames, sectors)
+    tables = tables if tables is not None else collect_trend_tables(frames, sectors)
     symbols, rows = [], []
     day = lambda d: int((pd.Timestamp(d).normalize() - EPOCH).days)             # noqa: E731
     for symbol, df in frames.items():
@@ -307,7 +338,7 @@ def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[st
                     pct, r = pct_and_r(tr, sig)
                     mine.append([0, 0 if tf == "D" else 1, 0 if side == "long" else 1, day(sig["date"]), day(dates[tr["entry_i"]]), round(tr["entry"], 2), round(sig["stop"], 2),
                                  round(sig["target"], 2), day(dates[tr["exit_i"]]), round(tr["exit"], 2), HIST_OUT.index(tr["reason"]), round(pct, 2), round(r, 2),
-                                 round(sig["vr"], 2), int(bool(sig["sector_ok"]))])
+                                 round(sig["vr"], 2), int(bool(sig["sector_ok"])), trend_rank(sig, tables) if tf == "D" and side == "long" and tables else -1])
         if mine:
             symbols.append(symbol)
             rows += [[len(symbols) - 1] + m[1:] for m in mine]

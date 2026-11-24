@@ -25,6 +25,7 @@ def load(csv: str, swing_json: str):
 
 def trades(frames, sectors):
     flags = ss.sector_flags(frames, sectors)
+    tables = ss.collect_trend_tables(frames, sectors)                         # the trend rank of a daily long signal
     close = pd.DataFrame({s: df["close"] for s, df in frames.items()}).sort_index()
     idx = (1 + close.pct_change(fill_method=None).mean(axis=1).fillna(0)).cumprod()
     rows = []
@@ -41,7 +42,7 @@ def trades(frames, sectors):
                     a, b = dates[tr["entry_i"]], dates[tr["exit_i"]]
                     move = (idx.asof(b) / idx.asof(a) - 1) * 100
                     rows.append({"tf": tf, "side": side, "sym": sym, "date": sig["date"], "year": sig["date"].year, "pct": pct, "R": r, "sector": sig["sector_ok"], "vr": sig["vr"],
-                                 "rr": sig["rr"], "kind": sig["target_kind"], "out": tr["reason"], "bars": tr["exit_i"] - tr["entry_i"],
+                                 "rr": sig["rr"], "kind": sig["target_kind"], "tr": ss.trend_rank(sig, tables) if tf == "D" and side == "long" else -1, "out": tr["reason"], "bars": tr["exit_i"] - tr["entry_i"],
                                  "idx": move if side == "long" else -move})              # the index move that helps / hurts the trade
     return pd.DataFrame(rows)
 
@@ -65,6 +66,14 @@ def main(csv: str, swing_json: str) -> None:
         for thr in (1.0, 1.2, 1.5, 2.0):
             print(f"  sector + volume >= {thr:.1f}x 20-avg    ", stat(t[t.sector & (t.vr >= thr)]))
         print("  sector + volume < 1.0x            ", stat(t[t.sector & (t.vr < 1.0)]))
+        if side == "long" and tf == "D":
+            base = t[t.sector & (t.vr >= ss.TF[tf]["vol_default"])]
+            print(f"  trend rank (0-100, {ss.CLEAR_PERCENTILE}+ = clear uptrend):")
+            for lab, lo, hi in (("0-20", 0, 20), ("20-40", 20, 40), ("40-60", 40, 60), ("60-80", 60, 80), (f"{ss.CLEAR_PERCENTILE}-100 clear uptrend", ss.CLEAR_PERCENTILE, 101)):
+                print(f"     every signal {lab:24s}", stat(t[(t.tr >= lo) & (t.tr < hi)]), "\n     default rule", f"{lab:24s}", stat(base[(base.tr >= lo) & (base.tr < hi)]))
+            clear = base[base.tr >= ss.CLEAR_PERCENTILE]
+            print("     default rule + clear uptrend by year:", {int(y): f"{g.pct.mean():+.2f}% (n {len(g)})" for y, g in clear.groupby("year")})
+            print("     untouched 2024+ clear uptrend:", stat(clear[clear.year >= 2024]), "| 2021-23:", stat(clear[clear.year <= 2023]))
         pick = t[t.sector & (t.vr >= ss.TF[tf]["vol_default"])]
         print(f"  --> the rule (sector + volume >= {ss.TF[tf]['vol_default']}x):", stat(pick))
         for y, g in pick.groupby("year"):
