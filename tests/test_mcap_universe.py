@@ -60,3 +60,28 @@ def test_the_query_the_build_sends_and_the_workflow_that_carries_the_login():
     assert "fetch_screen_symbols" in build and "frames_all" in build and "leader_trades.history(frames_all, fo)" in build and "mcap_min_cr" in build
     html = (root / "docs" / "index.html").read_text()
     assert html.count("market cap above") >= 3
+
+
+def test_every_module_the_build_script_names_is_imported():
+    """The build script's undefined names only show up at run time in CI (a skipped market-cap filter once hid a missing import): check them here."""
+    import ast
+    import builtins
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text())
+    bound = set(dir(builtins)) | {"__file__", "__name__"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            bound |= {(a.asname or a.name).split(".")[0] for a in node.names}
+        elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+            if isinstance(node, ast.FunctionDef):
+                bound |= {a.arg for a in node.args.args + node.args.kwonlyargs} | ({node.args.vararg.arg} if node.args.vararg else set())
+        elif isinstance(node, ast.Lambda):
+            bound |= {a.arg for a in node.args.args}
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, ast.comprehension):
+            bound |= {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    assert not (used - bound), sorted(used - bound)

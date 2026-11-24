@@ -24,7 +24,7 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import data, macro, news, nse_events, peers, leader_trades, price_action_board, runtime, secure, sma_support, universe  # noqa: E402
+from signals import config, data, leader_trades, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
