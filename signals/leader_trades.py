@@ -29,12 +29,15 @@ def _percentile_rank(x: np.ndarray) -> np.ndarray:
 
 
 def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS, entry: str = "open", window: int = 1, anchor: str = "signal",
-           chase_cap: float | None = None) -> tuple[list[dict], list[str], dict]:
+           chase_cap: float | None = None, stop_atr: float | None = None, max_atr: float | None = None, max_ret20: float | None = None,
+           trail_atr: float | None = None, gate_exit: bool = False) -> tuple[list[dict], list[str], dict]:
     """(trades, dates, info) for the F&O stocks in `frames`. Each trade: symbol, sig (signal date index), entry / stop / exit prices and dates, out (stop / time / open),
     net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}.
     `entry` "open" (the default, the live rule) buys the next open; "break" buys only after price trades above the signal candle's high - a buy-stop good for `window`
     sessions, filled at the high (or the open on a gap over it), skipped when that is more than `chase_cap` % above the signal close. `anchor` "signal" sells at the close of the
-    `hold`-th session after the signal; "entry" counts the sessions from the entry."""
+    `hold`-th session after the signal; "entry" counts the sessions from the entry.
+    Research options (all off = the live rule): `stop_atr` overrides the stop distance in ATRs; `max_atr` skips signals whose ATR% is above it; `max_ret20` skips stocks that rose more than
+    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average."""
     syms = sorted(s for s in frames if s in fo)
     dates = sorted({d for s in syms for d in pd.DatetimeIndex(frames[s].index).normalize()})
     didx = pd.DatetimeIndex(dates)
@@ -88,9 +91,14 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
                     continue
             if held_until[j] >= ent_i:
                 continue                                                          # still held from an earlier signal: no second position
-            stop = e * (1 - momentum.STOP_ATR * atr[i, j] / 100)
+            if max_atr is not None and atr[i, j] > max_atr:
+                continue
+            if max_ret20 is not None and (C[i, j] / C[i - 20, j] - 1) * 100 > max_ret20:
+                continue
+            stop = e * (1 - (momentum.STOP_ATR if stop_atr is None else stop_atr) * atr[i, j] / 100)
             end = i + hold if anchor == "signal" else ent_i + hold - 1
             xi, xp, why = None, None, None
+            top, stop0 = e, stop
             for k in range(ent_i, min(end, n - 1) + 1):
                 if k > ent_i and O[k, j] <= stop:
                     xi, xp, why = k, float(O[k, j]), "stop"
@@ -98,6 +106,12 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
                 if L[k, j] <= stop:
                     xi, xp, why = k, float(stop), "stop"
                     break
+                if gate_exit and not up[k] and k < end:
+                    xi, xp, why = k, float(C[k, j]), "time"
+                    break
+                if trail_atr is not None:
+                    top = max(top, float(C[k, j]))
+                    stop = max(stop, top * (1 - trail_atr * atr[i, j] / 100))
             if xi is None:
                 if end <= n - 1:
                     xi, xp, why = end, float(C[end, j]), "time"
@@ -105,7 +119,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
                     xi, xp, why = n - 1, float(C[n - 1, j]), "open"
             held_until[j] = xi if why != "open" else n + hold
             pct = (xp / e - 1) * 100 - (COST_PCT if why != "open" else 0)
-            out.append({"symbol": syms[j], "sig": i, "ent": ent_i, "entry": e, "stop": float(stop), "ext": xi, "exit": xp, "out": OUT.index(why), "pct": float(pct),
+            out.append({"symbol": syms[j], "sig": i, "ent": ent_i, "entry": e, "stop": float(stop0), "ext": xi, "exit": xp, "out": OUT.index(why), "pct": float(pct),
                         "mv": mv_rank, "mom": mom_rank[j], "atr": float(atr[i, j]), "last": float(C[n - 1, j]), "sell_by": end})
     info = {"asof": dates[-1].strftime("%Y-%m-%d"), "market_up": bool(up[-1]), "leaders_today": leaders_today}
     return out, [d.strftime("%Y-%m-%d") for d in dates], info

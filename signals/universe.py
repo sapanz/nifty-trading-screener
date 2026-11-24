@@ -56,6 +56,27 @@ def fetch_nifty500_names() -> dict[str, str]:
     return {}
 
 
+def fetch_extra_constituents() -> tuple[dict[str, str], dict[str, str]]:
+    """({NSE symbol: industry}, {NSE symbol: company name}) from the wider NSE lists (config.NSE_EXTRA_LIST_URLS: Nifty Total Market, Microcap 250), merged. Optional context for the
+    stocks above the market-cap line that the Nifty 500 does not hold: every source fails soft and a missing one just leaves those stocks without a sector or name."""
+    session = requests.Session()
+    try:
+        session.get("https://www.nseindia.com", headers=_HEADERS, timeout=20)
+    except requests.RequestException:
+        pass
+    industry, names = {}, {}
+    for url in config.NSE_EXTRA_LIST_URLS:
+        try:
+            for row in csv.DictReader(io.StringIO(_fetch_csv_text(session, url))):
+                sym = (row.get("Symbol") or "").strip()
+                if sym:
+                    industry.setdefault(sym, (row.get("Industry") or "").strip())
+                    names.setdefault(sym, (row.get("Company Name") or "").strip())
+        except Exception as exc:  # noqa: BLE001 - optional source
+            logger.warning("Extra constituent list %s failed: %s", url, exc)
+    return {k: v for k, v in industry.items() if v}, {k: v for k, v in names.items() if v}
+
+
 def fetch_nifty500_constituents() -> dict[str, str]:
     """Return {NSE symbol: industry} for Nifty 500, the industry taken from
     the constituent list's own "Industry" column (e.g. "Capital Goods",

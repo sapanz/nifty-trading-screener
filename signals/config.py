@@ -310,6 +310,14 @@ NSE_INDEX_LIST_URLS = (
     "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
 )
 
+# Wider NSE lists (Nifty Total Market, 750 stocks): the industry and company name of stocks above the market-cap line that are not in the Nifty 500. Optional - a stock the lists do not
+# cover still trades, it just has no sector.
+NSE_EXTRA_LIST_URLS = (
+    "https://nsearchives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv",
+    "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv",
+    "https://nsearchives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
+)
+
 # --- Upstox market data API -------------------------------------------------
 # https://upstox.com/developer/api-documentation/ - verify against current
 # docs if requests start failing, brokers do change these occasionally.

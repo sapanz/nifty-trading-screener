@@ -57,7 +57,7 @@ def test_the_query_the_build_sends_and_the_workflow_that_carries_the_login():
     wf = (root / ".github" / "workflows" / "dashboard_setups.yml").read_text()
     assert "SCREENER_EMAIL" in wf and "SCREENER_PASSWORD" in wf
     build = (root / "scripts" / "build_dashboard_setups.py").read_text()
-    assert "fetch_screen_symbols" in build and "frames_all" in build and "leader_trades.history(frames_all, fo)" in build and "mcap_min_cr" in build
+    assert "fetch_screen_symbols" in build and "fetch_extra_constituents" in build and "on_nse | fo" in build and "frames_all" in build and "leader_trades.history(frames_all, fo)" in build and "mcap_min_cr" in build
     html = (root / "docs" / "index.html").read_text()
     assert html.count("market cap above") >= 3
 
@@ -85,3 +85,17 @@ def test_every_module_the_build_script_names_is_imported():
             bound |= {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
     used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
     assert not (used - bound), sorted(used - bound)
+
+
+def test_extra_constituent_lists_fail_soft_and_merge(monkeypatch):
+    from signals import universe
+    pages = {config.NSE_EXTRA_LIST_URLS[0]: "Company Name,Industry,Symbol\nAcme Ltd,Capital Goods,ACME\nBeta Ltd,Healthcare,BETA\n", config.NSE_EXTRA_LIST_URLS[2]: "Company Name,Industry,Symbol\nBeta Two,Other,BETA\nGamma,Services,GAMMA\n"}
+
+    def fake(session, url):
+        if url not in pages:
+            raise RuntimeError("blocked")
+        return pages[url]
+    monkeypatch.setattr(universe, "_fetch_csv_text", fake)
+    monkeypatch.setattr(universe.requests.Session, "get", lambda *a, **k: None)
+    industry, names = universe.fetch_extra_constituents()
+    assert industry == {"ACME": "Capital Goods", "BETA": "Healthcare", "GAMMA": "Services"} and names["BETA"] == "Beta Ltd"

@@ -59,7 +59,36 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - NSE sometimes refuses; the F&O stocks alone still make a list
             logger.warning("Nifty 500 list failed (%s) - building from the F&O stocks only", exc)
             sectors = {}
-        symbols = sorted(set(sectors) | fo)
+        # The universe: every NSE stock above MCAP_MIN_CR (a screener.in custom screen - not only the Nifty 500), plus the F&O stocks for the leader trades. A failed or short screen
+        # falls back to the Nifty 500 + F&O list with no market-cap line (logged, and the page says nothing about a market-cap line).
+        big, mcap_min = set(), None
+        email, password = os.environ.get("SCREENER_EMAIL"), os.environ.get("SCREENER_PASSWORD")
+        if email and password:
+            try:
+                big = value_universe.fetch_screen_symbols(email, password, config.MCAP_SCREEN_QUERY)
+                if len(big) < config.MCAP_MIN_SYMBOLS:
+                    raise RuntimeError(f"only {len(big)} symbols came back for the market-cap screen (fewer than {config.MCAP_MIN_SYMBOLS}) - the list looks cut short")
+                if len(big & set(sectors)) < 0.25 * len(big) and sectors:
+                    raise RuntimeError(f"the market-cap screen shares only {len(big & set(sectors))} of its {len(big)} symbols with the Nifty 500 - symbols probably do not line up")
+                mcap_min = config.MCAP_MIN_CR
+            except Exception as exc:  # noqa: BLE001 - the filter is skipped, not guessed
+                logger.warning("Market-cap universe skipped (%s) - using the Nifty 500 and F&O stocks", exc)
+                big = set()
+        else:
+            logger.info("No SCREENER_EMAIL / SCREENER_PASSWORD - the universe is the Nifty 500 and F&O stocks, not filtered by market cap")
+        if mcap_min:
+            tradable = set(client.fetch_instrument_map())
+            on_nse = big & tradable
+            logger.info("Market-cap universe (> %d cr): %d screener symbols, %d tradable on NSE, %d of them outside the Nifty 500", config.MCAP_MIN_CR, len(big), len(on_nse), len(on_nse - set(sectors)))
+            outside = on_nse - set(sectors)
+            extra_sectors, extra_names = universe.fetch_extra_constituents()
+            for sym, industry in extra_sectors.items():
+                sectors.setdefault(sym, industry)
+            logger.info("Industry known for %d of the %d stocks outside the Nifty 500", len(outside & set(extra_sectors)), len(outside))
+            symbols = sorted(on_nse | fo)
+        else:
+            extra_names = {}
+            symbols = sorted(set(sectors) | fo)
         if limit:
             symbols = symbols[:limit]
         equity_map = data.build_instrument_map(client, symbols)
@@ -70,23 +99,11 @@ def main() -> None:
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
-    # The universe: only stocks above MCAP_MIN_CR (a screener.in custom screen). The leader trades keep every F&O stock (`frames_all`); a failed or short fetch leaves the universe as it was.
-    frames_all, mcap_min = frames, None
-    email, password = os.environ.get("SCREENER_EMAIL"), os.environ.get("SCREENER_PASSWORD")
-    if email and password:
-        try:
-            big = value_universe.fetch_screen_symbols(email, password, config.MCAP_SCREEN_QUERY)
-            if len(big) < config.MCAP_MIN_SYMBOLS:
-                raise RuntimeError(f"only {len(big)} symbols came back for the market-cap screen (fewer than {config.MCAP_MIN_SYMBOLS}) - the list looks cut short")
-            kept = {sym: df for sym, df in frames.items() if sym in big}
-            if len(kept) < 0.25 * len(frames):
-                raise RuntimeError(f"the market-cap screen matches only {len(kept)} of the {len(frames)} stocks - symbols probably do not line up")
-            logger.info("Market-cap filter (> %d cr): %d of %d stocks kept (%d F&O)", config.MCAP_MIN_CR, len(kept), len(frames), sum(1 for sym in kept if sym in fo))
-            frames, mcap_min = kept, config.MCAP_MIN_CR
-        except Exception as exc:  # noqa: BLE001 - the filter is skipped, not guessed
-            logger.warning("Market-cap filter skipped (%s) - the universe is unchanged", exc)
-    else:
-        logger.info("No SCREENER_EMAIL / SCREENER_PASSWORD - the universe is not filtered by market cap")
+    # The leader trades keep every F&O stock (`frames_all`); every other list is the market-cap universe.
+    frames_all = frames
+    if mcap_min:
+        frames = {sym: df for sym, df in frames_all.items() if sym in big}
+        logger.info("Market-cap filter (> %d cr): %d stocks in the universe (%d F&O); the leader trades keep all %d F&O stocks", mcap_min, len(frames), sum(1 for sym in frames if sym in fo), sum(1 for sym in frames_all if sym in fo))
     # Optional context for the selected stock - each source fails soft and the page says what is missing.
     series, macro_status = macro.fetch_global()
     for key, index_key in (("nifty", "NSE_INDEX|Nifty 50"), ("vix", "NSE_INDEX|India VIX")):
@@ -100,10 +117,10 @@ def main() -> None:
     logger.info("NSE events: %s", event_status)
     # Stock-specific context: company names for the news search, and fetchers that run only for the stocks that end up on the list.
     try:
-        names = universe.fetch_nifty500_names()
+        names = {**extra_names, **universe.fetch_nifty500_names()}
     except Exception as exc:  # noqa: BLE001
         logger.warning("Company names failed (%s) - the news search will use symbols", exc)
-        names = {}
+        names = dict(extra_names)
     session, ticker_cache, today = requests.Session(), {"^GSPC": series.get("spx")}, datetime.now(IST).date()
     stats = {"tickers": 0, "tickers_ok": 0, "news": 0, "news_ok": 0}
 
