@@ -2,8 +2,9 @@ name: Dashboard price action
 
 # Nightly after the close: weekly support zones and weekly breakouts for the dashboard's Price action view.
 on:
-  schedule:
-    - cron: "45 13 * * 1-5"   # 19:15 IST, after the swing build (separate Upstox logins)
+  workflow_run:
+    workflows: ["Dashboard swing"]       # the last of the chain: history (15:45 IST) -> swing -> price action, one Upstox login at a time
+    types: [completed]
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +15,20 @@ permissions:
   contents: write   # to publish to the dashboard-setups branch
 
 jobs:
+  gate:
+    # GitHub's cron can start hours late: a scheduled or chained run that lands in market hours (08:40-15:45 IST on weekdays) must not log in to Upstox (a second login cuts off the live dashboard's token).
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.t.outputs.go }}
+    steps:
+      - id: t
+        run: |
+          now=$(TZ=Asia/Kolkata date +%H%M); dow=$(TZ=Asia/Kolkata date +%u)
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$dow" -le 5 ] && [ "$now" -ge 0840 ] && [ "$now" -lt 1545 ]; then echo "go=false" >> "$GITHUB_OUTPUT"; echo "Market hours ($now IST) - not starting"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+
   run:
+    needs: gate
+    if: needs.gate.outputs.go == 'true' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.conclusion != 'cancelled'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

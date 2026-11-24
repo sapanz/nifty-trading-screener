@@ -572,7 +572,7 @@ evidence", not "proven useless"; re-run it as the replay history grows.
 
 The **Swing** tab applies the R-factor idea to daily charts, for holding
 periods of days, and is built once each evening after the close
-(`.github/workflows/dashboard_swing.yml`, 17:45 IST, `scripts/build_dashboard_swing.py`
+(`.github/workflows/dashboard_swing.yml`, started by the 15:45 IST history build, `scripts/build_dashboard_swing.py`
 -> `swing.json` on the `dashboard-swing` branch). F&O stocks only. Over the last
 5 sessions each stock is ranked on (1) the latest session's volume vs. the
 average of the 20 sessions before it, (2) open interest added, % and (3) price
@@ -656,7 +656,7 @@ what the Bullish / Bearish lists showed at any moment, use **Replay**: pick a da
 the **Strongest order blocks** panel, the Order block column / filter and the chart tab (candles up to that moment, zone, stop,
 levels from that day's candles) all show what the page would have shown then. The day files carry `ob` plus `ox`/`hx`/`lx`
 (open / high / low per slot) for F&O stocks that had a zone; days built before this show no panel until the history is rebuilt
-(nightly at 17:00 IST, or run "Dashboard history" by hand).
+(every weekday at 15:45 IST, or run "Dashboard history" by hand).
 
 ### More zone filters (Swing tab)
 
@@ -988,6 +988,8 @@ The header's **Update data** button runs the evening builds by hand instead of w
 - **No token:** each row opens that workflow's page on GitHub; press *Run workflow* there.
 - **With a token saved in this browser:** *Run now* starts the workflow through the GitHub API and the page follows it (queued / running / finished or failed); *Update all after the close* runs history → swing → price action one after another and offers a reload at the end. Create a fine-grained token at GitHub → Settings → Developer settings: only this repository, permission *Actions: read and write*, nothing else, short expiry. It is kept in the browser's local storage (never in the repository) and sent only to `api.github.com`; *Forget the saved token* removes it. Anyone who can read that browser's storage could use it to start this repository's workflows, so use it on devices you trust.
 
+**Schedule (15:45 IST).** The three evening builds run as one chain that starts at 15:45 IST on weekdays, 15 minutes after the close: *Dashboard history* is on the 15:45 IST cron (`15 10 * * 1-5` UTC); *Dashboard swing* starts when a scheduled history run completes and *Dashboard price action* starts when that swing run completes (`workflow_run`), so only one Upstox login runs at a time. A run started by hand (or by the page's buttons) does not trigger the next one - the page chains those itself. GitHub's cron is best-effort and has started this repository's runs hours late, so each workflow begins with a `gate` job that skips a scheduled or chained run that would start inside market hours (08:40-15:45 IST on weekdays). A chain takes about 45 minutes (history ~18, swing ~12, price action ~14), so the price action list and the forward log are updated around 16:30 IST. The "Nifty500 Signals" Telegram job keeps its own 17:07 IST schedule.
+
 The three builds log in to Upstox, and a second login cancels the first one's token, so the page never starts them **during market hours (08:40-15:45 IST on weekdays)** or while another Upstox job is running (it checks GitHub right before each start). The live refresher can only be started during market hours. The schedule is unchanged. (`?repo=owner/name` points the panel at another repository, e.g. when the page is served from a custom domain.)
 
 ### Login screen and encrypted data (optional)
@@ -1039,7 +1041,7 @@ highest-volume stocks - as they stood at any 5-minute mark of a recent
 session: pick a date and a time (every 5 minutes, 09:20-15:30; the time is the
 END of that candle), or step with the 5 min buttons, and filter by sector /
 F&O exactly as in Live. `.github/workflows/dashboard_history.yml` builds the
-data each weekday at 17:00 IST (`scripts/build_dashboard_history.py`): the last
+data each weekday at 15:45 IST (`scripts/build_dashboard_history.py`): the last
 ~20 sessions of 5-minute candles for the Nifty 500, one compact file per day
 (~0.5 MB each), force-pushed to the `dashboard-history` branch. The page
 rebuilds each view in the browser (price = that slot's close, volume = the sum
