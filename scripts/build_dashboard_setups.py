@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds the dashboard's Price action list after the close: weekly support zones and weekly breakouts (range, triangle, cup and handle)
 with a daily trigger, each with entry / stop / target, reward:risk, a probability measured on the history, and the reason
-(signals/price_action*.py). Universe = Nifty 500 plus every F&O stock. Published as setups.json + setups_candles.json on the
+(signals/price_action*.py). Universe = Nifty 500 plus every F&O stock. Published as setups.json + setups_candles.json (and sma_support.json, the Swing tab's SMA-support list) on the
 `dashboard-setups` branch.
 
   python scripts/build_dashboard_setups.py                      # needs UPSTOX_ACCESS_TOKEN
@@ -24,7 +24,7 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import data, macro, news, nse_events, peers, price_action_board, runtime, secure, universe  # noqa: E402
+from signals import data, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -126,6 +126,12 @@ def main() -> None:
     OUT_DIR.mkdir(exist_ok=True)
     secure.write_json(OUT_DIR / "setups.json", payload)
     secure.write_json(OUT_DIR / "setups_candles.json", candles)
+    try:                                                                  # the Swing tab's "Bullish SMA support" list (signals/sma_support.py); a failure here must not stop the rest
+        sma = sma_support.build(frames, sectors, fo, datetime.now(IST))
+        secure.write_json(OUT_DIR / "sma_support.json", sma)
+        logger.info("SMA support: %d setups (%d daily, %d weekly), %d sectors measured", len(sma["rows"]), sum(r["tf"] == "D" for r in sma["rows"]), sum(r["tf"] == "W" for r in sma["rows"]), sma["sectors"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SMA support list failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
     hist_dir = OUT_DIR / "setups_hist"
     (hist_dir / "c").mkdir(parents=True, exist_ok=True)

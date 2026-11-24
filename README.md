@@ -874,6 +874,42 @@ Backtest (6 years, 218 F&O stocks, 10,010 picks, 0.10% costs; the table in the p
 
 Every stop costs some return (momentum stocks are volatile and recover), so the 4 × ATR stop is a limit on a bad month (worst pick -43% to -30%), not a source of profit. Read it honestly: the data is **only the stocks in F&O today** (survivorship) over a mostly rising market, 2023 carried the total, 2026 so far is weak, and a market turn can cost 20-30% in a month. Unleveraged this is about 3% a month, nowhere near 20%.
 
+### Bullish SMA support (Swing tab)
+
+A section under the momentum tables for buying a pullback to a rising average, daily and weekly (`signals/sma_support.py`; the list is built by the **Price action** build because it needs the long candle history, published as `sma_support.json` on the `dashboard-setups` branch; the page loads it when you open the Swing tab; `?smas=<url>` overrides it for testing).
+
+| | Daily | Weekly |
+|---|---|---|
+| Average | 21-day SMA | 30-week SMA |
+| Clearly rising | higher than 3 sessions ago and up 1% or more over 10 sessions | higher than 4 weeks ago and up 1% or more over 8 weeks |
+| Up-trend | 21-day above the 50-day and the close above the 50-day | the close above it and the average above where it was 20 weeks ago |
+| Green candle near it | green, closes at or above the average, low within 1.5% above it (not more than 3% below) | green, closes at or above it, low within 3% above it (not more than 5% below) |
+| Sector support | the sector (an equal-weight index of its stocks, 3 or more) above its own 21-day average, and that average rising over 5 days | above its own 30-week average, rising over 4 weeks |
+| Volume support (the "20d volume" check) | signal candle's volume / the average of the 20 sessions before it | the week's volume / the average of the 20 weeks before it |
+| Buy | buy-stop above the green candle's high, next session only | above the weekly high, any session of the next week |
+| Stop | below the candle's low (0.1% buffer) | below the weekly low |
+| Target | the next weekly resistance (capped at 4R) when it pays at least 1.5R, else 3R, so reward : risk is never under 1.5 | same |
+| Risk limits | 0.5% - 8% | 1% - 8% |
+
+Controls: timeframe, **Sector support** (Required / Off), **Volume vs 20-avg** (tested default - daily 1.5x, weekly 1.2x / Off / 1.0x / 1.2x / 1.5x / 2x), F&O only, sort. A row opens a chart with the average, the green candle, the buy / stop / target box. Daily: the signal candle is one of the last 3 sessions (waiting while it is the last candle, triggered when the next session traded above its high and neither the stop nor the target was reached since); weekly: the last completed weeks; the latest signal per stock and timeframe.
+
+**6-year backtest** (`scripts/backtest_sma_support.py`, 218 F&O stocks, Dec 2021 - Nov 2026, order mechanics as above, stop first, time exit after 20 sessions / 130 sessions, 0.10% costs; the sector index here is made of the F&O stocks, the live build uses the Nifty 500 too):
+
+| | Daily trades | ROI a trade | Won | Profit factor | Weekly trades | ROI a trade | Won | Profit factor |
+|---|---|---|---|---|---|---|---|---|
+| Every signal | 10,501 | +0.18% | 33% | 1.09 | 1,689 | +1.68% | 37% | 1.50 |
+| Sector supports | 7,549 | +0.24% | 34% | 1.12 | 1,327 | +1.64% | 37% | 1.49 |
+| Sector does not support | 2,952 | +0.01% | 32% | 1.01 | 362 | +1.84% | 37% | 1.52 |
+| Sector + volume at least 1.0x | 2,607 | +0.47% | 37% | 1.21 | 373 | +2.21% | 39% | 1.63 |
+| Sector + volume at least 1.2x | 1,769 | +0.61% | 38% | 1.25 | 195 | +3.26% | 44% | 1.95 |
+| **Sector + volume at least 1.5x** | **1,083** | **+0.94%** | **41%** | **1.39** | 73 | +4.86% | 52% | 2.58 |
+| Sector + volume at least 2x | 565 | +1.37% | 45% | 1.58 | 16 | +5.30% | 56% | 2.88 |
+| Sector + volume under 1.0x | 4,942 | +0.12% | 32% | 1.07 | 954 | +1.42% | 36% | 1.43 |
+
+The tested defaults are daily volume at least 1.5x (1,083 trades) and weekly at least 1.2x (195 trades; 1.5x has only 73). **The volume is the condition that matters**: the return rises step by step with it in both timeframes, while the sector filter helps the daily trade a little (+0.24% against +0.01%) and does not help the weekly one. By year, the daily rule: 2021 +1.41%, 2022 -0.31%, 2023 +2.42%, 2024 +0.73%, 2025 +0.67%, 2026 -2.09% (4 of 6 years positive); weekly: -0.30%, -0.83%, +8.02%, +0.45%, +2.58%, -2.90%. Selected on 2021-2023 and left alone for 2024-2026: daily +1.43% then **+0.25%** (447 trades), weekly +5.87% then **+0.51%** (95 trades) - a good part of the headline is 2023. A month-block bootstrap puts the daily average between +0.42% and +1.38% a trade (positive in every resample) and the weekly between +1.32% and +4.69%. The target choice made little difference: when a resistance was closer than 3R and paid at least 1.5R it did better (daily +1.23% against +0.88%), but those are 193 of 1,083 trades.
+
+Caveats, as with every long test here: the stocks are today's F&O list (survivors) in a market that rose, so the same trades earned about the same as the equal-weight index of these stocks over the same days (daily -0.05%, weekly -0.46% against it) - the rule picks entries, it does not beat holding the index; weekly trades are held a median of about 22 sessions (about a month, up to 130) and risk about 5% each (4-8%). Paper-trade first.
+
 ### Movers watchlist (Swing tab)
 
 Below the momentum lists, the ten stocks with the **widest daily range** (14-session average high-low range as a % of price, liquid F&O stocks only) - the ones *capable* of a 10-12% move in the next ~10 sessions, up or down. Each card shows the range, a squeeze tag (the last 10 sessions' range against the last 50: `squeezed` / `normal` / `expanding`), the 20-day move, where price sits in its 20-day range and turnover. `signals/movers.py` is the reference (the page has a JS twin checked against it); change **As of** to see any past close.
