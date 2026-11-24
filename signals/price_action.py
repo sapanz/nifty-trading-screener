@@ -1,6 +1,6 @@
 """Price-action setups: weekly structure, traded on the daily chart (long side, plus the bearish setups below).
 
-Eight kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
+Eleven kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
   multiyear a close above the highest weekly high of the last 2-5 years, set at least 52 weeks ago (a high more than a year old).
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
@@ -13,9 +13,11 @@ Eight kinds, all found on COMPLETED weekly candles and triggered by a DAILY clos
             "cf": a daily falling-resistance trendline runs through the zone (+/- 1%), the Swing tab's confluence.
   flag (short)  SHORT, F&O only: bear flag - a fall of 20%+ in 8 weeks or fewer, then a 2-6 week bounce that keeps more than half of it; trigger = a daily close below the fall's low.
   trendline     SHORT, F&O only: a rising daily trendline through at least 3 swing lows (signals/trendlines.find_break, daily settings) is broken by a red daily close.
-Removed after the 6-year backtest (see the README, "Removed tools"): W / M patterns, head and shoulders, triple tops and bottoms, bull flags, reversal
-candles at a zone and the bearish halt-zone continuation - they lost money or showed no edge. The shorts above are back at the user's request, with their
-losing record shown next to them.
+  double / triple / hs / flag  the reversal and continuation shapes, restored at the user's request: W pattern / M pattern (double bottom / top), triple bottom / top,
+            inverse head and shoulders / head and shoulders, bull flag / bear flag. Long = a daily close above the neckline (or the flag's pole top); the bearish twin
+            (SHORT, F&O only) is the SAME detector on inverted prices, a daily close below the neckline.
+Removed after the 6-year backtest (see the README, "Removed tools"): reversal candles at a zone and the bearish halt-zone continuation. Every kind listed
+here lost money or showed no edge except the multi-year breakout (and, barely, the bull flag, triangle and weekly support zone) - the record is shown beside each setup.
 
 Plan for every setup: entry at the next open after the trigger close (the list shows the trigger close as the reference), stop just below the
 zone / back inside the pattern (the lower of the breakout level and the trigger day's low), target = the next weekly resistance above the
@@ -37,10 +39,12 @@ from signals.trendlines import daily_params, find_break, swing_lows
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline")
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline", "double", "hs", "triple")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
          ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)",
-         ("zone", "short"): "Weekly resistance zone (short)", ("flag", "short"): "Bear flag (short)", ("trendline", "short"): "Trendline breakdown (short)"}
+         ("zone", "short"): "Weekly resistance zone (short)", ("flag", "short"): "Bear flag (short)", ("trendline", "short"): "Trendline breakdown (short)",
+         ("flag", "long"): "Bull flag", ("double", "long"): "W pattern (double bottom)", ("double", "short"): "M pattern (double top)",
+         ("hs", "long"): "Inverse head and shoulders", ("hs", "short"): "Head and shoulders", ("triple", "long"): "Triple bottom", ("triple", "short"): "Triple top"}
 KIND_NAMES = {k: next(n for (kk, _), n in NAMES.items() if kk == k) for k in KINDS}    # the name of each kind (its long side when it has one)
 
 
@@ -194,6 +198,72 @@ def multiyear_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params)
             "pts": [(t, float(level)), (b, float(L[b]))], "neck": (t, float(level), w + 1, float(level)), "years": n / 52}
 
 
+def double_bottom_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """W: two weekly swing lows within 4% of each other, 4-40 weeks apart, a peak at least 8% above them in between (the neckline), reached from above."""
+    pl = _pivots(L, 2, max(0, w - 60), w, False)
+    if len(pl) < 2 or w - pl[-1] > 12:
+        return None
+    b2 = pl[-1]
+    for b1 in reversed(pl[:-1]):
+        if b2 - b1 < 4:
+            continue
+        if b2 - b1 > 40 or b1 < 4:
+            break
+        low = min(L[b1], L[b2])
+        m = b1 + 1 + int(np.argmax(H[b1 + 1:b2]))                  # the rebound high strictly between the two lows (not the high of a low's own week)
+        neck = H[m]
+        if abs(L[b1] / L[b2] - 1) > 0.04 or neck / low - 1 < 0.08 or L[b1:w + 1].min() < low * 0.985 or C[b2:w + 1].max() > neck:
+            continue
+        if H[max(0, b1 - 26):b1].max() < neck:                     # it has to come after a fall from above the neckline
+            continue
+        return {"level": float(neck), "base": float(low), "hfrom": float(low), "hto": float(neck), "start": b1, "end": w, "weeks": w - b1 + 1,
+                "pts": [(b1, float(L[b1])), (m, float(neck)), (b2, float(L[b2]))], "neck": (m, float(neck), w + 1, float(neck)), "gap": b2 - b1}
+    return None
+
+
+def triple_bottom_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Three weekly swing lows within 4% of each other; the neckline is the highest point between them."""
+    pl = _pivots(L, 2, max(0, w - 70), w, False)
+    if len(pl) < 3:
+        return None
+    b1, b2, b3 = pl[-3:]
+    if w - b3 > 12 or b2 - b1 < 3 or b3 - b2 < 3 or b1 < 4:
+        return None
+    lows = L[[b1, b2, b3]]
+    low = lows.min()
+    m1, m2 = b1 + 1 + int(np.argmax(H[b1 + 1:b2])), b2 + 1 + int(np.argmax(H[b2 + 1:b3]))      # the two rebound highs, strictly between the lows
+    m = m1 if H[m1] >= H[m2] else m2
+    neck = H[m]
+    if lows.max() / low - 1 > 0.04 or neck / low - 1 < 0.08 or L[b1:w + 1].min() < low * 0.985 or C[b3:w + 1].max() > neck or H[max(0, b1 - 26):b1].max() < neck:
+        return None
+    return {"level": float(neck), "base": float(low), "hfrom": float(low), "hto": float(neck), "start": b1, "end": w, "weeks": w - b1 + 1,
+            "pts": [(b1, float(L[b1])), (m1, float(H[m1])), (b2, float(L[b2])), (m2, float(H[m2])), (b3, float(L[b3]))], "neck": (m, float(neck), w + 1, float(neck))}
+
+
+def inv_head_shoulders_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Three weekly swing lows, the middle one (head) at least 3% below both shoulders, shoulders within 8% of each other; the neckline joins the two
+    peaks in between and the level is that line carried to next week."""
+    pl = _pivots(L, 2, max(0, w - 70), w, False)
+    if len(pl) < 3:
+        return None
+    ls, hd, rs = pl[-3:]
+    if w - rs > 10 or hd - ls < 3 or rs - hd < 3 or ls < 4 or not (1 / 3 <= (hd - ls) / (rs - hd) <= 3):
+        return None
+    if L[hd] > min(L[ls], L[rs]) * 0.97 or abs(L[ls] / L[rs] - 1) > 0.08:
+        return None
+    n1, n2 = ls + 1 + int(np.argmax(H[ls + 1:hd])), hd + 1 + int(np.argmax(H[hd + 1:rs]))      # the two rebound highs, strictly between the lows
+    if n2 <= n1 or abs(H[n2] / H[n1] - 1) > 0.10:
+        return None
+    slope = (H[n2] - H[n1]) / (n2 - n1)
+    line = lambda x: H[n1] + slope * (x - n1)                       # noqa: E731
+    if line(hd) / L[hd] - 1 < 0.10 or L[hd:w + 1].min() < L[hd] or (C[rs:w + 1] > line(np.arange(rs, w + 1))).any() or H[max(0, ls - 26):ls].max() < line(ls):
+        return None
+    level = float(line(w + 1))
+    return {"level": level, "base": float(L[hd]), "hfrom": float(L[hd]), "hto": float(line(hd)), "start": ls, "end": w, "weeks": w - ls + 1,
+            "pts": [(ls, float(L[ls])), (n1, float(H[n1])), (hd, float(L[hd])), (n2, float(H[n2])), (rs, float(L[rs]))], "neck": (n1, float(H[n1]), w + 1, level),
+            "shoulders": (float(L[ls]), float(L[rs]))}
+
+
 def flag_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
     """Bull flag (run on inverted prices it finds the bear flag): a pole of at least 20% in 8 weeks or fewer, then 2-6 weeks that pull back 3% or more but give up no more than half the pole."""
     for f in range(2, 7):
@@ -222,21 +292,34 @@ def _unmirror(pat: dict) -> dict:
     out["neck"] = (x0, 1.0 / y0, x1, 1.0 / y1)
     if "shoulders" in pat:
         out["shoulders"] = tuple(1.0 / v for v in pat["shoulders"])
+    if "shoulders" in pat:
+        out["shoulders"] = tuple(1.0 / v for v in pat["shoulders"])
     return out
 
 
 def describe(kind: str, side: str, pat: dict) -> str:
-    """The reason in words (real prices): the multi-year breakout and the bear flag, the 'new-style' patterns."""
-    if kind == "flag":
-        move = abs(pat["hto"] / pat["hfrom"] - 1) * 100
-        return (f"{'bull' if side == 'long' else 'bear'} flag: a {move:.0f}% {'rise' if side == 'long' else 'fall'} in {pat['pole_weeks']} weeks, then a {pat['flag_weeks']}-week "
-                f"{'pullback' if side == 'long' else 'bounce'} to {pat['base']:,.1f} that kept more than half of it")
-    level, base, weeks = pat["level"], pat["base"], pat["end"] - pat["start"]
-    return f"{pat['years']:.0f}-year high {level:,.1f}, set {weeks} weeks ago (about {weeks / 4.345:.0f} months); the base since then went down to {base:,.1f}"
+    """The reason in words (real prices) for the 'new-style' patterns."""
+    long = side == "long"
+    level, base, move = pat["level"], pat["base"], abs(pat["hto"] / pat["hfrom"] - 1) * 100
+    if kind == "multiyear":
+        weeks = pat["end"] - pat["start"]
+        return f"{pat['years']:.0f}-year high {level:,.1f}, set {weeks} weeks ago (about {weeks / 4.345:.0f} months); the base since then went down to {base:,.1f}"
+    if kind == "double":
+        return (f"{'W pattern: two lows' if long else 'M pattern: two highs'} near {base:,.1f}, {pat['gap']} weeks apart, with a {'peak' if long else 'trough'} "
+                f"{move:.0f}% {'above' if long else 'below'} them - the neckline {level:,.1f}")
+    if kind == "triple":
+        return f"{'triple bottom: three lows' if long else 'triple top: three highs'} near {base:,.1f} over {pat['weeks']} weeks, neckline {level:,.1f}"
+    if kind == "hs":
+        a, b = pat["shoulders"]
+        return (f"{'inverse head and shoulders' if long else 'head and shoulders'} over {pat['weeks']} weeks: head {base:,.1f}, shoulders {a:,.1f} and {b:,.1f}, "
+                f"neckline now {level:,.1f}")
+    return (f"{'bull' if long else 'bear'} flag: a {move:.0f}% {'rise' if long else 'fall'} in {pat['pole_weeks']} weeks, then a {pat['flag_weeks']}-week "
+            f"{'pullback' if long else 'bounce'} to {base:,.1f} that kept more than half of it")
 
 
 # (kind, side, detector, new-style): the old-style detectors return `height` / `why` themselves.
-PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at, False), ("cup", "long", cup_at, False), ("multiyear", "long", multiyear_at, True), ("flag", "short", flag_at, True)]
+PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at, False), ("cup", "long", cup_at, False), ("multiyear", "long", multiyear_at, True)] + [
+    (kind, side, fn, True) for kind, fn in (("hs", inv_head_shoulders_at), ("triple", triple_bottom_at), ("double", double_bottom_at), ("flag", flag_at)) for side in ("long", "short")]
 DETECTORS = {"range": range_at, "triangle": triangle_at, "cup": cup_at}
 
 
@@ -245,6 +328,8 @@ def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Param
     found: dict[tuple[str, str], dict] = {}
     inv = None
     for kind, side, fn, new in PATTERNS:
+        if (kind == "triple" and ("hs", side) in found) or (kind == "double" and (("hs", side) in found or ("triple", side) in found)):
+            continue                                              # the same lows / highs are already named by the bigger shape
         if side == "long":
             pat = fn(wH, wL, wC, w, p)
         else:                                                      # a short is the long detector on inverted prices (high <-> 1/low), turned back into real prices

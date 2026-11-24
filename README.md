@@ -720,14 +720,25 @@ To keep the dashboard clean, the tools that lost money or showed no edge in the 
 | Setup | Setups | ROI a trade | R a trade | Won | Profit factor |
 |---|---|---|---|---|---|
 | Bear flag (short) | 183 | -1.92% | -0.46R | 14% | 0.43 |
+| Head and shoulders (short) | 35 | -2.68% | -0.67R | 11% | 0.24 |
 | Range breakdown retest (short) | 419 | -0.71% | -0.18R | 25% | 0.76 |
+| Triple top (short) | 82 | -0.74% | -0.10R | 24% | 0.73 |
+| M pattern (short) | 258 | -0.60% | -0.05R | 26% | 0.79 |
+| Weekly resistance zone (short) | 82 | -0.60% | -0.10R | 39% | 0.84 |
 | Trendline breakdown (short) | 313 | -0.42% | -0.13R | 31% | 0.86 |
-| Weekly resistance zone (short) | 71 | -0.21% | -0.02R | 42% | 0.94 |
-| - of which with a trendline through the zone | 3 | +4.33% | +0.71R | 100% | - |
-| All shorts | 986 | -0.81% | -0.21R | 26% | 0.74 |
-| All longs (for comparison) | 1,752 | +0.58% | +0.12R | 29% | 1.21 |
+| - of which a trendline runs through the zone | 4 | +6.19% | +1.03R | 100% | - |
+| All shorts | 1,372 | -0.83% | -0.19R | 25% | 0.73 |
+| Triple bottom (long) | 69 | -1.62% | -0.31R | 23% | 0.45 |
+| Inverse head and shoulders (long) | 36 | -0.97% | -0.21R | 25% | 0.69 |
+| W pattern (long) | 200 | -0.50% | -0.15R | 29% | 0.82 |
+| Bull flag (long) | 416 | +0.80% | +0.07R | 23% | 1.24 |
+| Triangle breakout (long) | 275 | +0.36% | +0.10R | 35% | 1.14 |
+| Multi-year breakout (long) | 103 | +3.97% | +1.30R | 20% | 2.06 |
+| All longs (for comparison) | 2,473 | +0.45% | +0.07R | 28% | 1.15 |
 
-Shorts lost again: every bearish kind is negative overall, the bear flag by a wide margin (negative in all six years); the zone is closest to break-even (positive in 3 of 6 years, 2024 +0.67R, 2026 -0.51R) and the 3 zone + trendline cases are far too few to trust. Against the equal-weight index of these stocks, which drifted up +0.94% over the average holding window, the hedged results are zone +1.89%, trendline +0.64%, bear flag -0.90%; that is a statement about stock-versus-index, not a tradable edge, because the hedge is not free. Shown for study and paper-trading.
+*The W / M, head and shoulders, triple and bull / bear flag patterns were restored on request too* (the reversal shapes are found on weekly candles and trigger on a daily close beyond the neckline; the bearish twin is the same detector on inverted prices).
+
+Shorts lost again: every bearish kind is negative overall, the head and shoulders and bear flag by a wide margin (the bear flag negative in all six years); the zone and the M pattern are closest to break-even and the 4 zone + trendline cases are far too few to trust. Among the longs only the bull flag, the triangle and the multi-year breakout are positive. Against the equal-weight index of these stocks, which drifted up +0.87% over the average holding window, the hedged results are zone +1.32%, trendline +0.64%, bear flag -0.90%; that is a statement about stock-versus-index, not a tradable edge, because the hedge is not free. Shown for study and paper-trading.
 
 **Failed breakdown (bear trap) long - tested, no edge** (`scripts/backtest_failed_breakdown.py`, Nov 2026). Since every short lost money even when hedged with the index, the mirror idea was tested: a base's floor breaks on a daily close, then price closes back above the floor within a few sessions - buy that reclaim (stop under the trap's low, target the next resistance or the base's height, next-open entry, 0.10% costs). 954 trades (reclaim within 10 sessions): **+0.04% a trade, profit factor 0.93, 31% reached the target**; the index gained +0.43% over the same days, so hedged it is -0.4%. Other windows (3 / 5 / 20 sessions) and a stricter reclaim (above the band's top) gave +0.1% to -0.03% and the same hedged result. By year +1.3, +0.3, +1.6, +0.3, -0.3, -1.0%. So broken floors were followed by roughly market-like moves, not by a bounce worth buying - it was not added to the dashboard.
 
@@ -735,7 +746,7 @@ Kept: the Momentum top-10 long strategy, the Multi-year breakout, the weekly sup
 
 ### Price action (the fourth mode)
 
-**Price action** lists weekly-structure setups with a daily trigger - long setups, plus four bearish ones for F&O stocks (bear flag, weekly resistance zone, trendline breakdown, range breakdown retest - each with its losing record; see "Removed tools"); several weak shapes were removed - for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
+**Price action** lists weekly-structure setups with a daily trigger - long setups and the bearish ones for F&O stocks (bear flag, weekly resistance zone, trendline breakdown, range breakdown retest, M pattern, head and shoulders, triple top - each with its record; see "Removed tools"), W pattern, inverse head and shoulders, triple bottom and bull flag included, but not the reversal-candle or halt-zone setups - for the Nifty 500 plus every F&O stock, built each evening by `scripts/build_dashboard_setups.py` (workflow **Dashboard price action**, `setups.json` + `setups_candles.json` on the `dashboard-setups` branch):
 
 | Setup | Structure (completed weekly candles) | Trigger (daily) |
 |---|---|---|

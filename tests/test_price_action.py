@@ -372,6 +372,55 @@ W_KNOTS = [(0, 130), (20, 100), (26, 115), (32, 101), (36, 108)]
 M_KNOTS = [(0, 70), (20, 100), (26, 87), (32, 99), (36, 93)]
 
 
+def test_w_pattern_is_two_equal_lows_with_the_neckline_between():
+    f = _found(W_KNOTS)
+    w = f[("double", "long")]
+    assert abs(w["level"] - 115 * 1.01) < 1e-6 and abs(w["base"] - 100 * 0.99) < 1e-6 and w["gap"] == 12 and abs(w["height"] - (w["level"] - w["base"])) < 1e-9
+    assert [x for x, _ in w["pts"]] == [20, 26, 32] and "W pattern" in w["why"] and ("double", "short") not in f
+
+
+def test_m_pattern_is_the_mirror_and_comes_back_in_real_prices():
+    f = _found(M_KNOTS)
+    m = f[("double", "short")]
+    assert abs(m["level"] - 87 * 0.99) < 1e-6 and abs(m["base"] - 100 * 1.01) < 1e-6          # neckline = the trough's low, base = the higher top
+    assert m["level"] < m["base"] and abs(m["height"] - (m["base"] - m["level"])) < 1e-9 and "M pattern: two highs" in m["why"] and ("double", "long") not in f
+    assert [round(v, 2) for _, v in m["pts"]] == [101.0, 86.13, 99.99]
+
+
+def test_no_w_when_the_lows_differ_or_price_is_already_through():
+    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 107), (36, 110)])     # second low 7% higher
+    assert ("double", "long") not in _found([(0, 130), (20, 100), (26, 115), (32, 101), (36, 119)])     # already closed above the neckline
+    assert ("double", "long") not in _found([(0, 101), (20, 100), (26, 115), (32, 101), (36, 108)])     # no fall into it: not a reversal
+
+
+def test_head_and_shoulders_both_ways_and_it_outranks_the_smaller_shapes():
+    f = _found([(0, 130), (20, 100), (24, 110), (28, 90), (32, 111), (36, 99), (39, 105)])
+    h = f[("hs", "long")]
+    assert abs(h["base"] - 90 * 0.99) < 1e-6 and 111 < h["level"] < 114 and [x for x, _ in h["pts"]] == [20, 24, 28, 32, 36] and "inverse head and shoulders" in h["why"]
+    assert ("triple", "long") not in f and ("double", "long") not in f
+    f = _found([(0, 70), (20, 100), (24, 91), (28, 111), (32, 90), (36, 101), (39, 95)])
+    h = f[("hs", "short")]
+    assert abs(h["base"] - 111 * 1.01) < 1e-6 and 87 < h["level"] < 91 and h["why"].startswith("head and shoulders") and h["height"] > 15
+
+
+def test_triple_bottom_and_triple_top():
+    f = _found([(0, 130), (16, 100), (21, 112), (26, 101), (31, 113), (36, 100.5), (39, 106)])
+    t = f[("triple", "long")]
+    assert abs(t["level"] - 113 * 1.01) < 1e-6 and abs(t["base"] - 99.0) < 1e-6 and len(t["pts"]) == 5 and ("hs", "long") not in f and ("double", "long") not in f
+    f = _found([(0, 70), (16, 100), (21, 89), (26, 99), (31, 88), (36, 99.5), (39, 94)])
+    assert abs(f[("triple", "short")]["level"] - 88 * 0.99) < 1e-6 and "triple top: three highs" in f[("triple", "short")]["why"]
+
+
+def test_bull_and_bear_flag_use_the_real_pole_top():
+    f = _found([(0, 100), (30, 100), (36, 130), (39, 124)])
+    b = f[("flag", "long")]
+    assert abs(b["level"] - 130 * 1.01) < 1e-6 and b["pts"][1][0] == 36 and b["flag_weeks"] == 3 and abs(b["height"] - (131.3 - 99.0)) < 1e-6 and "bull flag" in b["why"]
+    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 130), (39, 112)])                 # gave back more than half the pole
+    assert ("flag", "long") not in _found([(0, 100), (30, 100), (36, 112), (39, 108)])                 # a 12% pole is not a pole
+    f = _found([(0, 100), (30, 100), (36, 72), (39, 76)])
+    assert abs(f[("flag", "short")]["level"] - 72 * 0.99) < 1e-6 and "bear flag" in f[("flag", "short")]["why"] and f[("flag", "short")]["height"] > 25
+
+
 def test_multi_year_breakout_needs_an_old_high_and_a_close_near_it():
     f = _found([(0, 100), (60, 200), (100, 150), (149, 190)])
     m = f[("multiyear", "long")]

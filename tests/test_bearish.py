@@ -69,6 +69,12 @@ def test_bearish_rows_get_a_probability_model_like_the_long_ones():
 def test_the_page_lists_the_bearish_kinds_with_a_direction_and_a_zone_trendline_filter():
     from pathlib import Path
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('value="flag">Bear flag (short)', 'value="trendline">Trendline breakdown (short)', 'id="paSide"', 'id="paCf"', 's.kind === "trendline" && g.line',
+    for needle in ('value="flag">Bull / bear flag', 'value="trendline">Trendline breakdown (short)', 'id="paSide"', 'id="paCf"', 's.kind === "trendline" && g.line',
                    '(state.paSide === "all" || (s.side || "long") === state.paSide) && (!state.paCf || s.cf)'):
         assert needle in html, needle
+
+
+def test_each_restored_kind_has_a_name_on_both_sides():
+    for kind in ("double", "hs", "triple", "flag"):
+        assert (kind, "long") in pa.NAMES and (kind, "short") in pa.NAMES
+    assert pa.NAMES[("hs", "short")] == "Head and shoulders" and pa.NAMES[("triple", "short")] == "Triple top"
