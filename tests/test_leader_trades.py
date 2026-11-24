@@ -72,3 +72,19 @@ def test_the_page_has_the_leader_trades_section():
     for needle in ('id="leaderTr"', 'id="ltViewNow"', "Holding now", 'id="ltViewHist"', "function renderLeaderTrades", "function ltChart", 'liveJson("leader_trades.json", "dashboard-setups")', '"leader"', "leader_hist/c/"):
         assert needle in html, needle
     assert "leader_trades" in (root / "scripts" / "build_dashboard_setups.py").read_text()
+
+
+def test_the_break_entry_buys_only_above_the_signal_high_within_the_window():
+    frames = _universe(seed=5)
+    tr, dates, _ = lt.trades(frames, set(frames), entry="break", window=2)
+    assert tr
+    for t in tr:
+        f = frames[t["symbol"]]
+        i = [d.strftime("%Y-%m-%d") for d in f.index].index(dates[t["sig"]])
+        high = f["high"].to_numpy()
+        assert t["sig"] < t["ent"] <= t["sig"] + 2 and t["entry"] >= high[i] - 1e-9          # filled at the high, or at the open on a gap over it
+        assert abs(t["stop"] - t["entry"] * (1 - momentum.STOP_ATR * t["atr"] / 100)) < 1e-6 and t["ext"] <= t["sig"] + momentum.HOLD_SESSIONS
+    one = lt.trades(frames, set(frames), entry="break", window=1)[0]
+    assert all(t["ent"] == t["sig"] + 1 for t in one) and len(one) <= len(tr) + len(one)
+    anchored, _, _ = lt.trades(frames, set(frames), entry="break", window=3, anchor="entry")
+    assert anchored and all(t["ext"] <= t["ent"] + momentum.HOLD_SESSIONS - 1 for t in anchored)

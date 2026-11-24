@@ -945,6 +945,19 @@ Rules (`signals/leader_trades.py`, which reuses the Momentum strategy's constant
 
 **Backtest** (`scripts/backtest_leaders.py`, 218 F&O stocks, Nov 2020 - Nov 2026): 636 closed trades, **+3.92% a trade, 56% won, 7% stopped out, profit factor 2.00**, median +1.89%, worst -26.1%; 2021 +2.44%, 2022 +2.14%, 2023 +8.90% (133 trades), 2024 +4.12%, 2025 +1.50%, 2026 +1.89%; selected on 2021-23 +4.62%, the untouched 2024-26 **+2.90%** (258 trades); a month-block bootstrap puts the average between +2.72% and +5.09% (positive in every resample). Against the equal-weight index over the same days (+1.92% a trade) the edge was +2.00% a trade. Caveats as before: today's F&O stocks, a rising market, wide stops (about 21% on average, so size from the stop), about 1.4 leaders a day (119 distinct stocks), and 2023 carried the average.
 
+**Does buying only after the signal candle's high breaks help? (tested, Nov 2026).** `leader_trades.trades(entry="break", window=N)` buys with a buy-stop above the signal day's high (good for N sessions; filled at the high, or at the open on a gap over it) instead of the next open; the stop (4 x ATR from the fill) and the exit (close of the 20th session after the signal) are the same. Same 218 F&O stocks, 6 years, one position per stock:
+
+| Entry | Trades | Average | Won | Profit factor | Untouched 2024-26 |
+|---|---|---|---|---|---|
+| Next open (the live rule) | 636 | +3.92% | 56% | 2.00 | +2.90% |
+| Buy-stop above the signal high, 1 session | 527 | +4.04% | 58% | 2.07 | +3.22% |
+| ... 2 sessions | 551 | +3.65% | 56% | 1.94 | +2.95% |
+| ... 3 sessions | 565 | +3.39% | 55% | 1.86 | +2.83% |
+| ... 5 sessions | 584 | +3.11% | 54% | 1.77 | +2.40% |
+| ... 1 session, skip fills more than 3% above the signal close | 502 | +4.33% | 57% | 2.19 | +3.56% |
+
+The observation is right as a *selection*: of the open-entry trades, those whose next session did break the signal high earned **+5.22%** (186 trades, 62% won) against **+3.39%** (450 trades, 53% won) for those that did not - and the trades that never broke the high within 3 sessions earned only +0.64%. But buying *at* the break does not capture that: the fill is about 0.8% above the open, and on the same 186 signals the break entry made +4.16% against +5.22% for the open entry (difference -1.06%, 90% interval -1.20% to -0.90%). Net, the break entry takes about 17% fewer trades for about the same average (+4.04% against +3.92%), and the total return summed over all signals is lower (+2,173 against +2,495 percentage points for the 3%-capped one-session version), because a missed signal earns nothing. The best variant (one session, 3% chase cap, +4.33%) is one of six looked at and not distinguishable from the live rule. The live rule stays the next open.
+
 ### Movers watchlist (Swing tab)
 
 Below the momentum lists, the ten stocks with the **widest daily range** (14-session average high-low range as a % of price, liquid F&O stocks only) - the ones *capable* of a 10-12% move in the next ~10 sessions, up or down. Each card shows the range, a squeeze tag (the last 10 sessions' range against the last 50: `squeezed` / `normal` / `expanding`), the 20-day move, where price sits in its 20-day range and turnover. `signals/movers.py` is the reference (the page has a JS twin checked against it); change **As of** to see any past close.

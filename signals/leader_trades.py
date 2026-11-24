@@ -28,9 +28,13 @@ def _percentile_rank(x: np.ndarray) -> np.ndarray:
     return r
 
 
-def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS) -> tuple[list[dict], list[str], dict]:
+def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS, entry: str = "open", window: int = 1, anchor: str = "signal",
+           chase_cap: float | None = None) -> tuple[list[dict], list[str], dict]:
     """(trades, dates, info) for the F&O stocks in `frames`. Each trade: symbol, sig (signal date index), entry / stop / exit prices and dates, out (stop / time / open),
-    net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}."""
+    net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}.
+    `entry` "open" (the default, the live rule) buys the next open; "break" buys only after price trades above the signal candle's high - a buy-stop good for `window`
+    sessions, filled at the high (or the open on a gap over it), skipped when that is more than `chase_cap` % above the signal close. `anchor` "signal" sells at the close of the
+    `hold`-th session after the signal; "entry" counts the sessions from the entry."""
     syms = sorted(s for s in frames if s in fo)
     dates = sorted({d for s in syms for d in pd.DatetimeIndex(frames[s].index).normalize()})
     didx = pd.DatetimeIndex(dates)
@@ -68,16 +72,27 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
         if not up[i] or i + 1 >= n:
             continue
         for mv_rank, j in leaders:
-            if held_until[j] >= i + 1 or np.isnan(O[i + 1, j]):
+            if entry == "open":                                                   # the Momentum strategy's entry: the next open (not above the gap cap)
+                if np.isnan(O[i + 1, j]):
+                    continue
+                e, ent_i = float(O[i + 1, j]), i + 1
+                if e > C[i, j] * (1 + momentum.GAP_CAP_PCT / 100):
+                    continue                                                      # gapped up more than the cap: the limit order does not fill
+            else:                                                                 # "break": a buy-stop above the signal candle's high, good for `window` sessions
+                level = float(H[i, j])
+                ent_i = next((k for k in range(i + 1, min(i + window, n - 1) + 1) if H[k, j] > level), None)
+                if ent_i is None:
+                    continue
+                e = max(float(O[ent_i, j]), level)                                # a gap over the high fills at the open
+                if chase_cap is not None and e > C[i, j] * (1 + chase_cap / 100):
+                    continue
+            if held_until[j] >= ent_i:
                 continue                                                          # still held from an earlier signal: no second position
-            e = float(O[i + 1, j])
-            if e > C[i, j] * (1 + momentum.GAP_CAP_PCT / 100):
-                continue                                                          # gapped up more than the cap: the limit order does not fill
             stop = e * (1 - momentum.STOP_ATR * atr[i, j] / 100)
-            end = i + hold
+            end = i + hold if anchor == "signal" else ent_i + hold - 1
             xi, xp, why = None, None, None
-            for k in range(i + 1, min(end, n - 1) + 1):
-                if k > i + 1 and O[k, j] <= stop:
+            for k in range(ent_i, min(end, n - 1) + 1):
+                if k > ent_i and O[k, j] <= stop:
                     xi, xp, why = k, float(O[k, j]), "stop"
                     break
                 if L[k, j] <= stop:
@@ -90,7 +105,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
                     xi, xp, why = n - 1, float(C[n - 1, j]), "open"
             held_until[j] = xi if why != "open" else n + hold
             pct = (xp / e - 1) * 100 - (COST_PCT if why != "open" else 0)
-            out.append({"symbol": syms[j], "sig": i, "ent": i + 1, "entry": e, "stop": float(stop), "ext": xi, "exit": xp, "out": OUT.index(why), "pct": float(pct),
+            out.append({"symbol": syms[j], "sig": i, "ent": ent_i, "entry": e, "stop": float(stop), "ext": xi, "exit": xp, "out": OUT.index(why), "pct": float(pct),
                         "mv": mv_rank, "mom": mom_rank[j], "atr": float(atr[i, j]), "last": float(C[n - 1, j]), "sell_by": end})
     info = {"asof": dates[-1].strftime("%Y-%m-%d"), "market_up": bool(up[-1]), "leaders_today": leaders_today}
     return out, [d.strftime("%Y-%m-%d") for d in dates], info
