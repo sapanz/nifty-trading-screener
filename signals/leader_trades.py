@@ -18,7 +18,7 @@ from signals import momentum, movers
 COST_PCT = 0.10
 EPOCH = pd.Timestamp("2000-01-01")
 COLS = ["s", "sig", "ent", "entry", "stop", "ext", "exit", "out", "pct", "mv", "mom", "atr", "last"]      # out: 0 stop / 1 time exit / 2 still held (exit = the last close)
-OUT = ["stop", "time", "open"]
+OUT = ["stop", "time", "open", "target"]
 
 
 def _percentile_rank(x: np.ndarray) -> np.ndarray:
@@ -30,14 +30,14 @@ def _percentile_rank(x: np.ndarray) -> np.ndarray:
 
 def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS, entry: str = "open", window: int = 1, anchor: str = "signal",
            chase_cap: float | None = None, stop_atr: float | None = None, max_atr: float | None = None, max_ret20: float | None = None,
-           trail_atr: float | None = None, gate_exit: bool = False, top_n: int | None = None, pool: int | None = None) -> tuple[list[dict], list[str], dict]:
+           trail_atr: float | None = None, gate_exit: bool = False, top_n: int | None = None, pool: int | None = None, target_atr: float | None = None) -> tuple[list[dict], list[str], dict]:
     """(trades, dates, info) for the F&O stocks in `frames`. Each trade: symbol, sig (signal date index), entry / stop / exit prices and dates, out (stop / time / open),
     net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}.
     `entry` "open" (the default, the live rule) buys the next open; "break" buys only after price trades above the signal candle's high - a buy-stop good for `window`
     sessions, filled at the high (or the open on a gap over it), skipped when that is more than `chase_cap` % above the signal close. `anchor` "signal" sells at the close of the
     `hold`-th session after the signal; "entry" counts the sessions from the entry.
     Research options (all off = the live rule): `stop_atr` overrides the stop distance in ATRs; `max_atr` skips signals whose ATR% is above it; `max_ret20` skips stocks that rose more than
-    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average; `top_n` / `pool` replace the Movers list size and the momentum pool (10 / 30) - a wider universe may want more of both."""
+    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average; `target_atr` also sells at that many ATRs above the entry (a gap over it fills at the open; the stop is checked first); `top_n` / `pool` replace the Movers list size and the momentum pool (10 / 30) - a wider universe may want more of both."""
     syms = sorted(s for s in frames if s in fo)
     dates = sorted({d for s in syms for d in pd.DatetimeIndex(frames[s].index).normalize()})
     didx = pd.DatetimeIndex(dates)
@@ -107,6 +107,11 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
                 if L[k, j] <= stop:
                     xi, xp, why = k, float(stop), "stop"
                     break
+                if target_atr is not None:
+                    tgt = e * (1 + target_atr * atr[i, j] / 100)
+                    if H[k, j] >= tgt:
+                        xi, xp, why = k, float(max(tgt, O[k, j]) if k > ent_i else tgt), "target"
+                        break
                 if gate_exit and not up[k] and k < end:
                     xi, xp, why = k, float(C[k, j]), "time"
                     break
