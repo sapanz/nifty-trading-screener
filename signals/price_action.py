@@ -41,7 +41,7 @@ from signals.weekly_zone_backtest import find_zones, weekly_bars
 
 KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline", "double", "hs", "triple")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
-         ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)",
+         ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)", ("retest", "long"): "Breakout retest",
          ("zone", "short"): "Weekly resistance zone (short)", ("flag", "short"): "Bear flag (short)", ("trendline", "short"): "Trendline breakdown (short)",
          ("flag", "long"): "Bull flag", ("double", "long"): "W pattern (double bottom)", ("double", "short"): "M pattern (double top)",
          ("hs", "long"): "Inverse head and shoulders", ("hs", "short"): "Head and shoulders", ("triple", "long"): "Triple bottom", ("triple", "short"): "Triple top"}
@@ -411,48 +411,116 @@ def retest_search(d: dict, atr: np.ndarray, floor: float, band_top: float, s0: i
     return None
 
 
-def retest_scan(d: dict, dates: pd.DatetimeIndex, wk_of: np.ndarray, wdates: pd.DatetimeIndex, wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, p: Params) -> tuple[list[dict], list[dict]]:
-    """Breakdown-retest shorts from weekly bases (`floor_at`). A weekly support zone that fails was tried as a second source and lost more (-2.3% a trade
-    against -0.7%), so it was dropped. Returns (triggers, pending) with the raw pieces; scan_stock plans them."""
+def _inv_d(d: dict) -> dict:
+    """The same candles on inverted prices (1 / price, high <-> low): a bullish structure there is its bearish twin, so each detector is written once."""
+    return {"o": 1.0 / d["o"], "h": 1.0 / d["l"], "l": 1.0 / d["h"], "c": 1.0 / d["c"], "v": d["v"]}
+
+
+def retest_scan(d: dict, dates: pd.DatetimeIndex, wk_of: np.ndarray, wdates: pd.DatetimeIndex, wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, p: Params,
+                side: str = "short", df: pd.DataFrame | None = None) -> tuple[list[dict], list[dict]]:
+    """Break and retest. SHORT: a structure that held price UP (a weekly base's floor, a weekly support zone, a rising trendline) is broken by a daily close,
+    price comes back to retest it from below and a candle with a long upper wick fails there. LONG is the mirror (a base's ceiling, a weekly resistance
+    zone or a falling trendline broken upward, a retest from above that holds with a long lower wick) - found by running the same code on inverted prices.
+    Returns (triggers, pending) with the raw pieces in REAL prices; scan_stock plans them."""
     n = len(dates)
-    atr = _atr(d["h"], d["l"], d["c"])
+    long = side == "long"
+    dd = _inv_d(d) if long else d
+    if long:
+        wH_, wL_, wC_ = 1.0 / wL, 1.0 / wH, 1.0 / wC
+    else:
+        wH_, wL_, wC_ = wH, wL, wC
+    real = (lambda v: 1.0 / v) if long else (lambda v: v)              # back to real prices
+    atr = _atr(dd["h"], dd["l"], dd["c"])
     out, pend, seen = [], [], set()
 
-    def item(source, floor, top, start_i, end_i, res, kind, band_top):
-        j, b, i = res[1]["j"], res[1]["b"], res[1]["i"]
-        return {"source": source, "floor": floor, "band_top": band_top, "top": top, "from_date": start_i, "to_date": end_i, "i": i, "b": b, "j": j, "kind": kind}
+    def item(source, floor, top, band_top, start_d, end_d, res, **extra):
+        return {"source": source, "side": side, "floor": real(floor), "band_top": real(band_top), "top": real(top), "from_date": start_d, "to_date": end_d,
+                "i": res[1]["i"], "b": res[1]["b"], "j": res[1]["j"], "kind": res[0], **extra}
 
+    def add(res, it):
+        if res:
+            (out if res[0] == "trigger" else pend).append(it)
+
+    # --- source 1: a weekly base's floor (ceiling for the long side)
     for w in range(40, len(wC)):
-        pat = floor_at(wH, wL, wC, w, p)
+        pat = floor_at(wH_, wL_, wC_, w, p)
         if pat is None:
             continue
         floor, top, band_top = pat["floor"], pat["top"], pat["band_top"]
-        key = (pat["start"], round(np.log(floor) / 0.01))
+        key = ("range", pat["start"], round(np.log(floor) / 0.01))
         if key in seen:
             continue
         seen.add(key)
         s0 = int(np.searchsorted(dates.values, wdates.values[w], side="right"))
-        res = retest_search(d, atr, floor, band_top, s0, p.retest_break_window, p)
+        res = retest_search(dd, atr, floor, band_top, s0, p.retest_break_window, p)
         if res:
-            (out if res[0] == "trigger" else pend).append(item("range", floor, top, wdates[pat["start"]], wdates[pat["end"]], res, res[0], band_top))
+            add(res, item("range", floor, top, band_top, wdates[pat["start"]], wdates[pat["end"]], res))
+    # --- source 2: a weekly zone that was defended, then closed through (a support zone for the short side, a resistance zone for the long side)
+    if df is not None:
+        zp = ZoneParams(side="short" if long else "long", impulse_atr=p.zone_impulse_atr, expiry_weeks=p.zone_expiry_weeks)
+        for z in find_zones(df.set_axis(dates), zp):
+            lo_r, hi_r = z["lo"], z["hi"]
+            floor, band_top = (1.0 / hi_r, 1.0 / lo_r) if long else (lo_r, hi_r)       # in the working (possibly inverted) prices: the zone's floor and its upper edge
+            start = int(dates.searchsorted(z["known"], side="right"))
+            end = min(n, int(dates.searchsorted(z["known"] + pd.Timedelta(weeks=p.zone_expiry_weeks), side="right")))
+            above = np.flatnonzero(dd["c"][start:end] > band_top)
+            if not len(above):
+                continue
+            s0 = start + int(above[0])                                                 # price has been above the zone: now watch for the close through its floor
+            res = retest_search(dd, atr, floor, band_top, s0, end - s0, p)
+            if res:
+                add(res, item("zone", floor, band_top, band_top, z["formed"], dates[min(res[1]["j"], n - 1)], res))
+    # --- source 3: a trendline (a rising support line broken down; a falling resistance line broken up) and the retest of the line
+    if df is not None:
+        tp = daily_params()
+        pivots = swing_lows(dd["l"], tp.swing_bars)
+        last_tl = -10 ** 9
+        for t in range(260, n):
+            if t - last_tl < p.cooldown_days:
+                continue
+            br = find_break(dd["o"], dd["h"], dd["l"], dd["c"], t, pivots, tp)
+            if br is None:
+                continue
+            last_tl = t
+            floor = br.line_at_break
+            res = retest_search(dd, atr, floor, floor * 1.005, t, 2, p)
+            if res:
+                a = br.anchor_idx
+                add(res, item("trendline", floor, floor * (1 + br.rise_pct / 100), floor * 1.005, dates[a], dates[t], res,
+                              line=(dates[a], real(float(dd["l"][a])), dates[t], real(floor)), touches=[(dates[j], real(float(dd["l"][j]))) for j in br.touch_idxs]))
     return out, pend
+
+
+SOURCE_TEXT = {"range": "base", "zone": "weekly zone", "trendline": "trendline"}
 
 
 def retest_why(t: dict, d: dict, dates: pd.DatetimeIndex) -> str:
     h, l, c, o = d["h"], d["l"], d["c"], d["o"]
-    j = t["j"]
+    j, long = t["j"], t["side"] == "long"
     rng = h[j] - l[j]
+    src = SOURCE_TEXT[t["source"]]
+    lo, hi = sorted((t["floor"], t["top"]))
+    if long:
+        wick = (min(o[j], c[j]) - l[j]) / rng * 100
+        what = {"range": f"base {lo:,.1f}-{hi:,.1f}", "zone": f"weekly resistance zone {lo:,.1f}-{hi:,.1f}", "trendline": f"falling trendline (now {t['floor']:,.1f})"}[t["source"]]
+        return (f"{what} broke out on {dates[t['b']].strftime('%d %b')}; price came back to {l[j]:,.1f} on {dates[j].strftime('%d %b')} - the old {src} as support - and held there "
+                f"(lower wick {wick:.0f}% of the candle, close {c[j]:,.1f}); buy above its high {h[j]:,.1f}, stop at its low {l[j]:,.1f}")
     wick = (h[j] - max(o[j], c[j])) / rng * 100
-    what = "base"
-    return (f"{what} {t['floor']:,.1f}-{t['top']:,.1f} broke down on {dates[t['b']].strftime('%d %b')}; price came back to {h[j]:,.1f} on {dates[j].strftime('%d %b')} - the old floor "
-            f"as resistance - and failed there (upper wick {wick:.0f}% of the candle, close {c[j]:,.1f}); short below its low {l[j]:,.1f}, stop at its high {h[j]:,.1f}")
+    what = {"range": f"base {lo:,.1f}-{hi:,.1f}", "zone": f"weekly support zone {lo:,.1f}-{hi:,.1f}", "trendline": f"rising trendline (now {t['floor']:,.1f})"}[t["source"]]
+    return (f"{what} broke down on {dates[t['b']].strftime('%d %b')}; price came back to {h[j]:,.1f} on {dates[j].strftime('%d %b')} - the old {src} as resistance - and failed there "
+            f"(upper wick {wick:.0f}% of the candle, close {c[j]:,.1f}); short below its low {l[j]:,.1f}, stop at its high {h[j]:,.1f}")
 
 
 def retest_geo(t: dict, d: dict, dates: pd.DatetimeIndex) -> dict:
-    j = t["j"]
-    return {"from": t["from_date"].strftime("%Y-%m-%d"), "to": t["to_date"].strftime("%Y-%m-%d"), "level": round(float(d["l"][j]), 2), "base": round(float(d["h"][j]), 2),
-            "floor": round(float(t["floor"]), 2), "band_top": round(float(t["band_top"]), 2), "top": round(float(t["top"]), 2), "break_date": dates[t["b"]].strftime("%Y-%m-%d"), "retest_date": dates[j].strftime("%Y-%m-%d"),
-            "source": t["source"]}
+    j, long = t["j"], t["side"] == "long"
+    g = {"from": t["from_date"].strftime("%Y-%m-%d"), "to": t["to_date"].strftime("%Y-%m-%d"), "level": round(float(d["h"][j] if long else d["l"][j]), 2),
+         "base": round(float(d["l"][j] if long else d["h"][j]), 2), "floor": round(float(t["floor"]), 2), "band_top": round(float(t["band_top"]), 2), "top": round(float(t["top"]), 2),
+         "break_date": dates[t["b"]].strftime("%Y-%m-%d"), "retest_date": dates[j].strftime("%Y-%m-%d"), "source": t["source"]}
+    if t.get("line"):
+        x0, y0, x1, y1 = t["line"]
+        g["line"] = [x0.strftime("%Y-%m-%d"), round(float(y0), 2), x1.strftime("%Y-%m-%d"), round(float(y1), 2)]
+        g["touches"] = [[x.strftime("%Y-%m-%d"), round(float(y), 2)] for x, y in t["touches"]]
+    return g
 
 
 # ---------------------------------------------------------------- resistance and the plan
@@ -690,28 +758,33 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
         triggers.append({"kind": "trendline", "side": "short", "i": i, "w": w, "level": br.line_at_break, **pl, "geo": geo, "f": _features(d, i),
                          "reason": (f"rising trendline through {br.touches} swing lows over {br.width_bars} sessions (up {br.rise_pct:.0f}%), broken by a red daily close "
                                     f"{d['c'][i]:,.1f} that is {br.break_depth_pct:.1f}% under the line ({br.line_at_break:,.1f})")})
-    # --- breakdown, retest from below, failure (short): a range's floor or a failed support zone, then an upper-wick rejection there
-    rt, rp = retest_scan(d, dates, wk_of, wdates, wH, wL, wC, p)
-    last_rt = -10 ** 9
-    for t in sorted(rt, key=lambda x: x["i"]):
-        i, j = t["i"], t["j"]
-        if i < 260 or i - last_rt < p.cooldown_days or int(wk_of[i]) < 40:
-            continue
-        w = int(wk_of[i])
-        pl = plan(d["c"][i], d["h"][j] * (1 + buf), wH, w, abs(t["top"] - t["floor"]), t["floor"], p, "short", wL)
-        last_rt = i
-        if pl is not None:
-            triggers.append({"kind": "retest", "side": "short", "i": i, "w": w, "level": float(d["l"][j]), **pl, "geo": retest_geo(t, d, dates), "f": _features(d, i),
-                             "reason": retest_why(t, d, dates) + f"; daily close {d['c'][i]:,.1f} below it"})
-    for t in rp:
-        j = t["j"]
-        w = int(wk_of[n - 1])
-        if w < 40 or n - 1 < 260:
-            continue
-        entry = d["l"][j] * (1 - buf)
-        pl = plan(entry, d["h"][j] * (1 + buf), wH, w, abs(t["top"] - t["floor"]), t["floor"], p, "short", wL)
-        if pl is not None:
-            pending.append({"kind": "retest", "side": "short", "i": n - 1, "w": w, "level": float(d["l"][j]), "entry": entry, **pl, "geo": retest_geo(t, d, dates), "f": _features(d, n - 1),
-                            "reason": retest_why(t, d, dates) + f"; waiting for a daily close below {d['l'][j]:,.1f}"})
+    # --- break and retest, both ways: a structure (a base, a weekly zone, a trendline) is broken, price comes back to retest it and the rejection candle shows it holding as the
+    # --- other side's wall; the trigger is a close beyond that candle (below its low for a short, above its high for a long), the stop the candle's other end
+    for side in ("short", "long"):
+        long = side == "long"
+        rt, rp = retest_scan(d, dates, wk_of, wdates, wH, wL, wC, p, side, df)
+        last_rt: dict = {}
+        for t in sorted(rt, key=lambda x: x["i"]):
+            i, j = t["i"], t["j"]
+            if i < 260 or i - last_rt.get(t["source"], -10 ** 9) < p.cooldown_days or int(wk_of[i]) < 40:
+                continue
+            w = int(wk_of[i])
+            stop = d["l"][j] * (1 - buf) if long else d["h"][j] * (1 + buf)
+            pl = plan(d["c"][i], stop, wH, w, abs(t["top"] - t["floor"]), t["floor"], p, side, wL)
+            last_rt[t["source"]] = i
+            if pl is not None:
+                triggers.append({"kind": "retest", "side": side, "i": i, "w": w, "level": float(d["h"][j] if long else d["l"][j]), **pl, "geo": retest_geo(t, d, dates), "f": _features(d, i),
+                                 "reason": retest_why(t, d, dates) + f"; daily close {d['c'][i]:,.1f} {'above' if long else 'below'} it"})
+        for t in rp:
+            j = t["j"]
+            w = int(wk_of[n - 1])
+            if w < 40 or n - 1 < 260:
+                continue
+            entry = d["h"][j] * (1 + buf) if long else d["l"][j] * (1 - buf)
+            stop = d["l"][j] * (1 - buf) if long else d["h"][j] * (1 + buf)
+            pl = plan(entry, stop, wH, w, abs(t["top"] - t["floor"]), t["floor"], p, side, wL)
+            if pl is not None:
+                pending.append({"kind": "retest", "side": side, "i": n - 1, "w": w, "level": float(d["h"][j] if long else d["l"][j]), "entry": entry, **pl, "geo": retest_geo(t, d, dates), "f": _features(d, n - 1),
+                                "reason": retest_why(t, d, dates) + f"; waiting for a daily close {'above' if long else 'below'} {d['h'][j] if long else d['l'][j]:,.1f}"})
     triggers.sort(key=lambda t: t["i"])
     return triggers, pending

@@ -105,6 +105,44 @@ def test_end_to_end_a_range_breaks_down_retests_and_the_short_triggers_with_the_
     json.dumps(t["geo"])
 
 
+def test_the_long_side_is_the_exact_mirror_a_base_breaks_out_retests_from_above_and_holds():
+    """The same candles on inverted prices: the base's ceiling breaks up, the retest from above holds with a lower wick, the long triggers above its high."""
+    prefix = [[110.0, 111.0, 109.0, 110.0]] * 285
+    rows = prefix[:]
+    for w in _base_weeks():
+        rows += _week(*w)
+    rows += [[107.0, 108.0, 106.0, 107.0], [106.0, 106.5, 95.0, 96.0], [96.0, 97.0, 94.5, 95.0], [95.0, 96.0, 93.5, 94.0], [94.2, 101.0, 93.8, 94.5], [94.5, 95.0, 92.0, 92.5]]
+    rows += [[92.5, 93.0, 90.0, 91.0]] * 3
+    a = np.array(rows, float)
+    df = pd.DataFrame({"open": 1 / a[:, 0], "high": 1 / a[:, 2], "low": 1 / a[:, 1], "close": 1 / a[:, 3], "volume": np.full(len(a), 5e5)}, index=pd.bdate_range("2024-01-01", periods=len(a)))
+    trig, _ = pa.scan_stock(df)
+    longs = [t for t in trig if t["kind"] == "retest" and t["side"] == "long" and t["geo"]["source"] == "range"]
+    assert len(longs) == 1
+    t = longs[0]
+    assert abs(t["stop"] - (1 / 101.0) * (1 - 0.003)) < 1e-9 and abs(t["level"] - 1 / 93.8) < 1e-9 and t["target"] > t["level"] and t["rr"] > 1.5
+    assert abs(t["geo"]["floor"] - 1 / 100.0) < 1e-4 and "held there" in t["reason"] and "buy above" in t["reason"]
+    assert pb.setup_name("retest", "long", t["geo"]) == "Range breakout retest"
+    assert pb.setup_name("retest", "long", {"source": "zone"}) == "Zone breakout retest" and pb.setup_name("retest", "short", {"source": "trendline"}) == "Trendline breakdown retest (short)"
+
+
+def test_zone_and_trendline_sources_exist_on_both_sides_and_are_valid_plans():
+    from tests.test_price_action import _daily
+    seen = set()
+    for seed in range(1, 25):
+        df = _daily(seed)
+        trig, pend = pa.scan_stock(df)
+        for t in trig + pend:
+            if t["kind"] != "retest":
+                continue
+            seen.add((t["side"], t["geo"]["source"]))
+            ref = t.get("entry", df["close"].iloc[t["i"]])
+            assert (t["stop"] < ref < t["target"]) if t["side"] == "long" else (t["target"] < ref < t["stop"]), t
+            json.dumps(t["geo"])
+            if t["geo"]["source"] == "trendline":
+                assert len(t["geo"]["line"]) == 4 and len(t["geo"]["touches"]) >= 3
+    assert {("long", "zone"), ("short", "zone"), ("long", "trendline"), ("short", "trendline"), ("long", "range"), ("short", "range")} <= seen
+
+
 def test_the_page_lists_the_retest_short_and_draws_its_geometry():
     from pathlib import Path
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()

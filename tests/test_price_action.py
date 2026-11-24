@@ -206,8 +206,9 @@ def test_one_trigger_per_kind_inside_the_cooldown():
     for seed in range(6):
         last = {}
         for t in pa.scan_stock(_daily(seed))[0]:
-            assert t["i"] - last.get((t["kind"], t["side"]), -10 ** 9) >= (P.candle_cooldown if t["kind"] == "candle" else P.cooldown_days)
-            last[(t["kind"], t["side"])] = t["i"]
+            key = (t["kind"], t["side"], t["geo"].get("source") if t["kind"] == "retest" else None)        # a break-and-retest is cooled down per source (base / zone / trendline)
+            assert t["i"] - last.get(key, -10 ** 9) >= P.cooldown_days
+            last[key] = t["i"]
 
 
 def test_short_history_gives_nothing():

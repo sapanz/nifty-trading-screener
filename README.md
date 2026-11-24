@@ -781,6 +781,21 @@ Every source fails soft (a missing factor shows as "no data" and counts neither 
 
 **Range breakdown retest (short).** Added at your request from a Swiggy chart (base Jul-Sep, breakdown 1 Oct, retest 7 Oct with an upper wick, short below the candle's low, stop at its high, target the base's height projected down). 6-year backtest (F&O, 2021-2026): **419 listed setups, -0.71% a trade (-0.18R), profit factor 0.77, 21% reached the target** - negative in every year except 2024 (+0.16%): -3.0%, -1.6%, -0.8%, +0.2%, -0.8%, -0.3%. It is shown because you asked for it, not because it pays. A weekly support zone that fails and is retested the same way was tried as a second source and lost more (-2.3% a trade, 55 setups), so it was dropped. No filter turned it round: with the market below its 50-day average -1.6% (222 trades), above -0.8%; stops of 3% or less -0.7%; trigger-day volume 1.5x+ -0.0% (48 trades, the best cut and still zero). Only ranges are used as the "base" for now; the pattern necklines (double top, head and shoulders) can be added the same way but their short setups also lost money before they were removed.
 
+**Break and retest, both ways (range, weekly zone, trendline).** Extended at your request (Nov 2026): when price breaks a structure and comes back to retest it, the rejection candle shows which side holds. *Bullish*: a base's ceiling, a weekly resistance zone or a falling trendline is broken up by a daily close, price retests it from above and a candle with a long lower wick holds (buy above its high, stop at its low). *Bearish* (F&O only): a base's floor, a weekly support zone or a rising trendline is broken down, retested from below and rejected by an upper-wick candle (sell below its low, stop at its high). The long side is the same code run on inverted prices, so the two cannot drift apart; the zone source returns for the short side (it was tried and dropped in the first version), the trendline source reuses `trendlines.find_break` (daily settings) and tests the retest of the line at the break bar's level. Names: "Range / Zone / Trendline breakout retest" and "... breakdown retest (short)"; one setup per source and side inside the 20-session cool-down. 6 years, 218 F&O stocks, entry at the next open, 0.10% costs:
+
+| Setup | Setups | ROI a trade | R a trade | Won | Profit factor |
+|---|---|---|---|---|---|
+| Range breakout retest (long) | 637 | +0.31% | +0.04R | 31% | 1.10 |
+| Zone breakout retest (long) | 100 | +0.87% | +0.10R | 37% | 1.33 |
+| Trendline breakout retest (long) | 85 | -0.21% | 0.00R | 32% | 0.91 |
+| **All bullish retests** | 822 | +0.32% | +0.04R | 32% | 1.11 |
+| Range breakdown retest (short) | 419 | -0.71% | -0.18R | 25% | 0.76 |
+| Zone breakdown retest (short) | 113 | -1.06% | -0.22R | 27% | 0.67 |
+| Trendline breakdown retest (short) | 113 | -0.70% | -0.29R | 26% | 0.72 |
+| **All bearish retests** | 645 | -0.77% | -0.21R | 25% | 0.73 |
+
+The bullish group is profitable only because of 2023 (+2.04% a trade, 246 setups): 2021 -3.05%, 2022 -0.11%, 2023 +2.04%, 2024 -0.74%, 2025 -0.19%, 2026 -0.43%. Selected on 2021-2023 (+1.29% a trade) it did -0.47% a trade in 2024-2026 (451 setups, 27% won), and it trailed the equal-weight index of these stocks by 0.72% over the average holding window (+1.04% index move) - so no edge. The bearish group lost, as every short has; against the index (+0.69% drift in the window) it was about even (-0.08%), which is not tradable, because the hedge is not free. Shown for study and paper-trading.
+
 What the history says (the five remaining kinds, F&O stocks, Dec 2021 - Nov 2026, 1,752 setups with reward : risk of 1.5 or more, costs included): **+0.12R a trade, profit factor 1.16** - but 103 of those are multi-year breakouts (+1.30R each, carried by five 2023 runners; see below), and the other 1,649 average **+0.05R**.
 
 | Setup | Trades | Reached target | Average per trade | PF |

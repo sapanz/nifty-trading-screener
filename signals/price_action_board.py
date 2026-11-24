@@ -35,7 +35,8 @@ def setup_name(kind: str, side: str, geo: dict) -> str:
     if kind == "triangle":
         return f"{geo['shape']} triangle breakout"
     if kind == "retest":
-        return "Range breakdown retest (short)"
+        src = {"range": "Range", "zone": "Zone", "trendline": "Trendline"}.get(geo.get("source"), "Range")
+        return f"{src} breakout retest" if side == "long" else f"{src} breakdown retest (short)"
     return pa.NAMES[(kind, side)]
 
 
