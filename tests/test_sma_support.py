@@ -123,7 +123,7 @@ def test_the_target_is_the_resistance_when_it_pays_one_and_a_half_r_else_three_r
 
 def test_the_payload_and_the_page_section():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('id="smaSide"', 'id="smaClose"', 'Bearish resistance (sell, F&amp;O)', 'r.side === "short" ? "Sell below" : "Buy above"', 'id="smaSup"', 'id="smaTf"', 'id="smaVol"', 'id="smaSec"', "function renderSmaSupport", 'liveJson("sma_support.json", "dashboard-setups")', '"smas"'):
+    for needle in ('id="smaSide"', 'Bearish resistance (sell, F&amp;O)', 'r.side === "short" ? "Sell below" : "Buy above"', 'id="smaSup"', 'id="smaTf"', 'id="smaVol"', 'id="smaSec"', "function renderSmaSupport", 'liveJson("sma_support.json", "dashboard-setups")', '"smas"'):
         assert needle in html, needle
     assert "sma_support.json" in (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text()
 
@@ -188,12 +188,7 @@ def test_the_short_order_mechanics_are_the_mirror():
     assert abs(pct - (-(93 / 99 - 1) * 100 - 0.10)) < 1e-9 and r > 0
 
 
-def test_the_close_gap_is_the_share_of_the_range_between_the_close_and_the_extreme():
-    assert ss._close_gap(110, 100, 109, "long") == 0.1 and ss._close_gap(110, 100, 101, "short") == 0.1
-    assert ss._close_gap(110, 100, 105, "long") == 0.5 and ss._close_gap(100, 100, 100, "long") is None
-
-
-def test_build_has_shorts_for_f_and_o_stocks_only_and_the_close_gap_in_every_row():
+def test_build_has_shorts_for_f_and_o_stocks_only():
     from datetime import datetime
     c = _downtrend(300)
     o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
@@ -204,5 +199,17 @@ def test_build_has_shorts_for_f_and_o_stocks_only_and_the_close_gap_in_every_row
     out = ss.build(frames, {"A": "Down", "B": "Down", "C": "Down"}, {"A"}, datetime(2025, 3, 3))
     json.dumps(out)
     shorts = [r for r in out["rows"] if r["side"] == "short"]
-    assert {r["symbol"] for r in shorts} == {"A"} and all(r["cl"] is not None and r["status"] == "waiting" and r["stop"] > r["entry"] > r["target"] for r in shorts)
+    assert {r["symbol"] for r in shorts} == {"A"} and all(r["status"] == "waiting" and r["stop"] > r["entry"] > r["target"] for r in shorts)
     assert shorts[0]["sector_ok"] is True and "red daily candle" in shorts[0]["reason"] and "sell below its low" in shorts[0]["reason"]
+
+
+def test_the_close_filter_is_gone():
+    html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    assert "smaClose" not in html and "Close gap" not in html and not hasattr(ss, "_close_gap")
+    c = _uptrend_with_a_pullback(300)
+    o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
+    sma = pd.Series(c).rolling(21).mean().to_numpy()
+    t = 299
+    o[t], c[t], l[t], h[t] = sma[t] * 1.006, sma[t] * 1.016, sma[t] * 1.004, sma[t] * 1.02
+    sig = [x for x in ss.signals(_frame(c, o, h, l), "D", None) if x["i"] == t]
+    assert sig and "cl" not in sig[0]

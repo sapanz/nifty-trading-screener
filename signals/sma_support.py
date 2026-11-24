@@ -13,8 +13,6 @@ Long rules (the numbers come from the backtest in scripts/backtest_sma_support.p
   sector  the stock's sector (an equal-weight index of its stocks in the universe, three stocks at least) is above its own average of the same length
           (21 days / 30 weeks) and that average is rising (5 days / 4 weeks).
   volume  the signal candle's volume against the average of the 20 sessions (20 weeks) before it - the page filters on it.
-  close   (a filter, off by default) how near the candle closed to its extreme: for a long the distance from the close to the HIGH, for a short from the close to
-          the LOW, as a share of the candle's range (0 = closed exactly on it). A hammer or an engulfing candle closes at or near its high.
 
 Short rules are everything flipped: the average clearly FALLING (lower than 3 sessions / 4 weeks ago and down 1% or more over 10 sessions / 8 weeks), a down-trend
 (average below the 50-day average and the close below it / close below the average and the average below where it was 20 weeks ago), a RED candle closing at or
@@ -101,18 +99,9 @@ def _plan(entry: float, stop: float, wH: np.ndarray, wL: np.ndarray, w: int, sid
     return {"target": float(target), "target_kind": kind, "risk_pct": risk / entry * 100, "reward_pct": (1 - target / entry) * 100, "rr": (entry - target) / risk}
 
 
-def _close_gap(h: float, l: float, c: float, side: str) -> float | None:
-    """How far the close is from the candle's extreme (the high for a long, the low for a short) as a share of its range; None for a candle with no range."""
-    rng = h - l
-    if not rng > 0:
-        return None
-    return float((h - c) / rng if side == "long" else (c - l) / rng)
-
-
 def signals(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, side: str = "long") -> list[dict]:
     """Every candle on the rising (falling) average in the stock's history: the signal candle's index `i` in daily bars (`w` the weekly bar before it, for the
-    resistance / support lookup), its `date`, the planned trigger price `entry` (above its high / below its low), `stop`, target, the volume ratio `vr`, `cl` (the
-    close's distance from its extreme as a share of the range) and whether the sector supported it. Nothing looks ahead."""
+    resistance / support lookup), its `date`, the planned trigger price `entry` (above its high / below its low), `stop`, target, the volume ratio `vr`, and whether the sector supported it. Nothing looks ahead."""
     cfg = TF[tf]
     long = side == "long"
     if df is None or len(df) < 260:
@@ -157,7 +146,7 @@ def signals(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, side: str 
                 continue
             base = V[t - 20:t].mean() if t >= 20 else np.nan
             out.append({"tf": "D", "side": side, "i": t, "w": int(wk_of[t]), "date": dates[t], "sma": float(s), "slope": float((s / sma[t - sb] - 1) * 100), "entry": entry,
-                        "stop": stop, **pl, "vr": float(V[t] / base) if base and base > 0 else None, "cl": _close_gap(H[t], L[t], C[t], side),
+                        "stop": stop, **pl, "vr": float(V[t] / base) if base and base > 0 else None,
                         "sector_ok": _asof(sector_flag, dates[t])})
     else:
         wsma = pd.Series(wC).rolling(n).mean().to_numpy()
@@ -177,7 +166,7 @@ def signals(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, side: str 
             base = np.nanmean(wV[w - 20:w]) if w >= 20 else np.nan
             out.append({"tf": "W", "side": side, "i": int(np.searchsorted(dates.values, wdates.values[w], side="right")) - 1, "w": w, "date": wdates[w], "sma": float(s),
                         "slope": float((s / wsma[w - sb] - 1) * 100), "entry": entry, "stop": stop, **pl, "vr": float(wV[w] / base) if base and base > 0 else None,
-                        "cl": _close_gap(wH[w], wL[w], wC[w], side), "sector_ok": _asof(sector_flag, wdates[w])})
+                        "sector_ok": _asof(sector_flag, wdates[w])})
     return out
 
 
@@ -256,8 +245,8 @@ def live(df: pd.DataFrame, tf: str, sector_flag: pd.Series | None, asof: pd.Time
 
 
 def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str], now) -> dict:
-    """The sma_support.json payload: every tradable setup of both timeframes and both sides (shorts for F&O stocks only), with the sector flag, the volume ratio and
-    the close gap (the page filters on them), the reason in words and a small candle series per setup for the chart."""
+    """The sma_support.json payload: every tradable setup of both timeframes and both sides (shorts for F&O stocks only), with the sector flag and the volume ratio
+    (the page filters on them), the reason in words and a small candle series per setup for the chart."""
     flags = sector_flags(frames, sectors)
     asof = max(pd.DatetimeIndex(df.index).normalize()[-1] for df in frames.values())
     rows = []
@@ -278,7 +267,7 @@ def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]
                         "symbol": symbol, "fo": symbol in fo, "sector": sec, "tf": tf, "side": side, "status": r["status"], "age": r["age"], "signal_date": r["date"].strftime("%Y-%m-%d"),
                         "price": round(r["price"], 2), "sma": round(r["sma"], 2), "slope": round(r["slope"], 1), "entry": round(r["entry"], 2), "stop": round(r["stop"], 2),
                         "target": round(r["target"], 2), "target_kind": r["target_kind"], "risk_pct": round(r["risk_pct"], 2), "reward_pct": round(r["reward_pct"], 2), "rr": round(r["rr"], 2),
-                        "vr": None if r["vr"] is None else round(r["vr"], 2), "cl": None if r["cl"] is None else round(r["cl"], 2), "sector_ok": bool(r["sector_ok"]), "sector_known": sec in flags,
+                        "vr": None if r["vr"] is None else round(r["vr"], 2), "sector_ok": bool(r["sector_ok"]), "sector_known": sec in flags,
                         "reason": reason(r, cfg),
                         "candles": {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(bars.index).normalize()], "c": [[round(float(x), 2) for x in row] for row in bars[["open", "high", "low", "close"]].to_numpy()],
                                     "sma": [None if np.isnan(v) else round(float(v), 2) for v in avg]}})
@@ -291,10 +280,9 @@ def reason(r: dict, cfg: dict) -> str:
     unit = "sessions" if r["tf"] == "D" else "weeks"
     long = r["side"] == "long"
     vol = "" if r["vr"] is None else f"; volume {r['vr']:.1f}x its {'20-day' if r['tf'] == 'D' else '20-week'} average"
-    close = "" if r["cl"] is None else f"; closed {r['cl'] * 100:.0f}% of its range from its {'high' if long else 'low'}"
     tf = "daily" if r["tf"] == "D" else "weekly"
     if long:
         return (f"green {tf} candle on the {cfg['name']} ({r['sma']:,.1f}, up {r['slope']:.1f}% over {cfg['slope_bars']} {unit}); "
-                f"buy above its high {r['entry']:,.1f}, stop {r['stop']:,.1f} below its low{vol}{close}")
+                f"buy above its high {r['entry']:,.1f}, stop {r['stop']:,.1f} below its low{vol}")
     return (f"red {tf} candle under the {cfg['name']} ({r['sma']:,.1f}, down {abs(r['slope']):.1f}% over {cfg['slope_bars']} {unit}); "
-            f"sell below its low {r['entry']:,.1f}, stop {r['stop']:,.1f} above its high{vol}{close}")
+            f"sell below its low {r['entry']:,.1f}, stop {r['stop']:,.1f} above its high{vol}")

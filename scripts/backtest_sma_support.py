@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Backtest of the SMA support / resistance trades (signals/sma_support.py): LONG - a green candle on a rising 21-day (daily) or 30-week (weekly) average,
 buy above its high, stop below its low; SHORT - the bear mirror (a red candle under a falling average, sell below its low, stop above its high); target = the
-next weekly resistance / support (when it pays 1.5 R) else 3 R. Prints, per side and timeframe, the trades by sector support, by 20-day volume ratio and by how
-near the candle closed to its extreme, per year, against the equal-weight index, with a month-block bootstrap. Needs the research data:
+next weekly resistance / support (when it pays 1.5 R) else 3 R. Prints, per side and timeframe, the trades by sector support, by 20-day volume ratio, per year, against the equal-weight index, with a month-block bootstrap. Needs the research data:
 
   python scripts/backtest_sma_support.py /path/to/equity_daily.csv.gz /path/to/swing.json
 """
@@ -42,7 +41,7 @@ def trades(frames, sectors):
                     a, b = dates[tr["entry_i"]], dates[tr["exit_i"]]
                     move = (idx.asof(b) / idx.asof(a) - 1) * 100
                     rows.append({"tf": tf, "side": side, "sym": sym, "date": sig["date"], "year": sig["date"].year, "pct": pct, "R": r, "sector": sig["sector_ok"], "vr": sig["vr"],
-                                 "cl": sig["cl"], "rr": sig["rr"], "kind": sig["target_kind"], "out": tr["reason"], "bars": tr["exit_i"] - tr["entry_i"],
+                                 "rr": sig["rr"], "kind": sig["target_kind"], "out": tr["reason"], "bars": tr["exit_i"] - tr["entry_i"],
                                  "idx": move if side == "long" else -move})              # the index move that helps / hurts the trade
     return pd.DataFrame(rows)
 
@@ -66,12 +65,6 @@ def main(csv: str, swing_json: str) -> None:
         for thr in (1.0, 1.2, 1.5, 2.0):
             print(f"  sector + volume >= {thr:.1f}x 20-avg    ", stat(t[t.sector & (t.vr >= thr)]))
         print("  sector + volume < 1.0x            ", stat(t[t.sector & (t.vr < 1.0)]))
-        base = t[t.sector & (t.vr >= ss.TF[tf]["vol_default"])]
-        for gap in (0.10, 0.20, 0.30, 0.50):
-            print(f"  sector + volume + close within {int(gap * 100):2d}% of range of its extreme", stat(base[base.cl <= gap]))
-        print("  sector + volume + close farther than 50%                ", stat(base[base.cl > 0.5]))
-        for gap in (0.10, 0.20, 0.30):
-            print(f"  EVERY signal, close within {int(gap * 100):2d}% of range                   ", stat(t[t.cl <= gap]))
         pick = t[t.sector & (t.vr >= ss.TF[tf]["vol_default"])]
         print(f"  --> the rule (sector + volume >= {ss.TF[tf]['vol_default']}x):", stat(pick))
         for y, g in pick.groupby("year"):
