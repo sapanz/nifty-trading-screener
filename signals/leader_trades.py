@@ -30,14 +30,14 @@ def _percentile_rank(x: np.ndarray) -> np.ndarray:
 
 def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS, entry: str = "open", window: int = 1, anchor: str = "signal",
            chase_cap: float | None = None, stop_atr: float | None = None, max_atr: float | None = None, max_ret20: float | None = None,
-           trail_atr: float | None = None, gate_exit: bool = False, top_n: int | None = None, pool: int | None = None, target_atr: float | None = None) -> tuple[list[dict], list[str], dict]:
+           trail_atr: float | None = None, gate_exit: bool = False, top_n: int | None = None, pool: int | None = None, target_atr: float | None = None, shuffle_seed: int | None = None) -> tuple[list[dict], list[str], dict]:
     """(trades, dates, info) for the F&O stocks in `frames`. Each trade: symbol, sig (signal date index), entry / stop / exit prices and dates, out (stop / time / open),
     net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}.
     `entry` "open" (the default, the live rule) buys the next open; "break" buys only after price trades above the signal candle's high - a buy-stop good for `window`
     sessions, filled at the high (or the open on a gap over it), skipped when that is more than `chase_cap` % above the signal close. `anchor` "signal" sells at the close of the
     `hold`-th session after the signal; "entry" counts the sessions from the entry.
     Research options (all off = the live rule): `stop_atr` overrides the stop distance in ATRs; `max_atr` skips signals whose ATR% is above it; `max_ret20` skips stocks that rose more than
-    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average; `target_atr` also sells at that many ATRs above the entry (a gap over it fills at the open; the stop is checked first); `top_n` / `pool` replace the Movers list size and the momentum pool (10 / 30) - a wider universe may want more of both."""
+    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average; `shuffle_seed` swaps each day's leaders for the same number of randomly drawn liquid stocks (a luck baseline for research); `target_atr` also sells at that many ATRs above the entry (a gap over it fills at the open; the stop is checked first); `top_n` / `pool` replace the Movers list size and the momentum pool (10 / 30) - a wider universe may want more of both."""
     syms = sorted(s for s in frames if s in fo)
     dates = sorted({d for s in syms for d in pd.DatetimeIndex(frames[s].index).normalize()})
     didx = pd.DatetimeIndex(dates)
@@ -61,6 +61,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
     up = idx > sma
     held_until = np.full(m, -1)                                                   # index of the last session each stock is held through
     out, leaders_today, today = [], [], []
+    rng = np.random.default_rng(shuffle_seed) if shuffle_seed is not None else None
     for i in range(80, n):
         liquid = np.flatnonzero((C[i] * V[i] / 1e7 >= momentum.MIN_TURNOVER_CR) & ~np.isnan(atr[i]) & ~np.isnan(C[i - 20]) & ~np.isnan(C[i - 60]))
         if len(liquid) < 20:
@@ -70,6 +71,8 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
         mom_order = liquid[np.argsort(-score, kind="stable")]
         mom_rank = {int(j): r + 1 for r, j in enumerate(mom_order)}
         leaders = [(rank + 1, int(j)) for rank, j in enumerate(mv_order) if mom_rank[int(j)] <= (pool or movers.LEADER_POOL)]
+        if rng is not None and leaders:
+            leaders = [(r + 1, int(j)) for r, j in enumerate(rng.choice(liquid, size=len(leaders), replace=False))]
         if i == n - 1:
             leaders_today = [(syms[j], rk) for rk, j in leaders]
             today = [{"s": syms[j], "mv": rk, "close": round(float(C[i, j]), 2), "atr": round(float(atr[i, j]), 2)} for rk, j in leaders]
