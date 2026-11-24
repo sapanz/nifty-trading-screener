@@ -283,5 +283,5 @@ def test_daily_long_signals_carry_the_trend_measures_and_the_files_carry_the_ran
 
 def test_the_page_has_the_clear_uptrend_filter():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('id="smaTrend"', "Clear uptrend only (top fifth)", 'id="smaTrendLbl"', "clearOnly", "tr: 15"):
+    for needle in ('id="smaTrend"', "Clear uptrend only (top fifth)", 'id="smaTrendLbl"', "clearOnly", "tr: 15", 'id="smaPresetFo"', "SMA_PRESET_FO"):
         assert needle in html, needle

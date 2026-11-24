@@ -270,6 +270,7 @@
         <button type="button" id="smaViewLive" aria-pressed="true">Today's setups</button>
         <button type="button" id="smaViewHist" aria-pressed="false">Backtest: past trades</button>
       </div>
+      <div class="mode" role="group" aria-label="Preset"><button type="button" id="smaPresetFo" aria-pressed="false">F&amp;O futures</button></div>
     </div>
     <div class="controls">
       <label>Direction <select id="smaSide" aria-label="Bullish support or bearish resistance"><option value="long">Bullish support (buy)</option><option value="short">Bearish resistance (sell, F&amp;O)</option></select></label>
@@ -1524,13 +1525,15 @@
     });
   }
 
+  var SMA_PRESET_FO = { smaSide: "long", smaTf: "D", smaSec: "on", smaVol: "auto", smaTrend: "clear", smaFo: true };
+  function smaPresetOn() { return Object.keys(SMA_PRESET_FO).every(function (k) { return state[k] === SMA_PRESET_FO[k]; }); }
   function renderSmaSupport() {
     var sec = $("smaSup"); if (state.mode !== "swing") { sec.hidden = true; return; }
     sec.hidden = false;
     var histView = state.smaView === "hist";
     $("smaViewLive").setAttribute("aria-pressed", String(!histView)); $("smaViewHist").setAttribute("aria-pressed", String(histView));
     Array.prototype.forEach.call(sec.querySelectorAll(".smaHist"), function (n) { n.hidden = !histView; }); Array.prototype.forEach.call(sec.querySelectorAll(".smaLive"), function (n) { n.hidden = histView; });
-    ["smaSide", "smaTf", "smaSec", "smaVol", "smaTrend", "smaSort", "smaYear", "smaResult", "smaShow", "smaHSort"].forEach(function (k) { if ($(k)) $(k).value = state[k]; }); $("smaTrendLbl").hidden = !(state.smaTf === "D" && state.smaSide === "long"); $("smaFo").checked = state.smaFo;
+    ["smaSide", "smaTf", "smaSec", "smaVol", "smaTrend", "smaSort", "smaYear", "smaResult", "smaShow", "smaHSort"].forEach(function (k) { if ($(k)) $(k).value = state[k]; }); $("smaTrendLbl").hidden = !(state.smaTf === "D" && state.smaSide === "long"); $("smaFo").checked = state.smaFo; $("smaPresetFo").setAttribute("aria-pressed", String(smaPresetOn()));
     if (histView) { renderSmaHist(); return; }
     var body = $("smaRows"); body.textContent = "";
     var d = state.sma, daily = state.smaTf === "D", bull = state.smaSide === "long", avgN = daily ? "21-day" : "30-week";
@@ -2498,6 +2501,7 @@
   $("ltViewNow").addEventListener("click", function () { state.ltView = "now"; save(); renderLeaderTrades(); });
   $("ltViewHist").addEventListener("click", function () { state.ltView = "hist"; save(); renderLeaderTrades(); });
   $("smaViewLive").addEventListener("click", function () { state.smaView = "live"; save(); renderSmaSupport(); });
+  $("smaPresetFo").addEventListener("click", function () { var p = SMA_PRESET_FO; Object.keys(p).forEach(function (k) { state[k] = p[k]; }); save(); renderSmaSupport(); });
   $("smaViewHist").addEventListener("click", function () { state.smaView = "hist"; save(); loadSmaHist(); renderSmaSupport(); });
   $("mVt").addEventListener("change", function (e) { state.mVt = e.target.value; save(); renderMomentum(); });
   $("mnVt").addEventListener("change", function (e) { state.mnVt = e.target.value; save(); renderMomNear(); });
