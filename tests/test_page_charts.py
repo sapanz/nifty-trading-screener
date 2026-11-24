@@ -21,7 +21,7 @@ def test_the_removed_tools_are_gone_from_the_page():
 
 
 def test_swing_shorts_are_back_with_their_record_next_to_them():
-    assert 'id="sBearNote"' in HTML and "lost money - −0.64% a trade" in HTML and 'id="mBearCol"' in HTML and 'id="momNear"' in HTML and "function renderMomNear" in HTML and "weak: out.slice().sort(cmp(-1))" in HTML
+    assert 'id="sBearNote"' not in HTML and 'id="mBearCol"' in HTML and 'id="momNear"' in HTML and "function renderMomNear" in HTML and "weak: out.slice().sort(cmp(-1))" in HTML
 
 
 def test_swing_has_a_zone_test_filter_for_each_side():

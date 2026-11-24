@@ -874,6 +874,8 @@ Backtest (6 years, 218 F&O stocks, 10,010 picks, 0.10% costs; the table in the p
 
 Every stop costs some return (momentum stocks are volatile and recover), so the 4 × ATR stop is a limit on a bad month (worst pick -43% to -30%), not a source of profit. Read it honestly: the data is **only the stocks in F&O today** (survivorship) over a mostly rising market, 2023 carried the total, 2026 so far is weak, and a market turn can cost 20-30% in a month. Unleveraged this is about 3% a month, nowhere near 20%.
 
+> **The dashboard page itself carries no how-to or strategy text** (Nov 2026): the notes under each table, the rule boxes of the Momentum strategy card and its track record, the banners, the footer explanations and the explanatory tooltips were removed so a user of the page sees data and trade levels, not the method. Everything that was there is documented in this README.
+
 ### SMA support and resistance - bullish and bearish (Swing tab)
 
 A section under the momentum tables for buying a pullback to a rising average, daily and weekly (`signals/sma_support.py`; the list is built by the **Price action** build because it needs the long candle history, published as `sma_support.json` on the `dashboard-setups` branch; the page loads it when you open the Swing tab; `?smas=<url>` overrides it for testing).

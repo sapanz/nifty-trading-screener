@@ -235,7 +235,6 @@
       <label>Rank by <select id="sSort" aria-label="Order of the lists"><option value="conf">Most confirmations first</option><option value="strength">Strongest zone first</option><option value="near">Closest to the zone first</option><option value="rfac">Highest R-factor first</option><option value="tlgap">Trendline closest to the zone first</option><option value="tlpx">Price closest to the trendline first</option><option value="newest">Newest zone first</option></select></label>
       <label><input type="checkbox" id="sCf"> Zone + trendline only</label>
       <label>Max stop <select id="sMaxStop" aria-label="Largest stop distance shown"><option value="auto">Auto (3% intraday, 10% swing)</option><option value="1.5">1.5%</option><option value="3">3%</option><option value="5">5%</option><option value="8">8%</option><option value="12">12%</option><option value="any">Any</option></select></label>
-      <span class="note" style="color:var(--muted);font-size:12px">Top 20 per side, ranked as chosen in “Rank by”; uses the sector filter below. Click a stock for the chart.</span>
     </div>
     <div class="controls" id="sMore">
       <label>Zone strength at least <select id="sMinSc" aria-label="Minimum zone strength"><option value="0">Any</option><option value="40">40</option><option value="50">50</option><option value="60">60</option><option value="70">70</option></select></label>
@@ -250,25 +249,23 @@
       <label><input type="checkbox" id="sVol"> Volume thrust ≥ 2×</label>
       <button type="button" class="sbtn" id="sReset">Reset filters</button>
     </div>
-    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div id="sBearCol"><h3 class="down">▼ Bearish</h3><p class="oiNote" id="sBearNote" hidden style="margin:0 0 8px;color:var(--down)">Short side, F&amp;O stocks only. Backtest, 6 years: supply zones lost money - −0.64% a trade (profit factor 0.73), negative in every year; the best filters (price within 1.5% of the zone, stop 3% or less) still lost −0.24%. Shown at your request: paper-trade it or keep it small.</p><div id="sBear"></div></div></div>
+    <div class="scols"><div><h3 class="up">▲ Bullish</h3><div id="sBull"></div></div><div id="sBearCol"><h3 class="down">▼ Bearish</h3><div id="sBear"></div></div></div>
   </section>
   <section id="momentum" aria-labelledby="momH" hidden>
     <h2 id="momH">Momentum watchlist <small id="momCount"></small></h2>
-    <div id="momBanner" class="momBanner"></div>
     <div id="momPlan" class="momPlan"></div>
     <div class="controls">
       <label>Volume thrust <select id="mVt" aria-label="Keep only stocks whose recent volume confirms the move"><option value="any">Off</option><option value="1.2">≥ 1.2×</option><option value="1.5">≥ 1.5×</option><option value="2">≥ 2×</option></select></label>
     </div>
-    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest <span id="mBullTag" class="tag"></span></h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest <span id="mBearTag" class="tag"></span></h3><div id="mBear"></div></div></div>
-    <p class="oiNote" id="momNote" style="padding:0 14px 10px"></p>
+    <div class="scols"><div id="mBullCol"><h3 class="up">▲ Strongest</h3><div id="mBull"></div></div><div id="mBearCol"><h3 class="down">▼ Weakest</h3><div id="mBear"></div></div></div>
   </section>
   <section id="smaSup" aria-labelledby="smaH" hidden>
     <h2 id="smaH">SMA support and resistance <small id="smaCount"></small></h2>
     <div class="controls">
       <label>Direction <select id="smaSide" aria-label="Bullish support or bearish resistance"><option value="long">Bullish support (buy)</option><option value="short">Bearish resistance (sell, F&amp;O)</option></select></label>
       <label>Timeframe <select id="smaTf" aria-label="Daily or weekly"><option value="D">Daily - 21-day average</option><option value="W">Weekly - 30-week average</option></select></label>
-      <label title="Bullish: the stock's sector (an equal-weight index of its stocks) is above its own average and that average is rising. Bearish: below a falling one"><span id="smaSecLbl">Sector support</span> <select id="smaSec" aria-label="Sector support"><option value="on">Required</option><option value="off">Off</option></select></label>
-      <label title="The signal candle's volume against the average of the 20 sessions (20 weeks) before it">Volume vs 20-avg <select id="smaVol" aria-label="Volume support"><option value="auto">Default (daily 1.5x, weekly 1.2x)</option><option value="any">Off</option><option value="1">at least 1.0x</option><option value="1.2">at least 1.2x</option><option value="1.5">at least 1.5x</option><option value="2">at least 2x</option></select></label>
+      <label><span id="smaSecLbl">Sector support</span> <select id="smaSec" aria-label="Sector support"><option value="on">Required</option><option value="off">Off</option></select></label>
+      <label>Volume vs 20-avg <select id="smaVol" aria-label="Volume support"><option value="auto">Default (daily 1.5x, weekly 1.2x)</option><option value="any">Off</option><option value="1">at least 1.0x</option><option value="1.2">at least 1.2x</option><option value="1.5">at least 1.5x</option><option value="2">at least 2x</option></select></label>
       <label><input type="checkbox" id="smaFo"> F&amp;O stocks only</label>
       <label>Sort by <select id="smaSort" aria-label="Order of the table"><option value="vr">Volume (highest first)</option><option value="rr">Reward : risk</option><option value="risk">Smallest risk</option><option value="slope">Steepest average</option></select></label>
     </div>
@@ -276,7 +273,6 @@
       <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Status</th><th id="smaEntryH">Buy above</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>R:R</th><th title="Signal candle's volume / the average of the 20 sessions (weeks) before it">Volume</th><th title="How far the average moved over the last 10 sessions (8 weeks)">Slope</th></tr></thead>
       <tbody id="smaRows"></tbody>
     </table></div>
-    <p class="oiNote" id="smaNote" style="padding:8px 14px 10px"></p>
   </section>
   <section id="momNear" aria-labelledby="mnH" hidden>
     <h2 id="mnH">Momentum stocks near a zone or trendline <small id="mnCount"></small></h2>
@@ -292,13 +288,10 @@
       <thead><tr><th>#</th><th>Stock</th><th>Momentum</th><th>20d</th><th title="Volume of the last 3 sessions / the average of the 20 sessions before">Volume</th><th>Zone</th><th>Zone test</th><th>Zone gap</th><th>Stop</th><th>Strength</th><th>Price to line</th><th>Line to zone</th><th>R</th><th>Range</th></tr></thead>
       <tbody id="mnRows"></tbody>
     </table></div>
-    <p class="oiNote" id="mnNote" style="padding:8px 14px 10px"></p>
   </section>
   <section id="movers" aria-labelledby="mvH" hidden>
     <h2 id="mvH">Movers - widest daily range <small id="mvCount"></small></h2>
-    <div id="mvBanner" class="momBanner"></div>
     <div id="mvBox"></div>
-    <p class="oiNote" id="mvNote" style="padding:0 14px 10px"></p>
   </section>
   <section id="setups" aria-labelledby="paH" hidden>
     <h2 id="paH">Price action setups <small id="paCount"></small></h2>
@@ -308,13 +301,12 @@
         <button type="button" id="paViewHist" aria-pressed="false">Backtest: past setups</button>
       </div>
     </div>
-    <div id="paBanner" class="momBanner liveOnly"></div>
     <div id="paHistStats" class="momBanner histOnly" hidden></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
       <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support / resistance zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="retest">Break and retest (range / zone / trendline)</option><option value="double">W / M pattern (double bottom / top)</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="trendline">Trendline breakdown (short)</option></select></label>
       <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
-      <label title="A weekly zone with a daily trendline (rising support for a long, falling resistance for a short) running through it"><input type="checkbox" id="paCf"> Zone + trendline only</label>
+      <label><input type="checkbox" id="paCf"> Zone + trendline only</label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
       <label class="histOnly" hidden>Result <select id="paResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="trend">Closed below 30-week average</option><option value="time">Time exit (60 sessions)</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option><option value="open">Still open</option></select></label>
       <label class="liveOnly">Status <select id="paStatus" aria-label="Triggered or waiting"><option value="all">All</option><option value="triggered">Triggered</option><option value="pending">Waiting for the trigger</option></select></label>
@@ -335,13 +327,11 @@
     </div>
     <div class="tablewrap liveOnly">
       <table id="paTable">
-        <thead><tr><th>#</th><th class="l">Stock</th><th class="l">Setup and reason</th><th class="l">Status</th><th>Entry</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>Reward : risk</th><th title="Share of similar past setups that reached the target before the stop, scaled to what the walk-forward test delivered. 'needs' = the hit rate at which this reward:risk breaks even.">Probability</th><th title="What this type of setup did in the past on the stocks scanned: average result per trade in R (1R = the amount risked) and the number of trades">This type's record</th><th title="Volume on the trigger day against the 20-session average">Volume</th><th title="Open interest against price over the last 5 sessions (F&amp;O stocks)">OI</th></tr></thead>
+        <thead><tr><th>#</th><th class="l">Stock</th><th class="l">Setup and reason</th><th class="l">Status</th><th>Entry</th><th>Stop</th><th>Target</th><th>Risk</th><th>Reward</th><th>Reward : risk</th><th>Probability</th><th>This type's record</th><th title="Volume on the trigger day against the 20-session average">Volume</th><th title="Open interest against price over the last 5 sessions (F&amp;O stocks)">OI</th></tr></thead>
         <tbody id="paRows"></tbody>
       </table>
       <div id="paEmpty" class="empty" hidden></div>
     </div>
-    <p class="oiNote liveOnly" id="paNote" style="padding:8px 14px 10px"></p>
-    <p class="oiNote histOnly" id="paHistNote" style="padding:8px 14px 10px" hidden></p>
   </section>
   <section id="secSectors" aria-labelledby="sh">
     <h2 id="sh">Sectors — day change <small id="sectorHint">tap a sector to filter stocks</small></h2>
@@ -386,13 +376,6 @@
   </section>
 </main>
 <footer>
-  Sector change is the equal-weighted average move of its Nifty 500 members (Industry column of the NSE list).
-  Turnover = price × volume so far. “Vol vs 20d” is today's volume so far divided by the average <em>full-day</em> volume of
-  the last 20 sessions, so it reads well under 1× early in the session — compare stocks with each other rather than against 1.
-  <strong>R-factor</strong> (0–100, F&amp;O stocks): each stock is ranked among all F&amp;O stocks on three things - volume vs its 20-day average, open interest added since 09:15, and the size of the price move since 09:15 - and R is the geometric average of the three ranks, so it is high only when volume, OI and price move are all high together; it is 0 when OI has fallen. ▲ = OI up with price up (long buildup), ▼ = OI up with price down (short buildup) - both measured since 09:15, so the tag can differ from the Chg % column, which is against yesterday's close. It is a ranking aid for finding candidates, not a signal.
-  <strong>Swing</strong> (built each evening after the close) applies the same idea to daily charts: volume vs its 20-day average, OI added over the last 5 sessions (near + next month futures) and the 5-session price move; ⚠ roll marks a window that includes a futures expiry, when the OI change includes settled and rolled positions.
-  <strong>Order block (5-min, F&amp;O stocks; Live and Replay):</strong> in an up-move the last red candle before the thrust that breaks the recent swing high (mirror for shorts). Its range is the zone; price often comes back to it before the move resumes, and the zone's low (plus 0.1%) is a tight stop - the "stop" figure is how far that is from the live price. “Waiting” = the thrust happened and price hasn't come back yet; “retesting” = it touched the zone in the last 15 minutes without breaking it. Scanned every 5 minutes on completed candles, only for zones formed today. In the Swing tab the same idea runs on daily candles (zones formed in the last 40 sessions, rebuilt each evening). Whether this has an edge is checked by backtest - treat it as a way to find candidates and place a stop, not as a signal.
-  <strong>Price action</strong> (built each evening after the close; Nifty 500 plus every F&amp;O stock): weekly support zones and weekly breakouts - range, triangle, cup and handle - with a daily close as the trigger, a stop under the structure and the next weekly resistance as the target, sorted by reward : risk. The probability is measured on each night's own history and scaled to what its year-by-year test delivered.
   Data comes from Upstox and is refreshed every couple of minutes; it is not a recommendation to trade.
 </footer>
 <div id="oiOverlay" class="overlay" hidden>
@@ -428,8 +411,8 @@
     { key: "turnover_cr", label: "Turnover ₹Cr", sort: "turnover_cr" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg" },
     { key: "oi_chg", label: "OI chg %", sort: "oi_chg", help: "Open interest added (or removed) since 09:15, % - F&O stocks only" },
-    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, OI buildup and price move line up right now (F&O stocks). See the note under the table." },
-    { key: "ob", label: "Order block (5-min)", sort: "ob_sl", help: "F&O stocks. The last opposite candle before a structure-breaking thrust today: its low (bullish) is a tight stop. Sorts by the smallest stop distance." }
+    { key: "r", label: "R-factor", sort: "r", help: "0-100 buildup score (F&O stocks)" },
+    { key: "ob", label: "Order block (5-min)", sort: "ob_sl", help: "Nearest 5-minute order block (F&O stocks)" }
   ];
   var COLS_SWING = [
     { key: "rank", label: "#", sort: null },
@@ -441,9 +424,9 @@
     { key: "volume", label: "Volume", sort: "volume" },
     { key: "vol_vs_avg", label: "Vol vs 20d", sort: "vol_vs_avg", help: "Latest session's volume / the average of the 20 sessions before it" },
     { key: "oi_1d", label: "OI 1D %", sort: "oi_1d", help: "Open interest change in the latest session, % (near + next month futures)" },
-    { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest added (or removed) over the last 5 sessions, % - what R-factor looks at" },
-    { key: "r", label: "R-factor", sort: "r", help: "0-100. How strongly volume, 5-day OI buildup and 5-day price move line up. See the note under the table." },
-    { key: "ob", label: "Order block (daily)", sort: "ob_sl", help: "The last opposite daily candle before a thrust that broke structure. Sorts by the smallest stop distance." }
+    { key: "oi_chg", label: "OI 5D %", sort: "oi_chg", help: "Open interest change over the last 5 sessions, %" },
+    { key: "r", label: "R-factor", sort: "r", help: "0-100 buildup score (F&O stocks)" },
+    { key: "ob", label: "Order block (daily)", sort: "ob_sl", help: "Nearest daily order block" }
   ];
   function obActive() { return state.mode === "live" || state.mode === "swing" || (state.mode === "replay" && state.hasOb); }
   function columns() { return state.mode === "swing" ? COLS_SWING : obActive() ? COLS : COLS.filter(function (c) { return c.key !== "ob"; }); }
@@ -929,7 +912,6 @@
     });
     body.appendChild(legend);
     body.appendChild(numbersTable(blocks));
-    body.appendChild(el("p", { "class": "oiNote" }, "Green bars = buyers were in control (price rising), red = sellers (price falling); a taller bar means more open interest changed hands. Dark = new positions opened, light = existing positions closed. Hover a bar for exact figures. " + (curTl.swing ? "Open interest here is the total of the near and next-month futures, saved each evening so contract rolls don't distort it; price is the stock's daily close" : "Current-month futures contract") + (state.mode === "replay" ? " (on days before the previous monthly expiry, around 29-30 Sep, that was still the next-month contract, so its OI is smaller and rising as traders rolled over)" : "") + ". " + series.info + "."));
   }
 
   function openOi(sym, tab) {
@@ -1087,7 +1069,6 @@
     $("sMinR").value = String(state.sMinR); $("sMaxStop").value = state.sMaxStop; $("sNear").value = state.near; $("sSort").value = state.sSort; $("sCf").checked = state.cfOnly;
     $("sFlow").checked = state.sFlow; $("sMinSc").value = String(state.sMinSc); $("sState").value = state.sState; $("sStateBear").value = state.sStateBear; $("sTlGap").value = state.sTlGap; $("sTlPx").value = state.sTlPx; $("sWd").checked = state.sWd; $("sSw").checked = state.sSw; $("sVol").checked = state.sVol; $("sAge").value = state.sAge;
     Array.prototype.forEach.call(document.querySelectorAll("#strongest .swingOnly"), function (e) { e.hidden = state.mode !== "swing"; });
-    $("sBearNote").hidden = state.mode !== "swing";
     $("sbH").firstChild.textContent = state.mode === "swing" ? "Strongest order blocks - daily " : "Strongest order blocks ";
     var total = 0;
     [["bull", "sBull"], ["bear", "sBear"]].forEach(function (pair) {
@@ -1105,7 +1086,7 @@
         var pill = function (ok, text, tip) { return el("span", { "class": "obtag" + (ok ? " test" : ""), title: tip }, (ok ? "✓ " : "") + text); };
         meta.appendChild(pill(b.sc >= 60, "zone " + b.sc, "Zone strength (thrust, volume, liquidity sweep, with the trend) - ticked at 60 or more. A price-structure measure."));
         if (s.zones !== undefined || state.mode === "swing") meta.appendChild(pill(!!b.cf, "trendline", b.cf ? "A " + (bull ? "support" : "resistance") + " trendline runs through this zone" : "No trendline through this zone"));
-        meta.appendChild(pill(!!b.flow, s.r !== null && s.r !== undefined ? "flow R " + s.r : "flow n/a", "R-factor: volume, open-interest buildup and price move - ticked when R >= 50 and the OI buildup agrees with the zone's direction. A money-flow measure, separate from the zone's strength."));
+        meta.appendChild(pill(!!b.flow, s.r !== null && s.r !== undefined ? "flow R " + s.r : "flow n/a", ""));
         if (b.tlgap !== null && b.tlgap !== undefined) meta.appendChild(el("span", { title: "Distance from the confirming " + (bull ? "support" : "resistance") + " trendline to the zone (now or up to 3 candles ahead), and from price to the line" }, "line " + (b.tlgap === 0 ? "through the zone" : b.tlgap.toFixed(1) + "% from zone") + " · price " + b.tlpx.toFixed(1) + "% from line"));
         if (b.age !== null && b.age !== undefined) meta.appendChild(el("span", { title: "When the zone formed: " + b.t }, "formed " + (b.age === 0 ? "today" : b.age + "d ago")));
         meta.appendChild(el("span", null, b.lo.toLocaleString("en-IN") + "–" + b.hi.toLocaleString("en-IN")));
@@ -1199,32 +1180,21 @@
              strong: out.slice().sort(cmp(1)).slice(0, topN || MOM.topN).filter(keep), weak: out.slice().sort(cmp(-1)).slice(0, topN || MOM.topN).filter(keep) };
   }
 
-  /* The "Momentum top-10 long" strategy: the rules and the numbers behind them come from the 6-year backtest (README); the constants mirror signals/momentum.py. */
+  /* The "Momentum top-10 long" strategy card; the constants mirror signals/momentum.py. */
   var MOM_RULE = { hold: 20, stopAtr: 4, targetAtr: 8, gapCap: 3 };
   var momSize = { capital: 1000000, risk: 1 };
   try { var ms = JSON.parse(localStorage.getItem("momSize") || "{}"); if (ms.capital > 0) momSize.capital = ms.capital; if (ms.risk > 0) momSize.risk = ms.risk; } catch (e) {}
-  var MOM_RECORD = [[2021, 1890, 1.57, 48, 10, 20.5], [2022, 1490, 1.98, 53, 17, 12.4], [2023, 1810, 8.72, 69, 4, 116.4], [2024, 2030, 3.10, 54, 14, 40.5], [2025, 1570, 2.79, 60, 10, 27.2], [2026, 1220, 0.66, 52, 14, 3.6]];
   function addSessions(iso, n) { var d = new Date(iso + "T00:00:00Z"); while (n > 0) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6 !== 0) n--; } return d.toISOString().slice(0, 10); }
   function renderMomPlan(m, base) {
     var box = $("momPlan"); box.textContent = ""; var up = m.market.up;
     box.className = "momPlan" + (up ? "" : " off");
-    var h = el("h3", null, "Strategy: Momentum top-10 long"); h.appendChild(el("span", { "class": "tag" + (up ? " use" : "") }, up ? "ACTIVE - market above its 50-day average" : "STAND ASIDE - market below its 50-day average"));
+    var h = el("h3", null, "Strategy: Momentum top-10 long"); h.appendChild(el("span", { "class": "tag" + (up ? " use" : "") }, up ? "ACTIVE" : "STAND ASIDE"));
     box.appendChild(h);
-    var exitIso = addSessions(base.asof, MOM_RULE.hold), entryIso = addSessions(base.asof, 1);
-    var plan = el("div", { "class": "paPlan" });
-    [["Entry", "Limit buy at the open", up ? "before the open of " + shortDate(entryIso) + " (pre-open 9:00-9:08 or 9:15) place a LIMIT buy for each stock at last close + " + MOM_RULE.gapCap + "%: it fills at the open, and skips a stock that gaps up more (those chases earned about nothing). Do not wait for a dip - the picks that never dipped were the winners" : "no new entries while the market is below its 50-day average", ""],
-     ["Stop-loss", MOM_RULE.stopAtr + " × ATR", "as soon as a buy fills, place a stop-loss sell (SL-M, delivery / GTT) at fill price × (1 - " + MOM_RULE.stopAtr + " × the stock's daily range %); the table works it from the last close. A gap below it fills at the open, so it can be worse", "risk"],
-     ["Target", "None", "hold to the exit day. Optional: book profit " + MOM_RULE.targetAtr + " × ATR above entry (tested: it changed nothing)", ""],
-     ["Exit", MOM_RULE.hold + " sessions", "sell at the close of " + shortDate(exitIso) + " (about, holidays aside), or earlier if the stop is hit. Do not sell just because the market dips below its average - tested, it cut the result", "reward"],
-     ["Re-pick", "Every " + MOM_RULE.hold + " sessions", "take a fresh top 10, but only if the market is above its 50-day average on that day - otherwise stay in cash", ""]].forEach(function (k) {
-      var b = el("div", k[3] ? { "class": k[3] } : null); b.appendChild(el("span", null, k[0])); b.appendChild(el("b", null, k[1])); b.appendChild(el("span", null, k[2])); plan.appendChild(b);
-    });
-    box.appendChild(plan);
+    var exitIso = addSessions(base.asof, MOM_RULE.hold);
     var sz = el("div", { style: "display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:10px 0 4px;font-size:13px" });
     var capIn = el("input", { type: "number", min: "1000", step: "10000", value: String(momSize.capital), "aria-label": "Capital in rupees", style: "width:120px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit" });
     var riskIn = el("input", { type: "number", min: "0.1", max: "5", step: "0.1", value: String(momSize.risk), "aria-label": "Risk per stock in percent of capital", style: "width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit" });
     var l1 = el("label", null, "Capital ₹ "), l2 = el("label", null, "Risk per stock % "); l1.appendChild(capIn); l2.appendChild(riskIn); sz.appendChild(l1); sz.appendChild(l2);
-    sz.appendChild(el("span", { "class": "oiNote", style: "margin:0" }, "Position = the smaller of capital ÷ 10 and (risk % of capital ÷ stop distance). If you cannot afford all 10, buy as many as you can: the rank inside the top 10 made no difference (average +3.0% to +4.5% a pick at every rank, no pattern) - fewer stocks only makes the result lumpier."));
     box.appendChild(sz);
     var wrap = el("div", { "class": "tbl" }), t = el("table"), hd = el("thead"), hr = el("tr");
     ["#", "Stock", "Last close", "Buy limit (max)", "Qty", "Amount ₹", "Stop", "Loss if stopped ₹", "Optional target", "Exit by"].forEach(function (c) { hr.appendChild(el("th", null, c)); });
@@ -1249,17 +1219,6 @@
     };
     capIn.addEventListener("input", fill); riskIn.addEventListener("input", fill); fill();
     tf.appendChild(tfr); t.appendChild(tb); t.appendChild(tf); wrap.appendChild(t); box.appendChild(wrap);
-    box.appendChild(el("p", { "class": "oiNote", style: "margin:8px 0 4px" }, "Tested entry variants (4 × ATR stop, 20 sessions): buying every pick at the open +3.32% a pick; skipping gaps above +3% +3.41% (the 3% of picks that gapped that far earned +0.15%); a limit at the signal close +3.39% but it missed 14% of picks that then averaged +5.6%; a limit 1% below the open missed 32% averaging +5.4%. So the cap is a small safety rule, not a source of profit - what matters is being in all the picks. Costs are included (0.10% a round trip); taxes and slippage are not."));
-    var det = el("details", { style: "margin-top:8px" }), sm = el("summary", { style: "cursor:pointer;font-weight:600" }, "Track record by year (6-year backtest, 218 F&O stocks)");
-    det.appendChild(sm);
-    var rt = el("table", { style: "margin-top:6px" }), rh = el("tr");
-    ["Year", "Picks", "Average per pick", "Won", "Stopped out", "10-stock basket, compounded"].forEach(function (c) { rh.appendChild(el("th", null, c)); }); rt.appendChild(rh);
-    MOM_RECORD.forEach(function (r) {
-      var tr = el("tr"); [String(r[0]), r[1].toLocaleString("en-IN"), (r[2] > 0 ? "+" : "") + r[2].toFixed(2) + "%", r[3] + "%", r[4] + "%", (r[5] > 0 ? "+" : "") + r[5].toFixed(0) + "%"].forEach(function (v, k) { tr.appendChild(el("td", k === 2 || k === 5 ? { "class": "up" } : null, v)); }); rt.appendChild(tr);
-    });
-    det.appendChild(rt);
-    det.appendChild(el("p", { "class": "oiNote", style: "margin:6px 0 0" }, "Entry at the next open, 4 × ATR stop, exit after 20 sessions, 0.10% costs, only while the market is above its 50-day average: +3.3% a pick on average, 56% won, 11% stopped out, worst single pick -30%. Positive in every year, but 2023 (+8.7% a pick) carried it and 2026 so far is only +0.7%. The basket column re-picks 10 stocks every 20 sessions and sits in cash when the market is below its average (average of ten start dates; worst drawdown about -20%, in one start -28%). The data is only the stocks in F&O today, so it flatters the result (survivorship) and it covers a mostly rising market - expect less, and a market turn can cost 20-30% in a month. Without the stop the average was +3.7% (worst pick -43%); a tighter stop (2-3 × ATR) or exiting when the market falls below its average lowered it to +2.3% to +2.9%. Not a recommendation to trade."));
-    box.appendChild(det);
   }
   function renderMomentum() {
     var sec = $("momentum");
@@ -1268,15 +1227,9 @@
     sec.hidden = !m; if (!m) return;
     m.strong = m.strong.slice(0, MOM.topN); m.weak = m.weak.slice(0, MOM.topN);
     $("mVt").value = state.mVt;
-    var up = m.market.up, pct = Math.abs(m.market.vs_ma_pct).toFixed(1);
+    var up = m.market.up;
     $("momCount").textContent = "as of the " + shortDate(m.asof) + " close · " + m.universe + " liquid F&O stocks" + (minVt ? " · top 30 with volume thrust ≥ " + minVt + "×" : "");
-    var banner = $("momBanner"); banner.className = "momBanner" + (up ? "" : " warn");
-    banner.textContent = up
-      ? "The market is " + pct + "% above its 50-day average, so the long side is the one with the market behind it: the strongest stocks are the list to use."
-      : "The market is " + pct + "% below its 50-day average. Over 6 years the strongest-stocks list only paid while the market was above that average, and the weakest stocks showed no edge as shorts (they lost 3.3% a pick over 20 sessions) - this is a time to stand aside or trade small. Both lists are shown for study.";
     renderMomPlan(m, minVt ? (momentumLists(state.swingCandles, state.data.stocks, state.data.asof, MOM.topN, 0) || m) : m);
-    $("mBullTag").textContent = up ? "use this list" : "against the market"; $("mBullTag").className = "tag" + (up ? " use" : "");
-    $("mBearTag").textContent = up ? "context only" : "market's direction · no edge over random shorts in tests"; $("mBearTag").className = "tag";
     $("mBullCol").className = up ? "" : "dim"; $("mBearCol").className = up ? "dim" : "";
     [["strong", "mBull", true], ["weak", "mBear", false]].forEach(function (g) {
       var box = $(g[1]); box.textContent = "";
@@ -1290,7 +1243,7 @@
         var meta = el("div", { "class": "meta" });
         meta.appendChild(el("span", null, "5d " + fmtPct(x.m5) + " · 60d " + fmtPct(x.m60)));
         meta.appendChild(el("span", { title: "Average daily range over 14 sessions - size the stop from this" }, "range " + x.atr + "%"));
-        if (x.vt !== null && x.vt !== undefined) meta.appendChild(el("span", { title: "Volume of the last 3 sessions / the average of the 20 before - 1.5× or more means participation behind the move" }, "volume " + x.vt.toFixed(1) + "×"));
+        if (x.vt !== null && x.vt !== undefined) meta.appendChild(el("span", { title: "Volume thrust" }, "volume " + x.vt.toFixed(1) + "×"));
         meta.appendChild(el("span", null, g[2] ? (x.from_hi20 > -0.05 ? "at 20d high" : Math.abs(x.from_hi20) + "% below 20d high") : (x.from_lo20 < 0.05 ? "at 20d low" : x.from_lo20 + "% above 20d low")));
         meta.appendChild(el("span", null, "₹" + Math.round(x.turnover_cr).toLocaleString("en-IN") + " cr"));
         body.appendChild(meta); card.appendChild(body);
@@ -1299,8 +1252,6 @@
         box.appendChild(card);
       });
     });
-    if (minVt && !m.hasVolume) $("momNote").textContent = "Volume is not in the candle data yet - it arrives with the next swing build, so the thrust filter shows nothing until then.";
-    else $("momNote").textContent = "What 6 years say (218 F&O stocks, costs included): holding the 10 strongest stocks only while the market is above its 50-day average, about a month each, beat holding every stock by 1.2-1.6% a month in three separate periods (latest, Jul 2025 - Nov 2026: +0.8% a month against -0.6%). Without leverage it averaged about 2.6% a month with a 27% worst drawdown; at 5× the worst month was -42% and the drawdown exceeded the account, so it is not a 20%-a-month system. The weakest list showed no edge as shorts, and no next-day or intraday rule tested (end-of-day signals, opening-range breakouts, gap rules, OI buildup) made money after costs. Rank = average percentile of the 20- and 60-session returns; liquid F&O stocks only (₹20 cr+ traded). Volume thrust (optional filter) = the last 3 sessions' volume ÷ the 20 sessions before; it did not improve results in the 6-year test. Change \"As of\" above to see any past date.";
   }
 
 
@@ -1343,12 +1294,6 @@
     svg.appendChild(svgEl("text", { x: L + 26, y: T + 9, style: "fill:#d9822b;font-weight:600" }, (r.tf === "D" ? "21-day" : "30-week") + " average"));
     return svg;
   }
-  var SMA_REC = {
-    "long|D": "6-year backtest (218 F&O stocks, costs included): every signal +0.18% a trade, with the sector supporting +0.24%, and with volume at least 1.5x its 20-day average +0.94% a trade (1,083 trades, 41% won, profit factor 1.39, positive in 4 of 6 years; 2021-23 +1.43%, the untouched 2024-26 +0.25%, 2026 -2.1%) - the volume is what separates the winners: below 1.0x +0.12%, 1.0x+ +0.47%, 1.5x+ +0.94%, 2x+ +1.37%. Against the equal-weight index the same trades were -0.05%, so it is not a free edge over simply holding these stocks.",
-    "long|W": "6-year backtest (218 F&O stocks, costs included): every signal +1.68% a trade, with the sector supporting +1.64% (the sector filter did not help the weekly trade), and with volume at least 1.2x its 20-week average +3.26% a trade (195 trades, 44% won, profit factor 1.95) - but 2023 alone gave +8.0% a trade; 2021-23 +5.9%, the untouched 2024-26 +0.5% (2026 -2.9%). Trades are held a median of about a month (up to 6) and risk about 5% each; against the equal-weight index they were -0.46%.",
-    "short|D": "6-year backtest (F&O stocks, costs included): the bearish mirror LOSES. Every signal -0.38% a trade (9,193); with the sector weak -0.65%; with volume at least 1.5x its 20-day average -1.12% a trade (371 trades, 29% won, profit factor 0.60; 2021-23 -1.64%, the untouched 2024-26 -0.83%). Unlike the long side, neither the sector filter nor the volume helped - the weaker the sector and the heavier the volume, the more the trade lost -. Hedged against the index the shorts were about break-even, which is not tradable. Shown at your request: paper-trade it or keep it very small.",
-    "short|W": "6-year backtest (F&O stocks, costs included): the bearish mirror LOSES. Every signal -0.82% a trade (845), with the sector weak -1.51%; with volume at least 1.2x its 20-week average -2.50% (only 23 trades, 22% won). Nothing in the filters helped. Shown at your request: paper-trade it or keep it very small."
-  };
   function renderSmaSupport() {
     var sec = $("smaSup"); if (state.mode !== "swing") { sec.hidden = true; return; }
     sec.hidden = false;
@@ -1356,12 +1301,6 @@
     var body = $("smaRows"); body.textContent = "";
     var d = state.sma, daily = state.smaTf === "D", bull = state.smaSide === "long", avgN = daily ? "21-day" : "30-week";
     $("smaSecLbl").textContent = bull ? "Sector support" : "Sector weakness"; $("smaEntryH").textContent = bull ? "Buy above" : "Sell below";
-    $("smaNote").textContent = "Rules: the " + avgN + " average " + (bull
-        ? (daily ? "is higher than 3 sessions ago and up 1% or more over 10 sessions, with the 21-day above the 50-day and the close above the 50-day" : "is higher than 4 weeks ago and up 1% or more over 8 weeks, with the close above it and the average above where it was 20 weeks ago")
-        : (daily ? "is lower than 3 sessions ago and down 1% or more over 10 sessions, with the 21-day below the 50-day and the close below the 50-day" : "is lower than 4 weeks ago and down 1% or more over 8 weeks, with the close below it and the average below where it was 20 weeks ago")) +
-      "; a " + (bull ? "GREEN" : "RED") + " " + (daily ? "daily" : "weekly") + " candle closes at or " + (bull ? "above" : "below") + " it with its " + (bull ? "low" : "high") + " within " + (daily ? "1.5%" : "3%") + " " + (bull ? "above" : "below") + " it; the sector (an equal-weight index of its stocks, 3 or more) is " + (bull ? "above its own " + avgN + " average and that average is rising" : "below its own " + avgN + " average and that average is falling") + ". " +
-      "Trade: " + (bull ? "buy ABOVE the green candle's high " : "sell BELOW the red candle's low ") + (daily ? "next session" : "next week") + " (a " + (bull ? "buy" : "sell") + "-stop order; the price gapping through it fills at the open), stop just " + (bull ? "below its low" : "above its high") + ", target the next weekly " + (bull ? "resistance" : "support") + " (capped at 4R) when that pays at least 1.5R, otherwise 3R - so the reward : risk is never under 1.5. " +
-      SMA_REC[state.smaSide + "|" + state.smaTf] + " Past results, survivors only.";
     var colspan = "12";
     if (!d) { $("smaCount").textContent = ""; var tr0 = el("tr"), td0 = el("td", { colspan: colspan, "class": "mute" }, "Not built yet - the list arrives with the next Price action build (it needs the long candle history that build downloads)."); tr0.appendChild(td0); body.appendChild(tr0); return; }
     var rows = smaRowsList();
@@ -1438,7 +1377,6 @@
       tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
       body.appendChild(tr);
     });
-    $("mnNote").textContent = "How to use it: pick the pool of strongest (or weakest) stocks, then sort by the nearest zone or trendline to find the ones close to a defined entry and stop. Zone gap = distance from price to the zone's near edge; Stop = distance to the stop beyond its far edge; Price to line = distance to the confirming trendline (support for longs, resistance for shorts); Line to zone = how far that line is from the zone. What 6 years say (218 F&O stocks, Nov 2020 - Nov 2026, costs included): zone entries on momentum stocks did no better than zone entries on any other stock - top 30 pool -0.06R a trade long and -0.13R short, against +0.02R and -0.07R for the rest - and volume thrust did not confirm anything: on the long side it made results worse (1.5× or more: -0.16R; 2× or more: -0.35R). The earlier +0.69R figure came from 20 trades in one rising stretch and did not hold up. Use this table to find a defined entry and stop quickly, not as an edge; keep Volume thrust Off unless you only want to see where volume has spiked.";
   }
 
   /* ---------- movers watchlist - the JS twin of movers_list in signals/movers.py: the widest daily ranges, either direction ---------- */
@@ -1473,8 +1411,6 @@
     var mom = state.swingCandles ? momentumLists(state.swingCandles, state.data.stocks, state.data.asof, 30, 0) : null, pool = {}, marketUp = mom ? mom.market.up : null;
     if (mom) mom.strong.forEach(function (r) { pool[r.symbol] = true; });                          // the JS twin of signals.movers.leaders: Movers rows that are also in the top 30 momentum
     var nLead = m.rows.filter(function (x) { return pool[x.symbol]; }).length;
-    $("mvBanner").textContent = "The stocks with the widest daily ranges - the ones capable of a 10-12% move within about 10 sessions, up or down. This list does not say which direction, or when." +
-      (mom ? " " + (nLead ? nLead + " of them " + (nLead === 1 ? "is" : "are") + " also among the 30 strongest momentum stocks: a “high-range leader”" + (marketUp ? "." : " - but the market is below its 50-day average, so stand aside.") : "None of them is among the 30 strongest momentum stocks today.") : "");
     var box = $("mvBox"); box.textContent = ""; var top = m.rows[0].atr;
     m.rows.forEach(function (x, i) {
       var card = el("div", { "class": "scard", tabindex: "0", role: "button", title: "Average daily range over 14 sessions: " + x.atr + "% of price" });
@@ -1492,16 +1428,15 @@
       if (pool[x.symbol]) {                                                                          // high-range leader: wide range AND strong momentum
         var stopPct = MOM_RULE.stopAtr * x.atr, amount = Math.min(momSize.capital / MOM.topN, momSize.capital * momSize.risk / 100 / (stopPct / 100)), qty = Math.floor(amount / x.close);
         var lead = el("div", { "class": "meta", style: "margin-top:4px" });
-        lead.appendChild(el("span", { "class": "tag use", title: "In the Movers list AND among the 30 strongest momentum stocks. In the 6-year backtest these averaged +4.3% a pick (20 sessions, 4 × ATR stop, market above its 50-day average) against +2.9% for the other movers - a lead found after looking, not a proven rule. Mostly high-beta stocks in a rising market." }, "High-range leader"));
-        lead.appendChild(el("span", { title: "4 × the daily range below your entry, as in the Momentum strategy card" }, "stop " + paPx(x.close * (1 - stopPct / 100)) + " (-" + stopPct.toFixed(0) + "%)"));
-        lead.appendChild(el("span", { title: "The smaller of capital ÷ 10 and (risk % ÷ stop distance), with the capital and risk from the Momentum strategy card" }, qty > 0 ? "size ≈ " + qty.toLocaleString("en-IN") + " sh · ₹" + Math.round(qty * x.close).toLocaleString("en-IN") : "size: 1 share costs more"));
+        lead.appendChild(el("span", { "class": "tag use", title: "High-range leader" }, "High-range leader"));
+        lead.appendChild(el("span", { title: "Stop" }, "stop " + paPx(x.close * (1 - stopPct / 100)) + " (-" + stopPct.toFixed(0) + "%)"));
+        lead.appendChild(el("span", { title: "Position size" }, qty > 0 ? "size ≈ " + qty.toLocaleString("en-IN") + " sh · ₹" + Math.round(qty * x.close).toLocaleString("en-IN") : "size: 1 share costs more"));
         body.appendChild(lead);
       }
       var open = function () { openOi(x.symbol, "chart"); };
       card.addEventListener("click", open); card.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
       box.appendChild(card);
     });
-    $("mvNote").textContent = "Ranked by the 14-session average daily range (liquid F&O stocks, ₹20 cr+ traded). Backtest, 24 Jun - 14 Oct 2026 (78 signal days, 10 sessions from the next open): these stocks moved 10% or more in either direction 27% of the time against 13% for a typical stock (12% or more: 17% vs 7%) - about twice as often, but roughly three in four still did NOT make a 10% move, and nothing here predicts the direction. A wide range also means a wide stop: size the position from it. The squeeze tag (last 10 sessions' range vs the last 50) is for information; ranking by it added nothing. 6-year check (218 F&O stocks): these stocks reach ±10% within 10 sessions 57% of the time against 26% for a random stock; bought long (20 sessions, 4 × ATR stop, market above its 50-day average) they averaged +3.7% a pick against +1.3% for random picks, but the stop is about 22% wide and the edge may be mostly beta and survivorship; shorting them lost. “High-range leader” = also among the 30 strongest momentum stocks: +4.3% a pick against +2.9% for the other movers (a lead found after looking)";
   }
 
   /* ---------- chart: today's 5-minute candles with the zone, stop, support / resistance and liquidity ---------- */
@@ -1664,7 +1599,6 @@
        ["Day's direction", b.wd ? "with it" : "against it"]].concat(trendWhy(row, b)).forEach(function (kv) { var li = el("li"); li.appendChild(el("b", null, kv[0] + ": ")); li.appendChild(document.createTextNode(kv[1])); ul.appendChild(li); });
       wrap.appendChild(ul);
     });
-    if (recs.length) wrap.appendChild(el("p", { "class": "oiNote" }, "Strength = thrust size (40) + thrust volume (25) + liquidity sweep (20) + with the day (15). Support / resistance are the nearest swing low / high around price; liquidity = two or more swing highs / lows within 0.15% of each other (0.4% on daily charts), where stops tend to rest. " + (cd.dates ? "Daily candles as of the " + shortDate(cd.dates[cd.dates.length - 1]) + " close" + (state.swingAsof ? " (backtest view)" : "") + "." : cd.replay ? "Replay: candles of " + state.data.replay_label + " and before - what was on the screen then; support / resistance here come from that day's candles only." : "Candles are completed 5-minute candles as of " + (state.candles && state.candles.updated_at ? new Date(state.candles.updated_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "the last scan") + ".")));
     return wrap;
   }
 
@@ -1884,7 +1818,7 @@
     liveJson("setups.json", "dashboard-setups").then(function (d) { if (state.mode !== "setups") return; state.setups = d; renderSetups(); })
       .catch(function (e) {
         if (state.mode !== "setups") return; state.setups = null;
-        $("pill").className = "pill stale"; $("pill").textContent = "No price action list yet"; $("paRows").textContent = ""; $("paBanner").textContent = ""; $("paNote").textContent = ""; $("paCount").textContent = "";
+        $("pill").className = "pill stale"; $("pill").textContent = "No price action list yet"; $("paRows").textContent = ""; $("paCount").textContent = "";
         $("paEmpty").hidden = false; $("paEmpty").textContent = "The price action list is built each evening after the close (" + e.message + ").";
       });
     liveJson("setups_candles.json", "dashboard-setups").then(function (d) { state.setupsCandles = d; if (state.paSel) renderSetupDetail(); }).catch(function () { state.setupsCandles = null; });
@@ -1911,12 +1845,6 @@
     $("updated").textContent = d.updated_at ? "built " + new Date(d.updated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
     var rows = paList(), m = d.model || {}, all = m.all;
     $("paCount").textContent = rows.length + " of " + d.setups.length + " setups · " + d.universe + " stocks scanned (" + d.fo_count + " F&O)";
-    var banner = $("paBanner"), bad = all && all.avg_r <= 0.1; banner.className = "momBanner liveOnly" + (bad ? " warn" : "");
-    var years = (m.by_year || []).filter(function (y) { return y.n >= 30; }).map(function (y) { return y.year + ": " + (y.avg_r > 0 ? "+" : "") + y.avg_r.toFixed(2) + "R"; }).join(", ");
-    var sides = (m.by_side || []).length > 1 ? " " + m.by_side.map(function (x) { return (x.side === "short" ? "Shorts" : "Longs") + " " + (x.avg_r > 0 ? "+" : "") + x.avg_r.toFixed(2) + "R (" + x.n.toLocaleString("en-IN") + ")"; }).join(", ") + "." : "";
-    banner.textContent = (d.market_up ? "The market is above its 50-day average. " : "The market is below its 50-day average. ")
-      + (all ? "Track record of these setups (" + all.n.toLocaleString("en-IN") + " with reward : risk of " + d.min_rr + " or more, " + m.stocks + " stocks, " + m.first.slice(0, 4) + "-" + m.last.slice(0, 4) + ", costs included): " + all.hit.toFixed(0) + "% reached the target before the stop, average " + (all.avg_r > 0 ? "+" : "") + all.avg_r.toFixed(2) + "R a trade" + (all.pf ? ", profit factor " + all.pf.toFixed(2) : "") + ". By year - " + years + "." + sides + " It depends heavily on the year and on the type of setup - see each row's own record - so size every trade from the stop."
-             : "Not enough history yet to measure these setups.");
     var body = $("paRows"); body.textContent = "";
     $("paEmpty").hidden = rows.length > 0; if (!rows.length) $("paEmpty").textContent = d.setups.length ? "No setup matches these filters - loosen them." : "No setup today: no stock is at a weekly support zone or breaking out of a weekly pattern with reward : risk of " + d.min_rr + " or more.";
     rows.forEach(function (s, i) {
@@ -1924,9 +1852,9 @@
       var td = function (text, c) { return el("td", c ? { "class": c } : null, text); };
       tr.appendChild(td(String(i + 1), "mute"));
       var sym = el("td", { "class": "sym l" }, s.symbol); if (s.fo) sym.appendChild(el("span", { "class": "fo" }, "F&O")); tr.appendChild(sym);
-      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, s.name)); if (s.cf) setup.appendChild(el("span", { "class": "fo", title: "A daily trendline in the trade's direction runs through this zone (within 1%)" }, "+ TRENDLINE")); setup.appendChild(el("span", { "class": "fo", style: s.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, s.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, s.reason)); tr.appendChild(setup);
+      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, s.name)); if (s.cf) setup.appendChild(el("span", { "class": "fo", title: "Trendline confluence" }, "+ TRENDLINE")); setup.appendChild(el("span", { "class": "fo", style: s.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, s.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, s.reason)); tr.appendChild(setup);
       tr.appendChild(td(paStatusText(s), "l"));
-      tr.appendChild(td(paPx(s.entry))); tr.appendChild(td(paPx(s.stop))); tr.appendChild(s.trail ? el("td", { title: "No fixed target: held while the weekly close stays above its 30-week average" + (s.trail.sma ? " (now " + paPx(s.trail.sma) + ")" : "") + ". The reward shown is the measured move, for reference." }, "30-wk avg") : td(paPx(s.target) + (s.target_kind === "measured" ? " *" : "")));
+      tr.appendChild(td(paPx(s.entry))); tr.appendChild(td(paPx(s.stop))); tr.appendChild(s.trail ? el("td", { title: "No fixed target. The reward shown is the measured move, for reference." }, "30-wk avg") : td(paPx(s.target) + (s.target_kind === "measured" ? " *" : "")));
       tr.appendChild(td("-" + s.risk_pct.toFixed(1) + "%", "down")); tr.appendChild(td("+" + s.reward_pct.toFixed(1) + "%", "up"));
       tr.appendChild(el("td", { style: "font-weight:700" }, s.rr.toFixed(1) + " : 1"));
       tr.appendChild(s.p === null ? el("td", { "class": "mute", title: s.trail ? "No fixed target, so no hit probability - see this type's record" : "Not enough history" }, "-") : el("td", { "class": s.p >= s.breakeven ? "up" : "", title: "Needs " + s.breakeven.toFixed(0) + "% to break even at this reward : risk" }, s.p.toFixed(0) + "% · needs " + s.breakeven.toFixed(0) + "%"));
@@ -1937,8 +1865,6 @@
       tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
       body.appendChild(tr);
     });
-    var walk = m.walk ? " Checked year by year on " + m.walk.n + " setups it had not seen: the lowest quarter of estimates hit " + m.walk.rows[0].actual + "% and the highest " + m.walk.rows[m.walk.rows.length - 1].actual + "% (it had said " + m.walk.rows[0].predicted + "% and " + m.walk.rows[m.walk.rows.length - 1].predicted + "%), so the figure shown is scaled by " + m.calibration + "." : "";
-    $("paNote").textContent = "How it works: structure is read on completed weekly candles and the trigger is a daily close outside it (a short is a daily close below it). Weekly support zone = price closed inside a weekly demand zone and a daily close came back above it; weekly resistance zone (short) = price rallied into a weekly supply zone and a daily close came back below it, stop above the zone - marked \"+ TRENDLINE\" when a daily trendline in the trade's direction runs through the zone; W pattern, triple bottom and inverse head and shoulders = a daily close above the neckline, and their bearish twins - M pattern, triple top, head and shoulders - a daily close below it (shorts, F&O stocks only); bull flag = a rise of 20% or more, a 2-6 week pullback that gives up less than half of it, then a daily close above the rise's high; bear flag (short) = a sharp fall of 20% or more, a 2-6 week bounce that keeps more than half of it, then a daily close below the fall's low; trendline breakdown (short) = a rising daily trendline through at least three swing lows is broken by a red close, stop above the highs since the last touch; range / triangle / cup and handle / multi-year high = a daily close above the pattern's top. Entry = the latest close (triggered) or the level to close beyond (waiting); stop = just beyond the zone, or back inside the pattern; target = the next weekly resistance, or the pattern's height projected when nothing is in the way (marked *). \"This type's record\" is what that kind of setup did in the past - range, triangle and cup earned about nothing, so read the record before acting. Sorted by reward : risk unless you change it. Probability = how often similar past setups reached the target before the stop, from the planned reward : risk, the trigger day's volume, the market's and the stock's trend, momentum and the kind of setup; recent years count more." + walk + " 'needs' is the hit rate at which that reward : risk breaks even - a big reward : risk is rarely reached, so read the two together. Open interest is shown as a tag only: there are just a few weeks of stored OI, too little to measure what it adds. Range breakdown retest (a short, F&O stocks only): a base (8-40 weeks, at most 30% wide, whose floor was tested at least twice) breaks down on a daily close under its floor; within 15 sessions price comes back to retest the broken floor from below and a candle there closes back under it with a long upper wick (at least half its range) - the failure; sell on a daily close below that candle's low, the stop is its high, the target the next weekly support or the base's height projected down. In the 6-year backtest this lost money (-0.7% a trade, profit factor 0.77) - it is shown because you asked for it. A multi-year breakout has no target: it is held while the weekly close stays above its 30-week average and sold at the next open after the first weekly close below it (the stop still applies, and a trade still running after about two years is closed), so no hit probability is shown for it - read its record instead; the reward shown is the measured move, for reference. Opening a stock also shows, each with its reason, the global macro backdrop for its sector, whether value is migrating into or out of that sector, and its catalysts (results dates, ex-dates, event-sized moves) - context to read alongside the setup, none of it inside the probability. The W / M, head and shoulders, triple and flag patterns are back at your request: in the 6-year test W pattern -0.15R (200 setups), M pattern -0.05R (258), inverse head and shoulders -0.21R (36), head and shoulders -0.67R (35), triple bottom -0.31R (69), triple top -0.10R (82), bull flag +0.07R (416), bear flag -0.46R - none earned an edge. Break and retest, both ways = a base, a weekly zone or a trendline is broken by a daily close, price comes back to retest the broken level and a candle with a long wick shows it holding as the other side's wall - bullish: the old ceiling, resistance zone or falling line now acts as support (a lower-wick candle holds it; buy above its high, stop at its low); bearish (F&O only): the old floor, support zone or rising line acts as resistance (an upper-wick candle fails there; sell below its low, stop at its high). Its 6-year record: bullish range +0.31% a trade (637 setups), zone +0.87% (100), trendline -0.21% (85) - all of the profit came from 2023, 2024-2026 averaged -0.47% a trade and the whole group trailed the index by 0.72% - and bearish range -0.71% (419), zone -1.06% (113), trendline -0.70% (113). Bearish setups (shown at your request, F&O stocks only) lost money in the 6-year test: bear flag -1.92% a trade (14% won), range breakdown retest -0.71%, trendline breakdown -0.42%, weekly resistance zone -0.60% (82 setups; the 4 with a trendline through the zone all won, too few to trust) - read each one's record before acting, and paper-trade or keep it small. Not a recommendation to trade.";
   }
 
   /* ---------- Price action backtest: every past setup that would have been listed, traded by the same rule (entry at the next open, the planned
@@ -2009,8 +1935,8 @@
       tr.appendChild(td(String(i + 1), "mute"));
       tr.appendChild(td(shortDate(r.date) + " " + r.date.slice(0, 4), "l"));
       var sym = el("td", { "class": "sym l" }, r.symbol); if (r.fo) sym.appendChild(el("span", { "class": "fo" }, "F&O")); tr.appendChild(sym);
-      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, r.name)); if (r.cf) setup.appendChild(el("span", { "class": "fo", title: "A daily trendline in the trade's direction ran through this zone (within 1%)" }, "+ TRENDLINE")); setup.appendChild(el("span", { "class": "fo", style: r.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, r.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, r.reason)); tr.appendChild(setup);
-      tr.appendChild(td(paPx(r.entry))); tr.appendChild(td(paPx(r.stop))); tr.appendChild(r.trend ? el("td", { title: "No fixed target: sold at the next open after a weekly close below the 30-week average" }, "30-wk avg") : td(paPx(r.target) + (r.target_kind === "measured" ? " *" : "")));
+      var setup = el("td", { "class": "setup" }); setup.appendChild(el("b", null, r.name)); if (r.cf) setup.appendChild(el("span", { "class": "fo", title: "Trendline confluence" }, "+ TRENDLINE")); setup.appendChild(el("span", { "class": "fo", style: r.side === "short" ? "background:var(--down-bg);color:var(--down)" : "background:var(--up-bg);color:var(--up)" }, r.side === "short" ? "SHORT" : "LONG")); setup.appendChild(el("div", null, r.reason)); tr.appendChild(setup);
+      tr.appendChild(td(paPx(r.entry))); tr.appendChild(td(paPx(r.stop))); tr.appendChild(r.trend ? el("td", { title: "No fixed target" }, "30-wk avg") : td(paPx(r.target) + (r.target_kind === "measured" ? " *" : "")));
       tr.appendChild(td("-" + r.risk_pct.toFixed(1) + "%", "down")); tr.appendChild(td(r.rr.toFixed(1) + " : 1"));
       tr.appendChild(el("td", { "class": r.out === "open" ? "mute" : r.R > 0 ? "up" : "down", style: "font-weight:700" }, (r.R > 0 ? "+" : "") + r.R.toFixed(2) + "R"));
       tr.appendChild(td(PA_OUT[r.out] || r.out, r.out === "target" ? "up" : r.out === "stop" ? "down" : ""));
@@ -2019,7 +1945,6 @@
       tr.addEventListener("click", open); tr.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
       body.appendChild(tr);
     });
-    $("paHistNote").textContent = "How to use it: pick a year and a kind of setup, then open any row to see the chart as it stood - the structure, the entry at the next open after the trigger, the stop and target, and where the trade ended - and step through them with Previous / Next (or the arrow keys). The line above the table is the result of exactly the trades your filters select, so you can compare kinds, directions, years and reward : risk yourself. Every trade uses the same rule: entry at the next session's open, the planned stop and target (stop first if one candle touches both), an exit at the close after 60 sessions if neither is reached, and 0.10% round-trip costs; 1R = the amount risked. Only setups with a planned reward : risk of " + state.hist.index.min_rr + " or more are kept, as on today's list; * marks a measured-move target. Only stocks listed today are in the history, which flatters longs and works against shorts.";
   }
   function openHist(i) { state.sel = null; state.paSel = null; state.paHist = { i: i }; $("oiOverlay").hidden = false; $("oiClose").focus(); renderHistDetail(); }
   function stepHist(d) { var h = state.paHist, n = (state.hist.list || []).length; if (!h) return; var j = h.i + d; if (j < 0 || j >= n) return; h.i = j; renderHistDetail(); }
@@ -2068,7 +1993,6 @@
     if (r.vol !== null) chip("Volume on the trigger day " + r.vol.toFixed(1) + "× its 20-day average", r.vol >= 1.5 ? "for" : r.vol < 0.8 ? "against" : "");
     chip(r.with_market ? "The market's trend was with the trade" : "The market's trend was against the trade", r.with_market ? "for" : "against");
     why.appendChild(chips);
-    why.appendChild(el("p", { "class": "oiNote", style: "margin-top:10px" }, "The chart stops a few sessions after the exit, so it shows the trade as it played out. Green = entry to target, red = entry to stop, over the sessions the trade was open; the ring marks the exit."));
     body.appendChild(why);
     histCandles(r.symbol).then(function (cd) {
       if (state.paHist !== h || list[h.i] !== r) return;               // the user moved on while it loaded
@@ -2116,8 +2040,8 @@
     why.appendChild(el("h3", null, "What is for and against it"));
     var chips = el("div", { "class": "paChips" }), chip = function (text, kind) { chips.appendChild(el("span", kind ? { "class": kind } : null, text)); };
     if (s.vol !== null) chip("Volume " + s.vol.toFixed(1) + "× its 20-day average", s.vol >= 1.5 ? "for" : s.vol < 0.8 ? "against" : "");
-    chip(s.market_up ? "Market above its 50-day average" : "Market below its 50-day average", s.market_up !== short ? "for" : "against");
-    if (s.above200 !== null) chip(s.above200 ? "Above its own 200-day average" : "Below its own 200-day average", s.above200 !== short ? "for" : "against");
+    chip(s.market_up !== short ? "Market trend with the trade" : "Market trend against the trade", s.market_up !== short ? "for" : "against");
+    if (s.above200 !== null) chip(s.above200 !== short ? "Stock trend with the trade" : "Stock trend against the trade", s.above200 !== short ? "for" : "against");
     if (s.mom !== null) chip("Momentum rank " + s.mom + " of 100", (short ? s.mom <= 30 : s.mom >= 70) ? "for" : (short ? s.mom >= 70 : s.mom <= 30) ? "against" : "");
     if (short) chip("Short: needs the futures contract");
     if (s.record) chip("This type's record: " + (s.record.avg_r > 0 ? "+" : "") + s.record.avg_r.toFixed(2) + "R a trade over " + s.record.n, s.record.avg_r > 0.02 ? "for" : s.record.avg_r < -0.02 ? "against" : "");
@@ -2140,14 +2064,13 @@
       why.appendChild(el("h3", null, title));
       why.appendChild(el("div", { "class": "paVerdict" + (tone ? " " + tone : "") }, summary));
       if (items.length) { var ul = el("ul", { "class": "paCtx" }); items.forEach(function (it) { var li = el("li", it[2] ? { "class": it[2] } : null, it[0]); if (it[3] && /^https?:\/\//.test(it[3])) { li.appendChild(document.createTextNode(" ")); li.appendChild(el("a", { href: it[3], target: "_blank", rel: "noopener noreferrer" }, "open ↗")); } if (it[1]) li.appendChild(el("small", null, it[1])); ul.appendChild(li); }); why.appendChild(ul); }
-      if (note) why.appendChild(el("p", { "class": "oiNote", style: "margin:4px 0 0" }, note));
     };
     var tone = function (f) { return f === true ? "for" : f === false ? "against" : ""; };
     var marketItems = function (items) { return items.map(function (it) { return [it.text + (it.sector ? " (matters to this sector)" : ""), "Why it matters: " + it.why + ".", it.verdict === "for" || it.verdict === "against" ? it.verdict : ""]; }); };
     if (s.macro && s.macro.sections) {                                  // stock-specific: the sector worldwide, Indian peers, the news, then the market-wide backdrop
       var sec = s.macro.sections;
       section("Global macro - for this stock", s.macro.summary, s.macro.verdict === "supportive" ? "for" : s.macro.verdict === "against" ? "against" : "", [],
-        "Four parts below: how its sector is doing worldwide, how its Indian peers are doing, what the news says, and the market-wide backdrop. Rules of thumb with the numbers shown - context, not part of the probability.");
+        "");
       section("1. Its sector worldwide", sec.world.summary, tone(sec.world["for"]), sec.world.items.map(function (it) {
         return [it.text, "", it.trend === null || it.trend === "flat" ? "" : (it.trend === "up") === (s.side !== "short") ? "for" : "against"]; }),
         sec.world.basis === "sector" ? "No closer peer set is defined for this stock, so this is its broad sector's fund." : "");
@@ -2156,7 +2079,7 @@
       section("3. News and investor interest", sec.news.summary, tone(sec.news["for"]), sec.news.items.map(function (n) {
         return [(n.days === 0 ? "Today" : n.days + (n.days === 1 ? " day ago" : " days ago")) + " · " + n.title + (n.source ? " (" + n.source + ")" : ""),
                 n.cue ? "Cue: “" + n.cue + "” - " + n.why + "." : "No clear buying or selling cue in the headline.", n.score > 0 ? (s.side === "short" ? "against" : "for") : n.score < 0 ? (s.side === "short" ? "for" : "against") : "", n.link]; }),
-        "Read from headlines by keyword rules - it can miss nuance or misread a headline, so judge the headlines themselves. No news is not bad news.");
+        "");
       section("4. Market-wide backdrop", sec.backdrop.summary, sec.backdrop.verdict === "supportive" ? "for" : sec.backdrop.verdict === "against" ? "against" : "", marketItems(sec.backdrop.items),
         "The same for every stock except the factors marked as mattering to this sector (for example a weaker rupee for IT exporters).");
     } else if (s.macro) section("Global macro", s.macro.summary, s.macro.verdict === "supportive" ? "for" : s.macro.verdict === "against" ? "against" : "", marketItems(s.macro.items),
@@ -2166,7 +2089,6 @@
     if (s.catalysts) section("Catalysts", s.catalysts.summary, "",
       s.catalysts.dated.map(function (e) { return [e.text + (e.upcoming ? (e.days === 0 ? " - today" : " - in " + e.days + (e.days === 1 ? " day" : " days")) : " - " + (-e.days) + (e.days === -1 ? " day ago" : " days ago")), "Why it matters: " + e.why + ".", e.upcoming && e.kind === "meeting" ? "against" : ""]; })
         .concat(s.catalysts.price.map(function (e) { return [e.text, "Why it matters: " + e.why + ".", e["for"] ? "for" : "against"]; })), s.catalysts.note || "");
-    why.appendChild(el("p", { "class": "oiNote", style: "margin-top:10px" }, "Green = the reward (entry to target), red = the risk (entry to stop); on a short the green box is below the entry. The tags are context: only volume, the trends, momentum and the reward : risk are inside the probability; OI is not."));
     body.appendChild(why);
   }
   function weeklyFromDaily(cd) {                                   // fallback when the build carried no weekly candles: group the daily ones by their Friday
