@@ -184,6 +184,13 @@ def main() -> None:
         logger.info("Leader trades: %d trades in %d stocks, %d still held", len(lead["rows"]), len(lead["symbols"]), sum(1 for r in lead["rows"] if r[7] == 2))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Leader trades failed: %s", exc)
+    try:                                                                  # research only (nothing published): the leader rule on the whole market-cap universe vs the F&O stocks
+        for label, fr, fset, kw in (("F&O stocks, 10 / 30", frames_all, fo, {}), ("market-cap universe, 10 / 30", frames, set(frames), {}), ("market-cap universe, 20 / 60", frames, set(frames), {"top_n": 20, "pool": 60}),
+                                    ("market-cap universe, 30 / 90", frames, set(frames), {"top_n": 30, "pool": 90}), ("market-cap universe excluding F&O, 10 / 30", {k: v for k, v in frames.items() if k not in fo}, set(frames) - fo, {})):
+            tr, ds, _ = leader_trades.trades(fr, fset, **kw)
+            logger.info("Leader research - %s: %s", label, json.dumps(leader_trades.summary(tr, ds)))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Leader research failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
     hist_dir = OUT_DIR / "setups_hist"
     (hist_dir / "c").mkdir(parents=True, exist_ok=True)

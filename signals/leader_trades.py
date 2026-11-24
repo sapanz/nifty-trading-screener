@@ -30,14 +30,14 @@ def _percentile_rank(x: np.ndarray) -> np.ndarray:
 
 def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.HOLD_SESSIONS, entry: str = "open", window: int = 1, anchor: str = "signal",
            chase_cap: float | None = None, stop_atr: float | None = None, max_atr: float | None = None, max_ret20: float | None = None,
-           trail_atr: float | None = None, gate_exit: bool = False) -> tuple[list[dict], list[str], dict]:
+           trail_atr: float | None = None, gate_exit: bool = False, top_n: int | None = None, pool: int | None = None) -> tuple[list[dict], list[str], dict]:
     """(trades, dates, info) for the F&O stocks in `frames`. Each trade: symbol, sig (signal date index), entry / stop / exit prices and dates, out (stop / time / open),
     net %, the Movers rank, the momentum rank, ATR% and the market gate state. `info` = {"asof", "market_up", "leaders_today"}.
     `entry` "open" (the default, the live rule) buys the next open; "break" buys only after price trades above the signal candle's high - a buy-stop good for `window`
     sessions, filled at the high (or the open on a gap over it), skipped when that is more than `chase_cap` % above the signal close. `anchor` "signal" sells at the close of the
     `hold`-th session after the signal; "entry" counts the sessions from the entry.
     Research options (all off = the live rule): `stop_atr` overrides the stop distance in ATRs; `max_atr` skips signals whose ATR% is above it; `max_ret20` skips stocks that rose more than
-    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average."""
+    that % in the 20 sessions before the signal; `trail_atr` ratchets the stop up to (highest close since entry - trail_atr x ATR%) after each close; `gate_exit` sells at the close when the market falls back under its 50-session average; `top_n` / `pool` replace the Movers list size and the momentum pool (10 / 30) - a wider universe may want more of both."""
     syms = sorted(s for s in frames if s in fo)
     dates = sorted({d for s in syms for d in pd.DatetimeIndex(frames[s].index).normalize()})
     didx = pd.DatetimeIndex(dates)
@@ -65,11 +65,11 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
         liquid = np.flatnonzero((C[i] * V[i] / 1e7 >= momentum.MIN_TURNOVER_CR) & ~np.isnan(atr[i]) & ~np.isnan(C[i - 20]) & ~np.isnan(C[i - 60]))
         if len(liquid) < 20:
             continue
-        mv_order = liquid[np.argsort(-atr[i][liquid], kind="stable")][:movers.TOP_N]
+        mv_order = liquid[np.argsort(-atr[i][liquid], kind="stable")][:top_n or movers.TOP_N]
         score = (_percentile_rank(C[i][liquid] / C[i - 20][liquid] - 1) + _percentile_rank(C[i][liquid] / C[i - 60][liquid] - 1)) / 2
         mom_order = liquid[np.argsort(-score, kind="stable")]
         mom_rank = {int(j): r + 1 for r, j in enumerate(mom_order)}
-        leaders = [(rank + 1, int(j)) for rank, j in enumerate(mv_order) if mom_rank[int(j)] <= movers.LEADER_POOL]
+        leaders = [(rank + 1, int(j)) for rank, j in enumerate(mv_order) if mom_rank[int(j)] <= (pool or movers.LEADER_POOL)]
         if i == n - 1:
             leaders_today = [(syms[j], rk) for rk, j in leaders]
         if not up[i] or i + 1 >= n:
@@ -144,3 +144,16 @@ def history(frames: dict[str, pd.DataFrame], fo: set[str]) -> dict:
                      t["mv"], t["mom"], round(t["atr"], 1), round(t["last"], 2), int((sell - EPOCH).days)])
     rows.sort(key=lambda r: (r[2], r[9]))
     return {"cols": COLS + ["sell"], "symbols": symbols, "rows": rows, **info, "hold": momentum.HOLD_SESSIONS, "stop_atr": momentum.STOP_ATR}
+
+
+def summary(trade_list: list[dict], dates: list[str]) -> dict:
+    """Closed-trade statistics of a `trades` result, for comparing universes / settings: count, average net %, win %, stopped %, profit factor, worst, and the average by year."""
+    d = [t for t in trade_list if t["out"] != 2]
+    if not d:
+        return {"n": 0}
+    pct = np.array([t["pct"] for t in d])
+    gain, loss = pct[pct > 0].sum(), -pct[pct <= 0].sum()
+    years = np.array([int(dates[t["sig"]][:4]) for t in d])
+    return {"n": len(d), "stocks": len({t["symbol"] for t in d}), "avg": round(float(pct.mean()), 2), "win": round(float((pct > 0).mean() * 100)), "stop": round(float(np.mean([t["out"] == 0 for t in d]) * 100)),
+            "pf": round(float(gain / loss), 2) if loss else None, "worst": round(float(pct.min()), 1), "lt15": round(float((pct < -15).mean() * 100), 1),
+            "by_year": {int(y): round(float(pct[years == y].mean()), 2) for y in sorted(set(years))}, "recent": round(float(pct[years >= 2024].mean()), 2) if (years >= 2024).any() else None}
