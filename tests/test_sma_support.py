@@ -92,7 +92,7 @@ def test_stop_comes_first_and_the_target_is_a_limit_and_costs_are_taken():
     assert abs(pct - ((106 / 101 - 1) * 100 - 0.10)) < 1e-9 and r > 0
 
 
-def test_the_sector_flag_needs_three_stocks_and_an_index_above_a_rising_average():
+def test_the_sector_flag_needs_three_stocks_and_an_index_above_a_rising_average():  # also the weak flags
     idx = pd.bdate_range("2023-01-02", periods=400)
     up = lambda k: pd.DataFrame({"open": 100 * 1.003 ** np.arange(400) * (1 + 0.0001 * k), "high": 1, "low": 1, "close": 100 * 1.003 ** np.arange(400) * (1 + 0.0001 * k), "volume": 1e6}, index=idx)
     down = lambda k: pd.DataFrame({"open": 100 * 0.997 ** np.arange(400), "high": 1, "low": 1, "close": 100 * 0.997 ** np.arange(400), "volume": 1e6}, index=idx)
@@ -102,6 +102,8 @@ def test_the_sector_flag_needs_three_stocks_and_an_index_above_a_rising_average(
     assert ss._asof(flags["Up"]["d"], idx[-1]) and ss._asof(flags["Up"]["w"], idx[-1])
     assert not ss._asof(flags["Down"]["d"], idx[-1]) and not ss._asof(flags["Down"]["w"], idx[-1])
     assert ss._asof(None, idx[-1]) is False
+    assert ss._asof(flags["Down"]["dw"], idx[-1]) and ss._asof(flags["Down"]["ww"], idx[-1]) and not ss._asof(flags["Up"]["dw"], idx[-1])
+    assert ss.flag_for(flags["Down"], "D", "short") is flags["Down"]["dw"] and ss.flag_for(flags["Up"], "W", "long") is flags["Up"]["w"] and ss.flag_for(None, "D", "long") is None
 
 
 def test_the_target_is_the_resistance_when_it_pays_one_and_a_half_r_else_three_r_and_never_under_one_and_a_half():
@@ -109,19 +111,19 @@ def test_the_target_is_the_resistance_when_it_pays_one_and_a_half_r_else_three_r
     wH[30] = 130.0
     for k in (29, 31):
         wH[k] = 105.0
-    p = ss._plan(110.0, 105.0, wH, 59)                               # the weekly peak at 130 is 4 R away: capped at 4 R = 130 -> resistance
+    p = ss._plan(110.0, 105.0, wH, wH, 59)                               # the weekly peak at 130 is 4 R away: capped at 4 R = 130 -> resistance
     assert p["target_kind"] == "resistance" and abs(p["rr"] - 4.0) < 1e-9
-    p = ss._plan(110.0, 100.0, wH, 59)                               # the peak is 2 R away: used
+    p = ss._plan(110.0, 100.0, wH, wH, 59)                               # the peak is 2 R away: used
     assert p["target_kind"] == "resistance" and abs(p["target"] - 130.0) < 1e-9 and p["rr"] >= 1.5
     wH2 = np.array([100.0] * 60)
     wH2[30] = 112.0
-    p = ss._plan(110.0, 100.0, wH2, 59)                              # a resistance 0.2 R away is noise: 3 R
+    p = ss._plan(110.0, 100.0, wH2, wH2, 59)                              # a resistance 0.2 R away is noise: 3 R
     assert p["target_kind"] == "3R" and abs(p["rr"] - 3.0) < 1e-9
 
 
 def test_the_payload_and_the_page_section():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('id="smaSup"', 'id="smaTf"', 'id="smaVol"', 'id="smaSec"', "function renderSmaSupport", 'liveJson("sma_support.json", "dashboard-setups")', '"smas"'):
+    for needle in ('id="smaSide"', 'id="smaClose"', 'Bearish resistance (sell, F&amp;O)', 'r.side === "short" ? "Sell below" : "Buy above"', 'id="smaSup"', 'id="smaTf"', 'id="smaVol"', 'id="smaSec"', "function renderSmaSupport", 'liveJson("sma_support.json", "dashboard-setups")', '"smas"'):
         assert needle in html, needle
     assert "sma_support.json" in (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text()
 
@@ -141,3 +143,66 @@ def test_build_publishes_the_latest_signal_per_stock_and_timeframe_as_json():
     row = next(r for r in out["rows"] if r["symbol"] == "A" and r["tf"] == "D")
     assert row["status"] == "waiting" and row["fo"] is True and row["rr"] >= 1.5 and len(row["candles"]["c"]) == len(row["candles"]["sma"]) == 90
     assert out["defaults"] == {"D": 1.5, "W": 1.2} and out["sectors"] == 1
+
+
+def _downtrend(n=300):
+    return list(100 * 0.996 ** np.arange(n))
+
+
+def test_a_red_candle_under_a_falling_average_is_a_short_signal_and_the_plan_is_below_its_low_above_its_high():
+    c = _downtrend(300)
+    o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
+    sma = pd.Series(c).rolling(21).mean().to_numpy()
+    t = 299
+    o[t], c[t] = sma[t] * 0.994, sma[t] * 0.984                 # a red candle closing under the average, its high (set below) reaching up to it
+    h[t], l[t] = sma[t] * 0.996, sma[t] * 0.98
+    df = _frame(c, o, h, l)
+    sig = [s for s in ss.signals(df, "D", None, "short") if s["i"] == t]
+    assert len(sig) == 1
+    s = sig[0]
+    assert s["side"] == "short" and abs(s["entry"] - l[t]) < 1e-9 and abs(s["stop"] - h[t] * 1.001) < 1e-9 and s["slope"] <= -1.0
+    assert s["rr"] >= 1.5 and s["target"] < s["entry"] < s["stop"] and s["target_kind"] in ("support", "3R") and s["target"] > 0
+    assert not [x for x in ss.signals(df, "D", None, "long") if x["i"] == t]         # a red candle in a falling market is no long signal
+
+
+def test_the_short_order_mechanics_are_the_mirror():
+    c = [100.0] * 130
+    o, h, l = list(c), [101.0] * 130, [99.0] * 130
+    l[101], h[101] = 98.5, 99.8                                                    # trades below 99 next session and stays under the stop
+    df = _frame(c, o, h, l)
+    sig = {"tf": "D", "side": "short", "i": 100, "date": df.index[100], "entry": 99.0, "stop": 101.1, "target": 93.0}
+    tr = ss.outcome(df, sig)
+    assert tr and tr["entry_i"] == 101 and tr["entry"] == 99.0
+    o[101], l[101] = 98.0, 97.5                                                    # gaps under the low: filled at the open
+    assert ss.outcome(_frame(c, o, h, l), sig)["entry"] == 98.0
+    o[101], l[101], h[101] = 100.0, 99.2, 99.8
+    assert ss.outcome(_frame(c, o, h, l), sig) is None                              # never trades under it
+    o[101], l[101], h[101] = 100.0, 98.5, 99.8
+    l[103], h[103] = 92.0, 101.5                                                   # through both the target and the stop in one candle: the stop
+    t2 = ss.outcome(_frame(c, o, h, l), sig)
+    assert t2["reason"] == "stop" and t2["exit"] == 101.1
+    h[103] = 100.0
+    t3 = ss.outcome(_frame(c, o, h, l), sig)
+    assert t3["reason"] == "target" and t3["exit"] == 93.0
+    pct, r = ss.pct_and_r(t3, sig)
+    assert abs(pct - (-(93 / 99 - 1) * 100 - 0.10)) < 1e-9 and r > 0
+
+
+def test_the_close_gap_is_the_share_of_the_range_between_the_close_and_the_extreme():
+    assert ss._close_gap(110, 100, 109, "long") == 0.1 and ss._close_gap(110, 100, 101, "short") == 0.1
+    assert ss._close_gap(110, 100, 105, "long") == 0.5 and ss._close_gap(100, 100, 100, "long") is None
+
+
+def test_build_has_shorts_for_f_and_o_stocks_only_and_the_close_gap_in_every_row():
+    from datetime import datetime
+    c = _downtrend(300)
+    o, h, l = list(np.r_[c[0], c[:-1]]), [x * 1.003 for x in c], [x * 0.997 for x in c]
+    sma = pd.Series(c).rolling(21).mean().to_numpy()
+    t = 299
+    o[t], c[t], h[t], l[t] = sma[t] * 0.994, sma[t] * 0.984, sma[t] * 0.996, sma[t] * 0.98
+    frames = {"A": _frame(c, o, h, l), "B": _frame(c, o, h, l), "C": _frame(c, o, h, l)}
+    out = ss.build(frames, {"A": "Down", "B": "Down", "C": "Down"}, {"A"}, datetime(2025, 3, 3))
+    json.dumps(out)
+    shorts = [r for r in out["rows"] if r["side"] == "short"]
+    assert {r["symbol"] for r in shorts} == {"A"} and all(r["cl"] is not None and r["status"] == "waiting" and r["stop"] > r["entry"] > r["target"] for r in shorts)
+    assert shorts[0]["sector_ok"] is True and "red daily candle" in shorts[0]["reason"] and "sell below its low" in shorts[0]["reason"]
