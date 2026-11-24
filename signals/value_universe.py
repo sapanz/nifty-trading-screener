@@ -134,3 +134,24 @@ def fetch_value_stock_symbols(email: str, password: str, query: str = config.VAL
         )
     logger.info("Value stock screen matched %d symbols", len(symbols))
     return symbols
+
+
+def fetch_screen_symbols(email: str, password: str, query: str, timeout: int = 30, max_pages: int = 80) -> set[str]:
+    """Like fetch_value_stock_symbols, but walks the result pages (screener.in shows 25 rows per page and takes `page=N`): a screen that matches hundreds of companies
+    - e.g. "Market Capitalization > 10000" - spans many pages. Stops at the first page that adds no new symbol (which also covers a site that ignores `page`),
+    or after `max_pages`. Raises when the first page has no symbols; the caller decides whether a short list is credible."""
+    session = _login(email, password, timeout)
+    symbols: set[str] = set()
+    for page in range(1, max_pages + 1):
+        response = session.get(SCREENER_URL, params={"query": query, "page": page}, timeout=timeout)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        found = {m.group(1) for link in soup.find_all("a", href=True) if (m := _COMPANY_LINK_RE.match(link["href"]))}
+        if not found - symbols:
+            if page == 1:
+                logger.error("screener.in returned 0 symbols for %r. status=%d final_url=%s snippet=%r", query, response.status_code, response.url, response.text[:600].replace("\n", " "))
+                raise RuntimeError("screener.in query returned 0 matching symbols - see the log for what it sent back")
+            break
+        symbols |= found
+    logger.info("screener.in screen %r matched %d symbols over %d pages", query, len(symbols), page)
+    return symbols

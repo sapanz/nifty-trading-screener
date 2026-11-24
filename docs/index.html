@@ -1399,7 +1399,7 @@
     if (d === null || d === undefined) { loadSmaHist(); stats.textContent = "Loading past trades…"; $("smaCount").textContent = ""; return; }
     if (d === false) { stats.textContent = "The backtest list is built with the Price action build - it is not published yet."; $("smaCount").textContent = ""; return; }
     var rows = smaHistList(), show = parseInt(state.smaShow, 10) || rows.length, shown = rows.slice(0, show);
-    $("smaCount").textContent = (bull ? "bullish" : "bearish") + " · " + (daily ? "daily" : "weekly") + " · " + rows.length.toLocaleString("en-IN") + " past trades match · showing " + shown.length;
+    $("smaCount").textContent = (bull ? "bullish" : "bearish") + " · " + (daily ? "daily" : "weekly") + " · " + rows.length.toLocaleString("en-IN") + " past trades match · showing " + shown.length + (state.sma && state.sma.mcap_min_cr ? " · market cap above ₹" + state.sma.mcap_min_cr.toLocaleString("en-IN") + " cr" : "");
     if (!rows.length) { stats.textContent = "No past trade matches these filters."; return; }
     var win = 0, hit = 0, sum = 0, sumR = 0, gw = 0, gl = 0, held = 0;
     rows.forEach(function (r) { var p = r[C.pct]; sum += p; sumR += r[C.r]; if (p > 0) { win++; gw += p; } else gl -= p; if (r[C.out] === 1) hit++; held += (r[C.ext] - r[C.ent]) * 5 / 7; });
@@ -1538,7 +1538,7 @@
     var colspan = "13";
     if (!d) { $("smaCount").textContent = ""; var tr0 = el("tr"), td0 = el("td", { colspan: colspan, "class": "mute" }, "Not built yet - the list arrives with the next Price action build (it needs the long candle history that build downloads)."); tr0.appendChild(td0); body.appendChild(tr0); return; }
     var rows = smaRowsList();
-    $("smaCount").textContent = (bull ? "bullish" : "bearish") + " · " + (daily ? "daily" : "weekly") + " · as of the " + shortDate(d.asof) + " close · " + rows.length + " shown of " + d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide; }).length + " that pass the average and candle rules";
+    $("smaCount").textContent = (bull ? "bullish" : "bearish") + " · " + (daily ? "daily" : "weekly") + " · as of the " + shortDate(d.asof) + " close · " + rows.length + " shown of " + d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide; }).length + " that pass the average and candle rules" + (state.sma && state.sma.mcap_min_cr ? " · market cap above ₹" + state.sma.mcap_min_cr.toLocaleString("en-IN") + " cr" : "");
     if (!rows.length) { var tr1 = el("tr"), td1 = el("td", { colspan: colspan, "class": "mute" }, "No stock passes these filters right now - set Volume or Sector to Off to see the weaker ones."); tr1.appendChild(td1); body.appendChild(tr1); return; }
     rows.forEach(function (r, i) {
       var tr = el("tr", { "class": "srow", tabindex: "0", role: "button", title: "Show the chart" });
@@ -2079,7 +2079,7 @@
     $("pill").className = "pill"; $("pill").textContent = "Price action · " + shortDate(d.asof) + " close";
     $("updated").textContent = d.updated_at ? "built " + new Date(d.updated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
     var rows = paList(), m = d.model || {}, all = m.all;
-    $("paCount").textContent = rows.length + " of " + d.setups.length + " setups · " + d.universe + " stocks scanned (" + d.fo_count + " F&O)";
+    $("paCount").textContent = rows.length + " of " + d.setups.length + " setups · " + d.universe + " stocks scanned (" + d.fo_count + " F&O)" + (d.mcap_min_cr ? " · market cap above ₹" + d.mcap_min_cr.toLocaleString("en-IN") + " cr" : "");
     var body = $("paRows"); body.textContent = "";
     $("paEmpty").hidden = rows.length > 0; if (!rows.length) $("paEmpty").textContent = d.setups.length ? "No setup matches these filters - loosen them." : "No setup today: no stock is at a weekly support zone or breaking out of a weekly pattern with reward : risk of " + d.min_rr + " or more.";
     rows.forEach(function (s, i) {

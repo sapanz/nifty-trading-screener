@@ -392,6 +392,10 @@ MONTHLY_ATH_HISTORY_YEARS = 25
 # git history) - screener.in requires a logged-in account
 # (SCREENER_EMAIL/SCREENER_PASSWORD) to run this query at all.
 VALUE_SCREEN_QUERY = "Profit growth > 25 AND Debt to equity < 0.5 AND Market Capitalization > 5000"
+# The Price action / SMA-support universe: only stocks above this market cap (rupees crore), read from a screener.in custom screen (same login as above).
+MCAP_MIN_CR = 10000
+MCAP_SCREEN_QUERY = f"Market Capitalization > {MCAP_MIN_CR}"
+MCAP_MIN_SYMBOLS = 150      # fewer matches than this means the fetch was cut short (a blocked page, one page of 25): the filter is skipped, not applied
 VALUE_BREAKOUT_MIN_GAP_WEEKS = 52  # "at least a year" - restored, see docstrings above/in value_breakout.py
 
 # --- Trendline Break Short (5-minute chart) ---------------------------------

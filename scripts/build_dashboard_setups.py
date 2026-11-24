@@ -70,6 +70,23 @@ def main() -> None:
     except Exception as exc:
         runtime.notify_error(TITLE, EMOJI, str(exc))
         raise
+    # The universe: only stocks above MCAP_MIN_CR (a screener.in custom screen). The leader trades keep every F&O stock (`frames_all`); a failed or short fetch leaves the universe as it was.
+    frames_all, mcap_min = frames, None
+    email, password = os.environ.get("SCREENER_EMAIL"), os.environ.get("SCREENER_PASSWORD")
+    if email and password:
+        try:
+            big = value_universe.fetch_screen_symbols(email, password, config.MCAP_SCREEN_QUERY)
+            if len(big) < config.MCAP_MIN_SYMBOLS:
+                raise RuntimeError(f"only {len(big)} symbols came back for the market-cap screen (fewer than {config.MCAP_MIN_SYMBOLS}) - the list looks cut short")
+            kept = {sym: df for sym, df in frames.items() if sym in big}
+            if len(kept) < 0.25 * len(frames):
+                raise RuntimeError(f"the market-cap screen matches only {len(kept)} of the {len(frames)} stocks - symbols probably do not line up")
+            logger.info("Market-cap filter (> %d cr): %d of %d stocks kept (%d F&O)", config.MCAP_MIN_CR, len(kept), len(frames), sum(1 for sym in kept if sym in fo))
+            frames, mcap_min = kept, config.MCAP_MIN_CR
+        except Exception as exc:  # noqa: BLE001 - the filter is skipped, not guessed
+            logger.warning("Market-cap filter skipped (%s) - the universe is unchanged", exc)
+    else:
+        logger.info("No SCREENER_EMAIL / SCREENER_PASSWORD - the universe is not filtered by market cap")
     # Optional context for the selected stock - each source fails soft and the page says what is missing.
     series, macro_status = macro.fetch_global()
     for key, index_key in (("nifty", "NSE_INDEX|Nifty 50"), ("vix", "NSE_INDEX|India VIX")):
@@ -113,6 +130,7 @@ def main() -> None:
     payload, candles = price_action_board.build(frames, fo=fo, sectors=sectors, oi_store=_oi_store(repository), now=datetime.now(IST),
                                                 macro_factors=macro.readings(series), events=(meetings, actions, bool(meetings) or bool(actions)), collected=collected,
                                                 news_fn=news_fn, names=names, global_fn=global_fn)
+    payload["mcap_min_cr"] = mcap_min
     logger.info("Stock-specific context: %s; %d company names", stats, len(names))
     past = price_action_board.history(collected[1], fo=fo, sectors=sectors)
     m = payload["model"]
@@ -129,6 +147,7 @@ def main() -> None:
     try:                                                                  # the Swing tab's "Bullish SMA support" list (signals/sma_support.py); a failure here must not stop the rest
         trend = sma_support.collect_trend_tables(frames, sectors)           # ranks a daily long signal's trend against every signal the rules ever gave
         sma = sma_support.build(frames, sectors, fo, datetime.now(IST), trend)
+        sma["mcap_min_cr"] = mcap_min
         secure.write_json(OUT_DIR / "sma_support.json", sma)
         logger.info("SMA support: %d setups (%d daily, %d weekly), %d sectors measured", len(sma["rows"]), sum(r["tf"] == "D" for r in sma["rows"]), sum(r["tf"] == "W" for r in sma["rows"]), sma["sectors"])
         past_sma = sma_support.history(frames, sectors, fo, trend)                 # the same rules traded over the whole history: entries and exits for the page's backtest view
@@ -140,11 +159,11 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("SMA support list failed: %s", exc)
     try:                                                                  # the Swing tab's "High-range leader trades": every day's leaders traded by the Momentum rules, with entries, exits and what is held now
-        lead = leader_trades.history(frames, fo)
+        lead = leader_trades.history(frames_all, fo)
         secure.write_json(OUT_DIR / "leader_trades.json", lead)
         (OUT_DIR / "leader_hist" / "c").mkdir(parents=True, exist_ok=True)
         for symbol in lead["symbols"]:
-            secure.write_json(OUT_DIR / "leader_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames[symbol]))
+            secure.write_json(OUT_DIR / "leader_hist" / "c" / f"{symbol}.json", price_action_board.history_candles(frames_all[symbol]))
         logger.info("Leader trades: %d trades in %d stocks, %d still held", len(lead["rows"]), len(lead["symbols"]), sum(1 for r in lead["rows"] if r[7] == 2))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Leader trades failed: %s", exc)
