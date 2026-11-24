@@ -182,5 +182,20 @@ def test_the_build_script_wires_the_log_without_overwriting_an_unreadable_ledger
 
 def test_the_page_has_the_forward_test_section():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('id="fwdLog"', "function renderForward", 'liveJson("forward_log.json", "dashboard-forward")', 'id="fwStatus"', 'name === "forward_log.json" ? "fwd"', "renderLeaderTrades(); renderForward();"):
+    for needle in ('id="fwdLog"', "function renderForward", 'liveJson("forward_log.json", "dashboard-forward")', 'id="fwStatus"', 'name === "forward_log.json" ? "fwd"', "renderLeaderTrades(); renderForward();", 'id="fwVerdict"', "vd.checks"):
         assert needle in html, needle
+
+
+def test_the_verdict_follows_the_limits_set_in_advance():
+    v = fl.verdict
+    assert v(5, 3.0, 2.0, -1.0)["level"] == "early" and "5 of 40" in v(5, 3.0, 2.0, -1.0)["text"]
+    assert v(25, -0.5, 0.8, -4.0)["level"] == "warning"                 # poor so far: an early warning before 40 trades
+    assert v(25, 2.0, 1.8, -4.0)["level"] == "early"                    # good so far still needs 40 closed trades
+    assert v(25, 2.0, 1.8, -16.0)["level"] == "warning"
+    assert v(50, 1.8, 1.9, -6.0)["level"] == "ontrack"
+    assert v(50, 1.8, None, -2.0)["level"] == "ontrack"                 # no losing trade at all
+    assert v(50, 0.8, 1.35, -6.0)["level"] == "watch" and v(50, 1.2, 1.25, -6.0)["level"] == "watch"
+    assert v(50, 0.3, 1.5, -6.0)["level"] == "warning" and v(50, 2.0, 1.1, -6.0)["level"] == "warning" and v(50, 2.0, 1.9, -15.0)["level"] == "warning"
+    assert [c["ok"] for c in v(50, 1.8, 1.9, -6.0)["checks"]] == [True, True, True, True]
+    led = {"entries": [{"id": "a", "strat": "L", "sym": "A", "sig": "2026-01-01", "st": "closed", "ext": "2026-01-20", "entry": 100.0, "stop": 80.0, "pct": 10.0}]}
+    assert fl.summary(led)["strategies"]["L"]["verdict"]["level"] == "early"

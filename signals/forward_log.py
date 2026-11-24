@@ -188,6 +188,34 @@ def _r_multiple(e: dict) -> float | None:
     return None if risk <= 0 else (e["pct"] - EXTRA_COST_PCT) / risk
 
 
+# The thresholds the verdict uses - fixed in advance (not tuned to the results): the backtest's planning figure after costs was about +1.5% to +2.5% a trade.
+MIN_CLOSED, EARLY_CLOSED = 40, 15      # closed trades needed for a verdict / for an early warning
+MIN_AVG, WARN_AVG = 1.0, 0.5           # average net % a trade: on track at or above MIN_AVG, warning below WARN_AVG
+MIN_PF, WARN_PF = 1.3, 1.2             # profit factor
+WARN_DD = -15.0                        # worst drawdown at 1% of capital risked per trade, % of capital
+
+
+def verdict(closed: int, avg_net: float | None, pf: float | None, dd: float) -> dict:
+    """'Should I rely on it yet?': early (too few closed trades), ontrack, watch (between the limits) or warning - with the checks behind it."""
+    checks = [{"name": "Closed trades", "value": f"{closed} of {MIN_CLOSED}", "ok": bool(closed >= MIN_CLOSED)},
+              {"name": "Average net a trade", "value": "—" if avg_net is None else f"{avg_net:+.2f}%", "ok": bool(avg_net is not None and avg_net >= MIN_AVG), "need": f"at least {MIN_AVG:+.1f}%"},
+              {"name": "Profit factor", "value": "no loss yet" if pf is None and closed else "—" if pf is None else f"{pf:.2f}", "ok": bool(closed > 0 and (pf is None or pf >= MIN_PF)), "need": f"at least {MIN_PF}"},
+              {"name": "Worst drawdown at 1% risk", "value": f"{dd:.1f}%", "ok": bool(dd > WARN_DD), "need": f"better than {WARN_DD:.0f}%"}]
+    bad = avg_net is not None and (avg_net < WARN_AVG or (pf is not None and pf < WARN_PF) or dd <= WARN_DD)
+    if closed < EARLY_CLOSED:
+        level, text = "early", f"Too early to tell - {closed} of {MIN_CLOSED} closed trades"
+    elif closed < MIN_CLOSED:
+        level = "warning" if avg_net is not None and (avg_net < 0 or dd <= WARN_DD) else "early"
+        text = "Early warning - results are poor so far (" + f"{closed} of {MIN_CLOSED} closed trades)" if level == "warning" else f"Still collecting - {closed} of {MIN_CLOSED} closed trades"
+    elif bad:
+        level, text = "warning", "Warning - below the limits it needed to meet; halve the size or pause"
+    elif avg_net >= MIN_AVG and (pf is None or pf >= MIN_PF):
+        level, text = "ontrack", "On track - in line with what the backtest led to expect after costs"
+    else:
+        level, text = "watch", "Watch - positive but below the on-track limits"
+    return {"level": level, "text": text, "checks": checks}
+
+
 def summary(ledger: dict, nifty: pd.Series | None = None) -> dict:
     """Per strategy and for both: counts, win rate, average net % (after EXTRA_COST_PCT), profit factor, and the equity curve at 1% of capital risked per trade (R multiples
     booked on the exit day, so the drawdown counts closed trades only); plus the Nifty 50 move since the first signal."""
@@ -210,6 +238,8 @@ def summary(ledger: dict, nifty: pd.Series | None = None) -> dict:
                                   "skipped": sum(e["st"] in ("skipped", "expired") for e in group), "win": round(float((net > 0).mean() * 100), 1) if len(net) else None,
                                   "avg_net": round(float(net.mean()), 2) if len(net) else None, "pf": round(float(gain / loss), 2) if loss else None,
                                   "avg_r": round(float(rs.mean()), 2) if len(rs) else None, "equity_1pct": round(total, 2), "max_dd_1pct": round(dd, 2), "curve": curve}
+        st = out["strategies"][key]
+        st["verdict"] = verdict(st["closed"], st["avg_net"], st["pf"], st["max_dd_1pct"])
     out["since"] = first
     if nifty is not None and first is not None:
         nifty = nifty.copy()

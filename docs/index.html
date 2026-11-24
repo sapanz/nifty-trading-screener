@@ -345,6 +345,7 @@
       </div>
       <label>Status <select id="fwStatus" aria-label="Status of the signal"><option value="all">All</option><option value="open">Holding</option><option value="closed">Closed</option><option value="pending">Waiting</option><option value="skipped">Skipped</option></select></label>
     </div>
+    <div id="fwVerdict" class="momBanner"></div>
     <div id="fwStats" class="momBanner"></div>
     <div id="fwChart"></div>
     <div class="tablewrap"><table id="fwTable"><thead><tr><th>Stock</th><th class="l">Strategy</th><th>Signal</th><th>Bought</th><th>Entry</th><th>Stop</th><th>Sold</th><th>Exit</th><th>Net %</th><th>R</th><th>Status</th></tr></thead><tbody id="fwRows"></tbody></table></div>
@@ -1487,11 +1488,13 @@
     var d = state.fwd, stats = $("fwStats"), body = $("fwRows"), S = state.fwStrat || "all", F = state.fwStatus || "all";
     [["fwAll", "all"], ["fwL", "L"], ["fwS", "S"]].forEach(function (b) { $(b[0]).setAttribute("aria-pressed", String(S === b[1])); });
     $("fwStatus").value = F; body.textContent = ""; $("fwChart").textContent = "";
-    if (d === undefined || d === null) { stats.textContent = "Loading…"; $("fwCount").textContent = ""; return; }
-    if (d === false || !d.summary) { stats.textContent = "Nothing logged yet - the first signals are recorded with the next Price action build."; $("fwCount").textContent = ""; return; }
+    if (d === undefined || d === null) { stats.textContent = "Loading…"; $("fwVerdict").hidden = true; $("fwCount").textContent = ""; return; }
+    if (d === false || !d.summary) { $("fwVerdict").hidden = true; stats.textContent = "Nothing logged yet - the first signals are recorded with the next Price action build."; $("fwCount").textContent = ""; return; }
     var sm = d.summary.strategies[S], extra = d.extra_cost_pct || 0;
     var rows = d.entries.filter(function (e) { return (S === "all" || e.strat === S) && (F === "all" || (F === "skipped" ? (e.st === "skipped" || e.st === "expired") : e.st === F)); });
     $("fwCount").textContent = (d.summary.since ? "since " + shortDate(d.summary.since) + " · " : "") + sm.logged + " signals logged · as of the " + shortDate(d.asof) + " close";
+    var vd = sm.verdict, vEl = $("fwVerdict");
+    if (vd) { vEl.className = "momBanner" + (vd.level === "warning" || vd.level === "watch" ? " warn" : ""); vEl.textContent = vd.text + " · " + vd.checks.map(function (c) { return c.name + " " + c.value + (c.need ? " (need " + c.need + ")" : ""); }).join(" · "); vEl.hidden = false; } else vEl.hidden = true;
     var parts = [sm.closed + " closed", sm.open + " holding", sm.pending + " waiting", sm.skipped + " skipped"];
     if (sm.closed) parts.push("won " + sm.win + "%", "average " + fmtPct(sm.avg_net) + " net of " + (0.1 + extra).toFixed(1) + "% costs", sm.pf !== null ? "profit factor " + sm.pf : "no losing trade yet", "at 1% risk per trade " + fmtPct(sm.equity_1pct) + " (worst drawdown " + sm.max_dd_1pct.toFixed(2) + "%)");
     if (d.summary.nifty_pct !== undefined && d.summary.nifty_pct !== null) parts.push("Nifty 50 over the same days " + fmtPct(d.summary.nifty_pct));
