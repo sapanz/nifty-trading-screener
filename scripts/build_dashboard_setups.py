@@ -24,7 +24,7 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import config, data, leader_trades, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
+from signals import config, data, leader_trades, macro, momentum, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -186,7 +186,10 @@ def main() -> None:
         logger.warning("Leader trades failed: %s", exc)
     try:                                                                  # research only (nothing published): the leader rule on the whole market-cap universe vs the F&O stocks
         for label, fr, fset, kw in (("F&O stocks, 10 / 30", frames_all, fo, {}), ("market-cap universe, 10 / 30", frames, set(frames), {}), ("market-cap universe, 20 / 60", frames, set(frames), {"top_n": 20, "pool": 60}),
-                                    ("market-cap universe, 30 / 90", frames, set(frames), {"top_n": 30, "pool": 90}), ("market-cap universe excluding F&O, 10 / 30", {k: v for k, v in frames.items() if k not in fo}, set(frames) - fo, {})):
+                                    ("market-cap universe, 30 / 90", frames, set(frames), {"top_n": 30, "pool": 90}), ("market-cap universe excluding F&O, 10 / 30", {k: v for k, v in frames.items() if k not in fo}, set(frames) - fo, {}),
+                                    ("F&O stocks, 10 / 30, bought only after the signal high breaks next day", frames_all, fo, {"entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT}),
+                                    ("market-cap universe, 10 / 30, bought only after the signal high breaks next day", frames, set(frames), {"entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT}),
+                                    ("market-cap universe, 20 / 60, bought only after the signal high breaks next day", frames, set(frames), {"top_n": 20, "pool": 60, "entry": "break", "window": 1, "chase_cap": momentum.GAP_CAP_PCT})):
             tr, ds, _ = leader_trades.trades(fr, fset, **kw)
             logger.info("Leader research - %s: %s", label, json.dumps(leader_trades.summary(tr, ds)))
     except Exception as exc:  # noqa: BLE001
