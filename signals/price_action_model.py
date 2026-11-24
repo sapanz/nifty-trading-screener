@@ -45,7 +45,7 @@ def _row(symbol: str, t: dict, date: pd.Timestamp, ctx: dict) -> dict:
     row = {"symbol": symbol, "kind": t["kind"],  "side": "short" if short else "long", "date": date, "rr": t["rr"], "risk_pct": t["risk_pct"], "reward_pct": t["reward_pct"],
            "target_kind": t["target_kind"], "log_rr": float(np.log(max(t["rr"], 0.05))), "log_vol": float(np.log(np.clip(f["vol"], 0.2, 8))) if not np.isnan(f["vol"]) else np.nan,
            "vol": f["vol"], "mkt50": flip(float(bool(ctx["mkt50"].get(date, False)))), "mkt200": flip(float(bool(ctx["mkt200"].get(date, False)))),
-           "above200": flip(f["above200"]), "mom": flip(float(mom)), "off_high": -f["off_low"] if short else f["off_high"], "is_short": float(short)}
+           "above200": flip(f["above200"]), "mom": flip(float(mom)), "off_high": -f["off_low"] if short else f["off_high"], "is_short": float(short), "cf": bool(t.get("cf", False)), "tl_gap": t.get("tl_gap")}
     row.update({f"is_{k}": float(t["kind"] == k) for k in KIND_FLAGS})
     return row
 

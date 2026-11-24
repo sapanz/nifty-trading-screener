@@ -120,7 +120,7 @@ def history(ev: pd.DataFrame, fo: set[str] | None = None, sectors: dict[str, str
                "target_kind": r.target_kind, "trend": r.kind in pm.TREND_KINDS and r.side == "long", "rr": round(float(r.rr), 2), "rr_entry": round(float(r.rr_actual), 2), "risk_pct": round(float(sg * (r.entry - r.stop) / r.entry * 100), 2),
                "reward_pct": round(float(sg * (r.target / r.entry - 1) * 100), 2), "out": r.t_out, "exit_date": day(r.t_exit_date), "exit": round(float(r.t_exit), 2),
                "R": round(float(r.t_R), 2), "bars": int(r.t_bars), "vol": None if np.isnan(r.vol) else round(float(r.vol), 2), "with_market": bool(r.mkt50 == 1),
-               "reason": r.why, "geo": r.geo}
+               "reason": r.why, "geo": r.geo, "cf": bool(getattr(r, "cf", False)), "tl_gap": None if getattr(r, "tl_gap", None) is None or pd.isna(r.tl_gap) else float(r.tl_gap)}
         out.setdefault(int(r.date.year), []).append(row)
     return out
 
@@ -224,7 +224,7 @@ def build(frames: dict[str, pd.DataFrame], fo: set[str] | None = None, sectors: 
                 "oi": oi_tag(oi_store, symbol, df["close"], side=t["side"]) if symbol in fo else None, "record": record.get((t["kind"], t["side"])),
                 "macro": stock_macro.assess_stock(symbol, sectors.get(symbol), t["side"], macro_factors, world_for(symbol, sectors.get(symbol)), frames, sectors,
                                                   news_for(symbol), asof.date()), "vm": sc.value_migration(symbol, sectors.get(symbol), t["side"], flows, frames),
-                "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "geo": t["geo"]})
+                "catalysts": sc.catalysts(symbol, df, t["side"], meetings, actions, asof.date(), calendar_ok), "cf": bool(t.get("cf", False)), "tl_gap": t.get("tl_gap"), "geo": t["geo"]})
         if added:
             tail = df.tail(CHART_BARS)
             candles[symbol] = {"d": [d.strftime("%Y-%m-%d") for d in pd.DatetimeIndex(tail.index).normalize()],

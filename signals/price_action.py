@@ -1,6 +1,6 @@
-"""Price-action setups: weekly structure, traded on the daily chart (long side only).
+"""Price-action setups: weekly structure, traded on the daily chart (long side, plus the bearish setups below).
 
-Five kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
+Eight kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
   multiyear a close above the highest weekly high of the last 2-5 years, set at least 52 weeks ago (a high more than a year old).
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
@@ -9,8 +9,13 @@ Five kinds, all found on COMPLETED weekly candles and triggered by a DAILY close
   cup       cup and handle: two rims at a similar level around a rounded 12-45% dip, then a shallow handle; a daily close above the rim.
   retest    SHORT, F&O only: a base (8-40 weeks, at most 30% wide, floor tested twice) breaks down, price comes back up to retest the broken floor from below, and a
             candle with a long upper wick fails there; the short triggers on a daily close below that candle's low, the stop is its high.
-Removed after the 6-year backtest (see the README, "Removed tools"): W / M patterns, head and shoulders, triple tops and bottoms, flags, reversal
-candles at a zone, the bearish halt-zone continuation and every short setup - they lost money or showed no edge.
+  zone (short)  SHORT, F&O only: a weekly supply zone (resistance) - price rallied into it and a daily close comes back out below it; stop above the zone. Carries
+            "cf": a daily falling-resistance trendline runs through the zone (+/- 1%), the Swing tab's confluence.
+  flag (short)  SHORT, F&O only: bear flag - a fall of 20%+ in 8 weeks or fewer, then a 2-6 week bounce that keeps more than half of it; trigger = a daily close below the fall's low.
+  trendline     SHORT, F&O only: a rising daily trendline through at least 3 swing lows (signals/trendlines.find_break, daily settings) is broken by a red daily close.
+Removed after the 6-year backtest (see the README, "Removed tools"): W / M patterns, head and shoulders, triple tops and bottoms, bull flags, reversal
+candles at a zone and the bearish halt-zone continuation - they lost money or showed no edge. The shorts above are back at the user's request, with their
+losing record shown next to them.
 
 Plan for every setup: entry at the next open after the trigger close (the list shows the trigger close as the reference), stop just below the
 zone / back inside the pattern (the lower of the breakout level and the trigger day's low), target = the next weekly resistance above the
@@ -27,12 +32,15 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from signals import swing_trendlines
+from signals.trendlines import daily_params, find_break, swing_lows
 from signals.weekly_zone_backtest import Params as ZoneParams
 from signals.weekly_zone_backtest import find_zones, weekly_bars
 
-KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest")
+KINDS = ("zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline")
 NAMES = {("zone", "long"): "Weekly support zone", ("range", "long"): "Weekly range breakout", ("triangle", "long"): "Triangle breakout", ("cup", "long"): "Cup and handle",
-         ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)"}
+         ("multiyear", "long"): "Multi-year breakout", ("retest", "short"): "Breakdown retest (short)",
+         ("zone", "short"): "Weekly resistance zone (short)", ("flag", "short"): "Bear flag (short)", ("trendline", "short"): "Trendline breakdown (short)"}
 KIND_NAMES = {k: next(n for (kk, _), n in NAMES.items() if kk == k) for k in KINDS}    # the name of each kind (its long side when it has one)
 
 
@@ -186,22 +194,63 @@ def multiyear_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params)
             "pts": [(t, float(level)), (b, float(L[b]))], "neck": (t, float(level), w + 1, float(level)), "years": n / 52}
 
 
+def flag_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
+    """Bull flag (run on inverted prices it finds the bear flag): a pole of at least 20% in 8 weeks or fewer, then 2-6 weeks that pull back 3% or more but give up no more than half the pole."""
+    for f in range(2, 7):
+        t = w - f                                                 # the pole's top
+        if t < 9:
+            break
+        if H[t] < H[t - 8:w + 1].max() or C[w] > H[t]:
+            continue                                              # the pole's top has to be the highest point of the pole and the flag
+        q = t - 8 + int(np.argmin(L[t - 8:t]))
+        pole = H[t] - L[q]
+        low_i = t + 1 + int(np.argmin(L[t + 1:w + 1]))
+        if H[t] / L[q] - 1 < 0.20 or L[low_i] < H[t] - 0.5 * pole or 1 - L[low_i] / H[t] < 0.03:
+            continue
+        return {"level": float(H[t]), "base": float(L[low_i]), "hfrom": float(L[q]), "hto": float(H[t]), "start": q, "end": w, "weeks": w - q + 1,
+                "pts": [(q, float(L[q])), (t, float(H[t])), (low_i, float(L[low_i]))], "neck": (t, float(H[t]), w + 1, float(H[t])), "pole_weeks": t - q, "flag_weeks": f}
+    return None
+
+
+def _unmirror(pat: dict) -> dict:
+    """Turn a pattern found on inverted prices back into real prices."""
+    out = dict(pat)
+    for key in ("level", "base", "hfrom", "hto"):
+        out[key] = 1.0 / pat[key]
+    out["pts"] = [(i, 1.0 / v) for i, v in pat["pts"]]
+    x0, y0, x1, y1 = pat["neck"]
+    out["neck"] = (x0, 1.0 / y0, x1, 1.0 / y1)
+    if "shoulders" in pat:
+        out["shoulders"] = tuple(1.0 / v for v in pat["shoulders"])
+    return out
+
+
 def describe(kind: str, side: str, pat: dict) -> str:
-    """The reason in words (real prices): the multi-year breakout, the one 'new-style' pattern."""
+    """The reason in words (real prices): the multi-year breakout and the bear flag, the 'new-style' patterns."""
+    if kind == "flag":
+        move = abs(pat["hto"] / pat["hfrom"] - 1) * 100
+        return (f"{'bull' if side == 'long' else 'bear'} flag: a {move:.0f}% {'rise' if side == 'long' else 'fall'} in {pat['pole_weeks']} weeks, then a {pat['flag_weeks']}-week "
+                f"{'pullback' if side == 'long' else 'bounce'} to {pat['base']:,.1f} that kept more than half of it")
     level, base, weeks = pat["level"], pat["base"], pat["end"] - pat["start"]
     return f"{pat['years']:.0f}-year high {level:,.1f}, set {weeks} weeks ago (about {weeks / 4.345:.0f} months); the base since then went down to {base:,.1f}"
 
 
 # (kind, side, detector, new-style): the old-style detectors return `height` / `why` themselves.
-PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at, False), ("cup", "long", cup_at, False), ("multiyear", "long", multiyear_at, True)]
+PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at, False), ("cup", "long", cup_at, False), ("multiyear", "long", multiyear_at, True), ("flag", "short", flag_at, True)]
 DETECTORS = {"range": range_at, "triangle": triangle_at, "cup": cup_at}
 
 
 def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Params) -> dict[tuple[str, str], dict]:
     """Every structure present as of week w, keyed by (kind, side), in real prices with `height` and `why` filled in."""
     found: dict[tuple[str, str], dict] = {}
+    inv = None
     for kind, side, fn, new in PATTERNS:
-        pat = fn(wH, wL, wC, w, p)
+        if side == "long":
+            pat = fn(wH, wL, wC, w, p)
+        else:                                                      # a short is the long detector on inverted prices (high <-> 1/low), turned back into real prices
+            inv = inv or (1.0 / wL, 1.0 / wH, 1.0 / wC)
+            pat = fn(*inv, w, p)
+            pat = _unmirror(pat) if pat else None
         if pat is None:
             continue
         if new:
@@ -450,6 +499,14 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                                 "reason": (f"{pat['why']}; {gap:.1f}% {'below' if long else 'above'} the level - "
                                            f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}")})
 
+    def confluent(i: int, lo: float, hi: float, side: str) -> dict:
+        """Does a daily trendline in the trade's direction (a rising support line for a long zone, a falling resistance line for a supply zone) run through the zone
+        (+/- 1%) as of session i? Uses only candles up to i."""
+        lines = swing_trendlines.analyze(df.iloc[:i + 1])
+        zone = {"d": "bull" if side == "long" else "bear", "lo": lo, "hi": hi}
+        gap = swing_trendlines.zone_gap_pct(zone, lines)
+        return {"cf": bool(swing_trendlines.confluence(zone, lines)), "tl_gap": None if gap is None else round(float(gap), 2)}
+
     # --- weekly support zones: closed inside, then a daily close back out above the zone
     zp = ZoneParams(side="long", impulse_atr=p.zone_impulse_atr, expiry_weeks=p.zone_expiry_weeks)
     for z in find_zones(df.set_axis(dates), zp):
@@ -476,15 +533,78 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                     pl = plan(c, lo * (1 - buf), wH, w, hi - lo, hi, p)
                     last_trigger[("zone", "long")] = i
                     if pl is not None:
-                        triggers.append({"kind": "zone", "side": "long", "i": i, "w": w, "level": hi, **pl, "geo": geo, "f": {**_features(d, i), "impulse": z["impulse"]},
+                        triggers.append({"kind": "zone", "side": "long", "i": i, "w": w, "level": hi, **pl, **confluent(i, lo, hi, "long"), "geo": geo, "f": {**_features(d, i), "impulse": z["impulse"]},
                                          "reason": f"{why}; in the zone from {dates[entered].strftime('%d %b')}, daily close {c:,.1f} back above it"})
                 break
         if not done and entered is not None and end == n and w_last >= 40:        # in the zone right now
             entry = hi * (1 + buf)
             pl = plan(entry, lo * (1 - buf), wH, w_last, hi - lo, hi, p)
             if pl is not None:
-                pending.append({"kind": "zone", "side": "long", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
+                pending.append({"kind": "zone", "side": "long", "i": n - 1, "w": w_last, "level": hi, "entry": entry, **pl, **confluent(n - 1, lo, hi, "long"), "geo": geo, "f": {**_features(d, n - 1), "impulse": z["impulse"]},
                                 "reason": f"{why}; price is in the zone since {dates[entered].strftime('%d %b')} - buy on a daily close back above {hi:,.1f}"})
+    # --- weekly resistance (supply) zones, SHORT: price rallied into the zone, then a daily close back out below it; the stop is above the zone
+    zs = ZoneParams(side="short", impulse_atr=p.zone_impulse_atr, expiry_weeks=p.zone_expiry_weeks)
+    supply = []                                                                   # the zones' triggers, sorted by time before the cooldown is applied (no look-ahead)
+    for z in find_zones(df.set_axis(dates), zs):
+        start = int(dates.searchsorted(z["known"], side="right"))
+        end = min(n, int(dates.searchsorted(z["known"] + pd.Timedelta(weeks=p.zone_expiry_weeks), side="right")))
+        lo, hi = z["lo"], z["hi"]
+        entered = None
+        geo = {"from": z["formed"].strftime("%Y-%m-%d"), "to": None, "level": round(lo, 2), "base": round(hi, 2)}
+        why = f"weekly resistance zone {lo:,.1f}-{hi:,.1f} (formed {z['formed'].strftime('%d %b %Y')}, thrust {z['impulse']:.1f} ATR)"
+        done = False
+        for i in range(start, end):
+            c = d["c"][i]
+            if c > hi * (1 + buf):
+                done = True
+                break                                                             # a close above the zone: it failed
+            if entered is None:
+                if c >= lo:
+                    entered = i
+                continue
+            if c < lo:
+                done = True
+                w = int(wk_of[i])
+                if i >= 260 and w >= 40:
+                    supply.append((i, w, plan(c, hi * (1 + buf), wH, w, hi - lo, lo, p, "short", wL), lo, hi, geo, why, entered, z["impulse"]))
+                break
+        if not done and entered is not None and end == n and w_last >= 40:        # in the zone right now
+            entry = lo * (1 - buf)
+            pl = plan(entry, hi * (1 + buf), wH, w_last, hi - lo, lo, p, "short", wL)
+            if pl is not None:
+                pending.append({"kind": "zone", "side": "short", "i": n - 1, "w": w_last, "level": lo, "entry": entry, **pl, **confluent(n - 1, lo, hi, "short"), "geo": geo,
+                                "f": {**_features(d, n - 1), "impulse": z["impulse"]},
+                                "reason": f"{why}; price is in the zone since {dates[entered].strftime('%d %b')} - sell on a daily close back below {lo:,.1f}"})
+    last_sz = -10 ** 9
+    for i, w, pl, lo, hi, geo, why, entered, impulse in sorted(supply, key=lambda t: t[0]):
+        if i - last_sz < p.cooldown_days:
+            continue
+        last_sz = i
+        if pl is not None:
+            triggers.append({"kind": "zone", "side": "short", "i": i, "w": w, "level": lo, **pl, **confluent(i, lo, hi, "short"), "geo": geo, "f": {**_features(d, i), "impulse": impulse},
+                             "reason": f"{why}; in the zone from {dates[entered].strftime('%d %b')}, daily close {d['c'][i]:,.1f} back below it"})
+    # --- trendline breakdown (short): a rising support line through at least three swing lows is broken by a red daily close, the first one below it
+    tp = daily_params()
+    pivots = swing_lows(d["l"], tp.swing_bars)
+    last_tl = -10 ** 9
+    for i in range(260, n):
+        if i - last_tl < p.cooldown_days or int(wk_of[i]) < 40:
+            continue
+        br = find_break(d["o"], d["h"], d["l"], d["c"], i, pivots, tp)
+        if br is None:
+            continue
+        w = int(wk_of[i])
+        height = max(br.line_at_break - br.line_at_break / (1 + br.rise_pct / 100), 0.0)
+        pl = plan(d["c"][i], br.stop, wH, w, height, br.line_at_break, p, "short", wL)
+        last_tl = i
+        if pl is None:
+            continue
+        a, ds = br.anchor_idx, (lambda x: dates[x].strftime("%Y-%m-%d"))
+        geo = {"from": ds(a), "to": ds(i), "level": round(br.line_at_break, 2), "base": round(float(d["l"][a]), 2), "line": [ds(a), round(float(d["l"][a]), 2), ds(i), round(br.line_at_break, 2)],
+               "touches": [[ds(j), round(float(d["l"][j]), 2)] for j in br.touch_idxs]}
+        triggers.append({"kind": "trendline", "side": "short", "i": i, "w": w, "level": br.line_at_break, **pl, "geo": geo, "f": _features(d, i),
+                         "reason": (f"rising trendline through {br.touches} swing lows over {br.width_bars} sessions (up {br.rise_pct:.0f}%), broken by a red daily close "
+                                    f"{d['c'][i]:,.1f} that is {br.break_depth_pct:.1f}% under the line ({br.line_at_break:,.1f})")})
     # --- breakdown, retest from below, failure (short): a range's floor or a failed support zone, then an upper-wick rejection there
     rt, rp = retest_scan(d, dates, wk_of, wdates, wH, wL, wC, p)
     last_rt = -10 ** 9
