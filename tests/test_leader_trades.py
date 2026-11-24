@@ -88,3 +88,19 @@ def test_the_break_entry_buys_only_above_the_signal_high_within_the_window():
     assert all(t["ent"] == t["sig"] + 1 for t in one) and len(one) <= len(tr) + len(one)
     anchored, _, _ = lt.trades(frames, set(frames), entry="break", window=3, anchor="entry")
     assert anchored and all(t["ext"] <= t["ent"] + momentum.HOLD_SESSIONS - 1 for t in anchored)
+
+
+def test_todays_leaders_carry_close_and_atr_for_the_position_size_calculator():
+    frames = _universe(seed=8)
+    h = lt.history(frames, set(frames))
+    assert [(t["s"], t["mv"]) for t in h["today"]] == [tuple(x) for x in h["leaders_today"]] or h["today"] == []
+    for t in h["today"]:
+        f = frames[t["s"]]
+        assert abs(t["close"] - round(float(f["close"].iloc[-1]), 2)) < 1e-9 and 0 < t["atr"] < 40 and 1 <= t["mv"] <= 10
+    json.dumps(h)
+
+
+def test_the_page_has_the_position_size_calculator():
+    html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    for needle in ('id="ltCap"', 'id="ltRisk"', 'id="ltNewRows"', "function ltQty", "ltCap", "d.today"):
+        assert needle in html, needle

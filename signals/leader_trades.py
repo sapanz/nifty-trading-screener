@@ -60,7 +60,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
     sma = pd.Series(idx).rolling(momentum.MA_DAYS).mean().to_numpy()
     up = idx > sma
     held_until = np.full(m, -1)                                                   # index of the last session each stock is held through
-    out, leaders_today = [], []
+    out, leaders_today, today = [], [], []
     for i in range(80, n):
         liquid = np.flatnonzero((C[i] * V[i] / 1e7 >= momentum.MIN_TURNOVER_CR) & ~np.isnan(atr[i]) & ~np.isnan(C[i - 20]) & ~np.isnan(C[i - 60]))
         if len(liquid) < 20:
@@ -72,6 +72,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
         leaders = [(rank + 1, int(j)) for rank, j in enumerate(mv_order) if mom_rank[int(j)] <= (pool or movers.LEADER_POOL)]
         if i == n - 1:
             leaders_today = [(syms[j], rk) for rk, j in leaders]
+            today = [{"s": syms[j], "mv": rk, "close": round(float(C[i, j]), 2), "atr": round(float(atr[i, j]), 2)} for rk, j in leaders]
         if not up[i] or i + 1 >= n:
             continue
         for mv_rank, j in leaders:
@@ -121,7 +122,7 @@ def trades(frames: dict[str, pd.DataFrame], fo: set[str], hold: int = momentum.H
             pct = (xp / e - 1) * 100 - (COST_PCT if why != "open" else 0)
             out.append({"symbol": syms[j], "sig": i, "ent": ent_i, "entry": e, "stop": float(stop0), "ext": xi, "exit": xp, "out": OUT.index(why), "pct": float(pct),
                         "mv": mv_rank, "mom": mom_rank[j], "atr": float(atr[i, j]), "last": float(C[n - 1, j]), "sell_by": end})
-    info = {"asof": dates[-1].strftime("%Y-%m-%d"), "market_up": bool(up[-1]), "leaders_today": leaders_today}
+    info = {"asof": dates[-1].strftime("%Y-%m-%d"), "market_up": bool(up[-1]), "leaders_today": leaders_today, "today": today}
     return out, [d.strftime("%Y-%m-%d") for d in dates], info
 
 
@@ -143,7 +144,7 @@ def history(frames: dict[str, pd.DataFrame], tradable: set[str], fo: set[str] | 
         rows.append([symbols.index(t["symbol"]), day(t["sig"]), day(t["ent"]), round(t["entry"], 2), round(t["stop"], 2), day(t["ext"]), round(t["exit"], 2), t["out"], round(t["pct"], 2),
                      t["mv"], t["mom"], round(t["atr"], 1), round(t["last"], 2), int((sell - EPOCH).days)])
     rows.sort(key=lambda r: (r[2], r[9]))
-    return {"cols": COLS + ["sell"], "symbols": symbols, "fo": [s for s in symbols if s in (fo or set())], "rows": rows, **info, "hold": momentum.HOLD_SESSIONS, "stop_atr": momentum.STOP_ATR}
+    return {"cols": COLS + ["sell"], "symbols": symbols, "fo": [s for s in symbols if s in (fo or set())], "rows": rows, **info, "hold": momentum.HOLD_SESSIONS, "stop_atr": momentum.STOP_ATR, "gap_cap": momentum.GAP_CAP_PCT}
 
 
 def summary(trade_list: list[dict], dates: list[str]) -> dict:
