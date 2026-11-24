@@ -47,6 +47,19 @@ def _oi_store(repository: str | None) -> dict | None:
         return None
 
 
+def _saved_context(repository: str | None) -> tuple[dict, dict]:
+    """({symbol: industry}, {symbol: company name}) saved by the last good build (sector_map.json on the data branch): NSE's lists answer 403 to cloud runners now and then, and
+    a build that lost every sector would publish a list with no sector support at all. ({}, {}) when nothing is saved."""
+    if not repository:
+        return {}, {}
+    try:
+        saved = secure.loads(urllib.request.urlopen(f"https://raw.githubusercontent.com/{repository}/{BRANCH}/sector_map.json", timeout=30).read())
+        return dict(saved.get("sectors") or {}), dict(saved.get("names") or {})
+    except Exception as exc:  # noqa: BLE001
+        logger.info("No saved sector_map.json (%s)", exc)
+        return {}, {}
+
+
 def main() -> None:
     runtime.setup_logging()
     token, repository = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
@@ -59,6 +72,10 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - NSE sometimes refuses; the F&O stocks alone still make a list
             logger.warning("Nifty 500 list failed (%s) - building from the F&O stocks only", exc)
             sectors = {}
+        saved_sectors, saved_names = _saved_context(repository)
+        if not sectors and saved_sectors:
+            logger.warning("NSE's Nifty 500 list is unavailable - reusing the %d sectors saved by the last good build", len(saved_sectors))
+        sectors = {**saved_sectors, **sectors}
         # The universe: every NSE stock above MCAP_MIN_CR (a screener.in custom screen - not only the Nifty 500), plus the F&O stocks for the leader trades. A failed or short screen
         # falls back to the Nifty 500 + F&O list with no market-cap line (logged, and the page says nothing about a market-cap line).
         big, mcap_min = set(), None
@@ -117,10 +134,13 @@ def main() -> None:
     logger.info("NSE events: %s", event_status)
     # Stock-specific context: company names for the news search, and fetchers that run only for the stocks that end up on the list.
     try:
-        names = {**extra_names, **universe.fetch_nifty500_names()}
+        names = {**saved_names, **extra_names, **universe.fetch_nifty500_names()}
     except Exception as exc:  # noqa: BLE001
         logger.warning("Company names failed (%s) - the news search will use symbols", exc)
-        names = dict(extra_names)
+        names = {**saved_names, **extra_names}
+    if sectors and any(sym in sectors for sym in frames_all):                  # saved for the next build, but only for the stocks this one built (a fallback universe is then the last built one)
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        secure.write_json(OUT_DIR / "sector_map.json", {"sectors": {s: sectors[s] for s in frames_all if s in sectors}, "names": {s: names[s] for s in frames_all if s in names}})
     session, ticker_cache, today = requests.Session(), {"^GSPC": series.get("spx")}, datetime.now(IST).date()
     stats = {"tickers": 0, "tickers_ok": 0, "news": 0, "news_ok": 0}
 

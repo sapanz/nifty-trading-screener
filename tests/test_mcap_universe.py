@@ -99,3 +99,40 @@ def test_extra_constituent_lists_fail_soft_and_merge(monkeypatch):
     monkeypatch.setattr(universe.requests.Session, "get", lambda *a, **k: None)
     industry, names = universe.fetch_extra_constituents()
     assert industry == {"ACME": "Capital Goods", "BETA": "Healthcare", "GAMMA": "Services"} and names["BETA"] == "Beta Ltd"
+
+
+def test_nse_lists_are_retried_after_a_403(monkeypatch):
+    import requests
+    from signals import universe
+    monkeypatch.setattr(universe, "RETRY_PAUSE", 0)
+    calls = []
+
+    class Bad:
+        def raise_for_status(self):
+            raise requests.HTTPError("403")
+
+    class Good:
+        text = "ok"
+
+        def raise_for_status(self):
+            pass
+
+    class Session:
+        def get(self, url, headers=None, timeout=None):
+            calls.append(url)
+            return Bad() if len(calls) < 3 else Good()
+    assert universe._fetch_csv_text(Session(), "u") == "ok" and len(calls) == 3
+    calls.clear()
+
+    class Always:
+        def get(self, url, headers=None, timeout=None):
+            calls.append(url)
+            return Bad()
+    with pytest.raises(requests.HTTPError):
+        universe._fetch_csv_text(Always(), "u")
+    assert len(calls) == universe.RETRIES
+
+
+def test_the_build_saves_and_reuses_the_sector_map():
+    build = (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_setups.py").read_text()
+    assert "sector_map.json" in build and "_saved_context(repository)" in build and "**saved_sectors, **sectors" in build and "**saved_names" in build

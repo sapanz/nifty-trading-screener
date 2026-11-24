@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import time
 
 import requests
 
@@ -27,10 +28,21 @@ _HEADERS = {
 }
 
 
+RETRIES, RETRY_PAUSE = 3, 3.0          # NSE's archive answers 403 to cloud runners now and then; a pause and another try often gets through
+
+
 def _fetch_csv_text(session: requests.Session, url: str) -> str:
-    resp = session.get(url, headers=_HEADERS, timeout=20)
-    resp.raise_for_status()
-    return resp.text
+    last: Exception | None = None
+    for attempt in range(RETRIES):
+        if attempt:
+            time.sleep(RETRY_PAUSE * attempt)
+        try:
+            resp = session.get(url, headers=_HEADERS, timeout=20)
+            resp.raise_for_status()
+            return resp.text
+        except requests.RequestException as exc:
+            last = exc
+    raise last  # type: ignore[misc]
 
 
 def fetch_nifty500_symbols() -> list[str]:
