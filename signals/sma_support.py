@@ -36,8 +36,8 @@ STOP_BUFFER = 0.001
 MIN_RR, DEFAULT_RR, MAX_RR = 1.5, 3.0, 4.0
 SECTOR_MIN_STOCKS = 3
 TF = {
-    "D": dict(n=21, slope_bars=10, slope_pct=1.0, short_up=3, near_pct=1.5, below_pct=3.0, min_risk=0.5, max_risk=8.0, max_hold=20, vol_default=1.5, name="21-day average"),
-    "W": dict(n=30, slope_bars=8, slope_pct=1.0, short_up=4, near_pct=3.0, below_pct=5.0, min_risk=1.0, max_risk=8.0, max_hold=130, vol_default=1.2, name="30-week average"),
+    "D": dict(n=21, slope_bars=10, slope_pct=1.0, short_up=3, near_pct=1.5, below_pct=3.0, min_risk=0.5, max_risk=8.0, max_hold=20, vol_default=1.5, name="moving average"),
+    "W": dict(n=30, slope_bars=8, slope_pct=1.0, short_up=4, near_pct=3.0, below_pct=5.0, min_risk=1.0, max_risk=8.0, max_hold=130, vol_default=1.2, name="moving average"),
 }
 SIDES = ("long", "short")
 P = pa.Params()
