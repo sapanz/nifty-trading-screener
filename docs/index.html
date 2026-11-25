@@ -378,7 +378,7 @@
     <div id="paHistStats" class="momBanner histOnly" hidden></div>
     <div class="controls">
       <label><input type="checkbox" id="paFo"> F&amp;O stocks only</label>
-      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support / resistance zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="retest">Break and retest (range / zone / trendline)</option><option value="double">W / M pattern (double bottom / top)</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="trendline">Trendline breakdown (short)</option></select></label>
+      <label>Setup <select id="paKind" aria-label="Kind of setup"><option value="all">All</option><option value="zone">Weekly support / resistance zone</option><option value="range">Weekly range breakout</option><option value="triangle">Triangle breakout</option><option value="cup">Cup and handle</option><option value="multiyear">Multi-year breakout</option><option value="mretest">Multi-year high retest</option><option value="retest">Break and retest (range / zone / trendline)</option><option value="double">W / M pattern (double bottom / top)</option><option value="hs">Head and shoulders (and inverse)</option><option value="triple">Triple bottom / top</option><option value="flag">Bull / bear flag</option><option value="trendline">Trendline breakdown (short)</option></select></label>
       <label>Direction <select id="paSide" aria-label="Long or short setups"><option value="all">Long and short</option><option value="long">Long only</option><option value="short">Short only (F&amp;O)</option></select></label>
       <label><input type="checkbox" id="paCf"> Zone + trendline only</label>
       <label class="histOnly" hidden>Year <select id="paYear" aria-label="Year the setup triggered"></select></label>
@@ -2266,7 +2266,7 @@
 
   /* ---------- Price action backtest: every past setup that would have been listed, traded by the same rule (entry at the next open, the planned
      stop and target, a 60-session time exit, 0.10% costs), from setups_hist/<year>.json; each stock's candles load when a row is opened. ---------- */
-  var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline", "double", "hs", "triple"];          // the kinds that remain (the others were removed after the backtest; older published data may still carry them)
+  var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "mretest", "retest", "flag", "trendline", "double", "hs", "triple"];          // the kinds that remain (the others were removed after the backtest; older published data may still carry them)
   var PA_OUT = { target: "Target hit", stop: "Stopped", time: "Time exit", open: "Still open", trend: "Closed below the weekly average" };
   function setPaView(v) { state.paView = v; save(); closeOi(); renderPaView(); if (v === "hist") loadHist(); else renderSetups(); }
   function renderPaView() {
@@ -2504,7 +2504,7 @@
     var start = Math.max(0, Math.min((g.from ? at(g.from) : n - minBars) - lead, n - minBars)), cs = all.slice(start), dd = ds.slice(start), m = cs.length;
     var PAD = hist ? 3 : Math.max(weekly ? 8 : 20, Math.round(m * 0.22)), N = m + PAD, W = 720, H = 390, L = 46, R = 122, T = 12, B = 24, pw = W - L - R, ph = H - T - B;
     var lo = Math.min(s.stop, s.target, g.base, g.level), hi = Math.max(s.stop, s.target, g.base, g.level);
-    if (s.kind === "retest") { lo = Math.min(lo, g.floor, g.top); hi = Math.max(hi, g.floor, g.top); }
+    if (s.kind === "retest" || s.kind === "mretest") { lo = Math.min(lo, g.floor, g.top); hi = Math.max(hi, g.floor, g.top); }
     if (hist) { lo = Math.min(lo, hist.exit); hi = Math.max(hi, hist.exit); }
     cs.forEach(function (c) { lo = Math.min(lo, c[2]); hi = Math.max(hi, c[1]); });
     var pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
@@ -2562,7 +2562,7 @@
       svg.appendChild(svgEl("line", { x1: x(i), x2: x(i), y1: y(c[1]), y2: y(c[2]), stroke: col }));
       svg.appendChild(svgEl("rect", { x: x(i) - cw / 2, y: y(Math.max(c[0], c[3])), width: Math.max(cw, 0.8), height: Math.max(Math.abs(y(c[0]) - y(c[3])), 1), fill: col }));
     });
-    if (s.kind === "retest") {                                        // the structure (box, zone or trendline), the broken level, the break and the retest that holds (long) or fails (short)
+    if (s.kind === "retest" || s.kind === "mretest") {                // the structure (box, zone, trendline or the old multi-year high), the broken level, the break and the retest that holds (long) or fails (short)
       var rl = s.side === "long", src = g.source || "range", rcol = rl ? "var(--up)" : "var(--down)";
       if (src === "trendline" && g.line) {
         svg.appendChild(svgEl("line", { x1: x(xi(g.line[0])), y1: y(g.line[1]), x2: x(xi(g.line[2])), y2: y(g.line[3]), stroke: acc, "stroke-width": "1.8" }));
@@ -2571,7 +2571,7 @@
       } else {
         var bx0 = x(xi(g.from)) - pw / N * 0.5, bx1 = x(Math.min(m - 1, xi(g.retest_date) + 1)) + pw / N * 0.5, bt = Math.min(y(g.top), y(g.floor)), bh = Math.max(Math.abs(y(g.floor) - y(g.top)), 2);
         svg.appendChild(svgEl("rect", { x: bx0, y: bt, width: Math.max(bx1 - bx0, 4), height: bh, fill: acc, "fill-opacity": "0.08", stroke: acc, "stroke-dasharray": "5 3" }));
-        svg.appendChild(svgEl("text", { x: bx0 + 4, y: rl ? bt + bh - 4 : bt + 12, style: "fill:" + acc + ";font-weight:600" }, (src === "zone" ? "Weekly zone " : "Base ") + paPx(Math.min(g.floor, g.top)) + "–" + paPx(Math.max(g.floor, g.top))));
+        svg.appendChild(svgEl("text", { x: bx0 + 4, y: rl ? bt + bh - 4 : bt + 12, style: "fill:" + acc + ";font-weight:600" }, (src === "zone" ? "Weekly zone " : src === "multiyear" ? "Old high " : "Base ") + paPx(Math.min(g.floor, g.top)) + "–" + paPx(Math.max(g.floor, g.top))));
       }
       svg.appendChild(svgEl("line", { x1: x(xi(g.break_date)), x2: right, y1: y(g.floor), y2: y(g.floor), stroke: rcol, "stroke-dasharray": "2 3", "stroke-width": "1.2" }));
       [[g.break_date, rl ? "Breakout" : "Breakdown"], [g.retest_date, rl ? "Retest holds" : "Retest fails"]].forEach(function (mk) {
@@ -2596,8 +2596,8 @@
       }
     }
     var labels = [{ p: s.target, t: s.kind === "multiyear" && s.side !== "short" ? "Ref. move" : "Target", c: "var(--up)" }, { p: s.entry, t: "Entry", c: "var(--ink)" }, { p: s.stop, t: "Stop", c: "var(--down)" }];
-    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "retest" ? (s.side === "long" ? "Retest high" : "Failure low") : s.kind === "zone" ? (s.side === "short" ? "Zone low" : "Zone top") : s.kind === "trendline" ? "Trendline" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
-    if (s.kind === "retest" && Math.abs(g.floor / s.entry - 1) > 0.004) labels.push({ p: g.floor, t: g.source === "trendline" ? "Broken line" : s.side === "long" ? "Broken ceiling" : "Broken floor", c: s.side === "long" ? "var(--up)" : "var(--down)" });
+    if (Math.abs(g.level / s.entry - 1) > 0.004) labels.push({ p: g.level, t: s.kind === "retest" || s.kind === "mretest" ? (s.side === "long" ? "Retest high" : "Failure low") : s.kind === "zone" ? (s.side === "short" ? "Zone low" : "Zone top") : s.kind === "trendline" ? "Trendline" : g.pts && s.kind !== "multiyear" && s.kind !== "flag" ? "Neckline" : s.side === "short" ? "Breakdown" : "Breakout", c: acc });
+    if ((s.kind === "retest" || s.kind === "mretest") && Math.abs(g.floor / s.entry - 1) > 0.004) labels.push({ p: g.floor, t: g.source === "trendline" ? "Broken line" : g.source === "multiyear" ? "Old high" : s.side === "long" ? "Broken ceiling" : "Broken floor", c: s.side === "long" ? "var(--up)" : "var(--down)" });
     if (hist) {                                                     // where the trade ended
       var ec = hist.R > 0 ? "var(--up)" : "var(--down)", ex = x(xi(hist.exit_date)), ey = y(hist.exit);
       svg.appendChild(svgEl("circle", { cx: ex, cy: ey, r: "5", fill: "var(--panel)", stroke: ec, "stroke-width": "2.5" }));

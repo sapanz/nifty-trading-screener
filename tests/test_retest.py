@@ -146,5 +146,5 @@ def test_zone_and_trendline_sources_exist_on_both_sides_and_are_valid_plans():
 def test_the_page_lists_the_retest_short_and_draws_its_geometry():
     from pathlib import Path
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    assert 'var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline", "double", "hs", "triple"]' in html and 'value="retest"' in html
-    assert 'if (s.kind === "retest") {' in html and "Retest fails" in html and "Broken floor" in html
+    assert 'var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "mretest", "retest", "flag", "trendline", "double", "hs", "triple"]' in html and 'value="retest"' in html
+    assert 'if (s.kind === "retest" || s.kind === "mretest") {' in html and "Retest fails" in html and "Broken floor" in html

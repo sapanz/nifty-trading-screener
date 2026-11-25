@@ -16,7 +16,7 @@ def test_live_mode_falls_back_to_the_daily_candles_for_stocks_without_5_minute_c
 def test_the_removed_tools_are_gone_from_the_page():
     for gone in ('value="pause"', 'value="candle"'):
         assert gone not in HTML, gone
-    assert 'var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "retest", "flag", "trendline", "double", "hs", "triple"]' in HTML
+    assert 'var PA_KINDS = ["zone", "range", "triangle", "cup", "multiyear", "mretest", "retest", "flag", "trendline", "double", "hs", "triple"]' in HTML
     assert 'sides=("bull",)' not in (Path(__file__).resolve().parent.parent / "scripts" / "build_dashboard_swing.py").read_text()   # supply zones are published again
 
 
