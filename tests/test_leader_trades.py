@@ -104,3 +104,11 @@ def test_the_page_has_the_position_size_calculator():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
     for needle in ('id="ltCap"', 'id="ltRisk"', 'id="ltNewRows"', "function ltQty", "ltCap", "d.today"):
         assert needle in html, needle
+
+
+def test_the_page_opens_on_the_today_view_with_buys_only():
+    html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    for needle in ('id="modeToday"', 'id="todayView"', "function renderToday", "function enterToday", "  enterToday();\n  setInterval(refresh, REFRESH_MS);", 'id="tdBuyRows"', 'id="tdHoldRows"', "todaySkip"):
+        assert needle in html, needle
+    today = html[html.index("function renderToday"):html.index("function enterSwing")]
+    assert "short" not in today.lower() and "sell below" not in today.lower()          # buys only: no bearish rows in the Today view
