@@ -22,6 +22,8 @@ def _frame(touch="holds", second_touch=True, fail_after_break=False, n=1000):
     j = 800
     if touch == "holds":                                                      # the support candle: low into the band, close above the old high in the upper half
         o[j], l[j], h[j], c[j] = 101.0, 100.2, 101.9, 101.6
+    elif touch == "zone":                                                     # dips into the zone and closes just UNDER the old high but inside the zone (zone based: still support)
+        o[j], l[j], h[j], c[j] = 99.4, 98.6, 99.9, 99.6
     elif touch == "weak":                                                     # touches the band but closes under the old high
         o[j], l[j], h[j], c[j] = 101.0, 99.0, 101.2, 99.6
     c[j + 1] = 102.6 if touch != "none" else c[j + 1]
@@ -42,6 +44,12 @@ def test_the_first_return_that_holds_is_the_trade_and_only_once():
     assert len(out) == 1 and not pend
     t = out[0]
     assert t["b"] == 700 and t["j"] == 800 and t["i"] == 801 and abs(t["level"] - 100.0) < 1e-9          # the later returns (860-867) add nothing
+
+
+def test_a_close_inside_the_zone_under_the_old_high_is_still_support():
+    out, _ = pa.mretest_scan(_d(_frame(touch="zone")), pa.Params())
+    assert len(out) == 1 and out[0]["j"] == 800 and out[0]["zone"] == (98.0, 102.0)
+    assert pa.mretest_scan(_d(_frame(touch="zone")), pa.Params(mr_zone_pct=0.2))[0] == []          # with a thin zone (bottom 99.8) the same candle (close 99.6) is not enough
 
 
 def test_a_weak_first_touch_uses_the_breakout_up():
@@ -70,7 +78,7 @@ def test_the_scan_turns_it_into_a_planned_trade_with_a_stop_under_the_support_ca
     assert t["side"] == "long" and t["i"] == 801 and t["stop"] < df["low"].iloc[800] and t["target"] > df["close"].iloc[801] and t["rr"] > 1.5
     g = t["geo"]
     assert g["source"] == "multiyear" and g["floor"] == 100.0 and g["retest_date"] == df.index[800].strftime("%Y-%m-%d") and g["break_date"] == df.index[700].strftime("%Y-%m-%d")
-    assert "first time" in t["reason"] and "old high as support" in t["reason"]
+    assert "first time" in t["reason"] and "old-high zone 98.0-102.0" in t["reason"]
     assert pa.NAMES[("mretest", "long")] == "Multi-year high retest" and "mretest" in pa.KINDS
 
 
@@ -84,4 +92,10 @@ def test_a_pending_setup_waits_for_the_trigger_on_the_latest_bar():
 def test_the_page_lists_and_draws_the_multi_year_high_retest():
     from pathlib import Path
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    assert 'value="mretest">Multi-year high retest' in html and '"mretest"' in html and 'src === "multiyear" ? "Old high "' in html and 'g.source === "multiyear" ? "Old high"' in html
+    assert 'value="mretest">Multi-year high retest' in html and '"mretest"' in html and 'src === "multiyear" ? "Old-high zone "' in html and 'g.source === "multiyear" ? "Old high"' in html
+
+
+def test_the_stop_can_be_put_under_the_whole_zone():
+    df = _frame()
+    t = [x for x in pa.scan_stock(df, pa.Params(mr_stop_zone=True))[0] if x["kind"] == "mretest"]
+    assert len(t) == 1 and t[0]["stop"] < 98.0 and t[0]["stop"] < [x for x in pa.scan_stock(df)[0] if x["kind"] == "mretest"][0]["stop"]

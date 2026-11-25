@@ -2,8 +2,9 @@
 
 Twelve kinds, all found on COMPLETED weekly candles and triggered by a DAILY close outside the structure:
   multiyear a close above the highest weekly high of the last 2-5 years, set at least 52 weeks ago (a high more than a year old).
-  mretest   a multi-year high (set at least a year before) is broken by a daily close, price moves away from it and comes back to it for the FIRST time and holds as support (a
-            close at or above the old high, in the upper half of the candle); the trigger is a close above that candle's high, the stop below its low. One trade per breakout.
+  mretest   a multi-year high (set at least a year before) is broken by a daily close, price moves away from it and comes back into the OLD-HIGH ZONE (the old high -2% .. +2%) for
+            the FIRST time and holds there (a close inside or above the zone, in the upper half of the candle); the trigger is a close above that candle's high, the stop just under that candle's low (`mr_stop_zone` puts it under the whole
+            zone). One trade per breakout.
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
   range     8-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top.
@@ -81,8 +82,10 @@ class Params:
     mr_lookback: int = 1300             # the multi-year high of the retest setup: the highest high of the last 1300 sessions (about 5 years) ...
     mr_min_age: int = 250               # ... set at least this many sessions (a year) before the breakout
     mr_away_pct: float = 5.0            # after the breakout price must trade this % above the old high before a return counts as the retest
-    mr_band_pct: float = 2.0            # the return: the low gets within this % above the old high ...
-    mr_fail_pct: float = 3.0            # ... and a close more than this % under the old high means the breakout failed (no setup)
+    mr_band_pct: float = 2.0            # the old-high ZONE: from the old high up to this % above it (price returning into it is the retest) ...
+    mr_zone_pct: float = 2.0            # ... and down to this % under it (a support candle may close inside the zone, down to its bottom)
+    mr_stop_zone: bool = False          # the stop under the support candle's low (False) or under the whole zone (True: in the 9 historical cases it cut reward:risk under 1.5 for all of them)
+    mr_fail_pct: float = 3.0            # a close more than this % under the old high means the breakout failed (no setup)
     mr_window: int = 150                # the first return must come within this many sessions of the breakout
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
@@ -502,10 +505,10 @@ def retest_scan(d: dict, dates: pd.DatetimeIndex, wk_of: np.ndarray, wdates: pd.
 def mretest_scan(d: dict, p: Params) -> tuple[list[dict], list[dict]]:
     """A multi-year high is broken, price moves away, comes back to it FOR THE FIRST TIME and holds. Returns (triggers, pending) as dicts {i, b, j, t, level, peak}.
     The old high L = the highest high of the previous `mr_lookback` sessions, at least `mr_min_age` sessions old; the breakout is the daily close above it (the first
-    one, since every earlier close is under L). The setup then needs price to trade `mr_away_pct` % above L; the FIRST session after that whose low gets within
-    `mr_band_pct` % above L is the only candidate (a close under L, a close more than `mr_fail_pct` % under it, or a weak candle uses the breakout up: no trade, and a
-    later return to the same level is never added). The support candle closes at or above L, in the upper half of its range. The trigger is a close above its high within
-    `retest_trigger_days` sessions without trading under its low; a candle that trades under its low first is not support."""
+    one, since every earlier close is under L). The OLD-HIGH ZONE runs from L x (1 - mr_zone_pct) up to L x (1 + mr_band_pct). The setup needs price to trade `mr_away_pct` %
+    above L; the FIRST session after that whose low gets into the zone is the only candidate (a close more than `mr_fail_pct` % under L, a close below the zone, or a weak
+    candle uses the breakout up: no trade, and a later return to the same zone is never added). The support candle closes inside or above the zone, in the upper half of its
+    range. The trigger is a close above its high within `retest_trigger_days` sessions without trading under its low; a candle that trades under its low first is not support."""
     h, l, c = d["h"], d["l"], d["c"]
     n = len(c)
     out, pend = [], []
@@ -516,25 +519,25 @@ def mretest_scan(d: dict, p: Params) -> tuple[list[dict], list[dict]]:
         level = float(prior.max())
         if b - t < p.mr_min_age or not (c[b] > level and c[b - 1] <= level):
             continue
-        band_top, floor = level * (1 + p.mr_band_pct / 100), level * (1 - p.mr_fail_pct / 100)
+        band_top, zone_lo, floor = level * (1 + p.mr_band_pct / 100), level * (1 - p.mr_zone_pct / 100), level * (1 - p.mr_fail_pct / 100)
         peak, away = float(h[b]), h[b] >= level * (1 + p.mr_away_pct / 100)
         for j in range(b + 1, min(n, b + 1 + p.mr_window)):
             if c[j] < floor:
                 break                                                              # the breakout failed
             if away and l[j] <= band_top:                                           # the first return to the old high
                 rng = h[j] - l[j]
-                if rng > 0 and c[j] >= level and c[j] - l[j] >= 0.5 * rng and l[j] >= floor:
+                if rng > 0 and c[j] >= zone_lo and c[j] - l[j] >= 0.5 * rng and l[j] >= floor:
                     dead = False
                     for i in range(j + 1, min(n, j + 1 + p.retest_trigger_days)):
                         if l[i] < l[j]:
                             dead = True                                            # it traded under the support candle's low: not support
                             break
                         if c[i] > h[j]:
-                            out.append({"i": i, "b": b, "j": j, "t": t, "level": level, "peak": peak})
+                            out.append({"i": i, "b": b, "j": j, "t": t, "level": level, "peak": peak, "zone": (zone_lo, band_top)})
                             dead = True
                             break
                     if not dead and j + p.retest_trigger_days >= n - 1:
-                        pend.append({"i": n - 1, "b": b, "j": j, "t": t, "level": level, "peak": peak})
+                        pend.append({"i": n - 1, "b": b, "j": j, "t": t, "level": level, "peak": peak, "zone": (zone_lo, band_top)})
                 break                                                              # first time only
             peak = max(peak, float(h[j]))
             if h[j] >= level * (1 + p.mr_away_pct / 100):
@@ -544,16 +547,24 @@ def mretest_scan(d: dict, p: Params) -> tuple[list[dict], list[dict]]:
 
 def mretest_why(t: dict, d: dict, dates: pd.DatetimeIndex) -> str:
     j, level = t["j"], t["level"]
+    zlo, zhi = t["zone"]
     age = (dates[t["b"]] - dates[t["t"]]).days / 365.25
     return (f"broke its {age:.1f}-year high {level:,.1f} (set {dates[t['t']].strftime('%b %Y')}) on {dates[t['b']].strftime('%d %b')}, rose {(t['peak'] / level - 1) * 100:.0f}% and came back "
-            f"for the first time on {dates[j].strftime('%d %b')} to {d['l'][j]:,.1f} - the old high as support - and held (close {d['c'][j]:,.1f}); buy above its high {d['h'][j]:,.1f}, "
-            f"stop below its low {d['l'][j]:,.1f}")
+            f"into the old-high zone {zlo:,.1f}-{zhi:,.1f} for the first time on {dates[j].strftime('%d %b')} (low {d['l'][j]:,.1f}) - support - and held (close {d['c'][j]:,.1f}); "
+            f"buy above its high {d['h'][j]:,.1f}, stop below its low {d['l'][j]:,.1f}")
+
+
+def mretest_stop(t: dict, d: dict, p: Params) -> float:
+    """Under the support candle's low (under the zone's bottom when `mr_stop_zone`), with the usual buffer."""
+    low = float(d["l"][t["j"]])
+    return (min(low, t["zone"][0]) if p.mr_stop_zone else low) * (1 - p.stop_buffer_pct / 100)
 
 
 def mretest_geo(t: dict, d: dict, dates: pd.DatetimeIndex, p: Params) -> dict:
     j, level = t["j"], t["level"]
+    zlo, zhi = t["zone"]
     return {"from": dates[t["t"]].strftime("%Y-%m-%d"), "to": dates[j].strftime("%Y-%m-%d"), "level": round(float(d["h"][j]), 2), "base": round(float(d["l"][j]), 2), "floor": round(level, 2),
-            "band_top": round(level * (1 + p.mr_band_pct / 100), 2), "top": round(level * (1 + p.mr_band_pct / 100), 2), "break_date": dates[t["b"]].strftime("%Y-%m-%d"),
+            "band_top": round(zhi, 2), "top": round(zhi, 2), "zone_lo": round(zlo, 2), "zone_hi": round(zhi, 2), "break_date": dates[t["b"]].strftime("%Y-%m-%d"),
             "retest_date": dates[j].strftime("%Y-%m-%d"), "source": "multiyear"}
 
 
@@ -859,7 +870,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
         if i < 260 or int(wk_of[i]) < 40:
             continue
         w = int(wk_of[i])
-        pl = plan(d["c"][i], d["l"][j] * (1 - buf), wH, w, max(t["peak"] - t["level"], 0.0), t["level"], p, "long", wL)
+        pl = plan(d["c"][i], mretest_stop(t, d, p), wH, w, max(t["peak"] - t["level"], 0.0), t["level"], p, "long", wL)
         if pl is not None:
             triggers.append({"kind": "mretest", "side": "long", "i": i, "w": w, "level": float(d["h"][j]), **pl, "geo": mretest_geo(t, d, dates, p), "f": _features(d, i),
                              "reason": mretest_why(t, d, dates) + f"; daily close {d['c'][i]:,.1f} above it"})
@@ -869,7 +880,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
         if w < 40 or n - 1 < 260:
             continue
         entry = d["h"][j] * (1 + buf)
-        pl = plan(entry, d["l"][j] * (1 - buf), wH, w, max(t["peak"] - t["level"], 0.0), t["level"], p, "long", wL)
+        pl = plan(entry, mretest_stop(t, d, p), wH, w, max(t["peak"] - t["level"], 0.0), t["level"], p, "long", wL)
         if pl is not None:
             pending.append({"kind": "mretest", "side": "long", "i": n - 1, "w": w, "level": float(d["h"][j]), "entry": entry, **pl, "geo": mretest_geo(t, d, dates, p), "f": _features(d, n - 1),
                             "reason": mretest_why(t, d, dates) + f"; waiting for a daily close above {d['h'][j]:,.1f}"})
