@@ -653,6 +653,18 @@ def _features(d: dict, i: int) -> dict:
             "r60": float(c[i] / c[i - 60] - 1) if i >= 60 else np.nan, "day_move": float(c[i] / c[i - 1] - 1) if i else np.nan}
 
 
+def one_per_retest(items: list[dict]) -> list[dict]:
+    """The same retest candle of the same stock was found once per overlapping weekly base (the boxes differ a little, the candle, entry and stop do not): keep one row per
+    (kind, side, source, retest candle) - the best reward:risk, the first found on a tie."""
+    best: dict = {}
+    for it in items:
+        g = it["geo"]
+        key = (it["kind"], it["side"], g.get("source"), g.get("retest_date"))
+        if key not in best or it["rr"] > best[key]["rr"]:
+            best[key] = it
+    return list(best.values())
+
+
 def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list[dict]]:
     """(every trigger in the history, the structures armed right now but not triggered). Each trigger: kind, i (daily index of the trigger close),
     level, stop / target / rr planned at that close, reason, features, geometry for the chart."""
@@ -852,6 +864,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             if pl is not None:
                 triggers.append({"kind": "retest", "side": side, "i": i, "w": w, "level": float(d["h"][j] if long else d["l"][j]), **pl, "geo": retest_geo(t, d, dates), "f": _features(d, i),
                                  "reason": retest_why(t, d, dates) + f"; daily close {d['c'][i]:,.1f} {'above' if long else 'below'} it"})
+        waiting: list[dict] = []
         for t in rp:
             j = t["j"]
             w = int(wk_of[n - 1])
@@ -861,8 +874,9 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             stop = d["l"][j] * (1 - buf) if long else d["h"][j] * (1 + buf)
             pl = plan(entry, stop, wH, w, abs(t["top"] - t["floor"]), t["floor"], p, side, wL)
             if pl is not None:
-                pending.append({"kind": "retest", "side": side, "i": n - 1, "w": w, "level": float(d["h"][j] if long else d["l"][j]), "entry": entry, **pl, "geo": retest_geo(t, d, dates), "f": _features(d, n - 1),
+                waiting.append({"kind": "retest", "side": side, "i": n - 1, "w": w, "level": float(d["h"][j] if long else d["l"][j]), "entry": entry, **pl, "geo": retest_geo(t, d, dates), "f": _features(d, n - 1),
                                 "reason": retest_why(t, d, dates) + f"; waiting for a daily close {'above' if long else 'below'} {d['h'][j] if long else d['l'][j]:,.1f}"})
+        pending.extend(one_per_retest(waiting))
     # --- a multi-year high broken, then its first retest holds as support (long only)
     mr, mp = mretest_scan(d, p)
     for t in mr:

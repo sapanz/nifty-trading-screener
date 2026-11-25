@@ -99,3 +99,11 @@ def test_the_stop_can_be_put_under_the_whole_zone():
     df = _frame()
     t = [x for x in pa.scan_stock(df, pa.Params(mr_stop_zone=True))[0] if x["kind"] == "mretest"]
     assert len(t) == 1 and t[0]["stop"] < 98.0 and t[0]["stop"] < [x for x in pa.scan_stock(df)[0] if x["kind"] == "mretest"][0]["stop"]
+
+
+def test_overlapping_bases_do_not_give_the_same_waiting_retest_several_times():
+    mk = lambda top, rr, src="range", day="2026-11-09": {"kind": "retest", "side": "long", "rr": rr, "geo": {"source": src, "retest_date": day, "top": top}}
+    items = [mk(1208.6, 1.69), mk(1208.6, 1.69), mk(1175.0, 1.8), mk(1175.0, 1.69), mk(900.0, 1.2, src="zone"), mk(1100.0, 1.5, day="2026-11-10")]
+    out = pa.one_per_retest(items)
+    assert len(out) == 3 and sorted((o["geo"]["source"], o["geo"]["retest_date"]) for o in out) == [("range", "2026-11-09"), ("range", "2026-11-10"), ("zone", "2026-11-09")]
+    assert [o for o in out if o["geo"]["source"] == "range" and o["geo"]["retest_date"] == "2026-11-09"][0]["rr"] == 1.8            # the best reward:risk wins

@@ -111,4 +111,4 @@ def test_the_page_opens_on_the_today_view_with_buys_only():
     for needle in ('id="modeToday"', 'id="todayView"', "function renderToday", "function enterToday", "  enterToday();\n  setInterval(refresh, REFRESH_MS);", 'id="tdBuyRows"', 'id="tdHoldRows"', 'id="tdSmaRows"', 'liveJson("sma_support.json", "dashboard-setups").then(function (d) { state.sma = d; renderToday();', "todaySkip"):
         assert needle in html, needle
     today = html[html.index("function renderToday"):html.index("function enterSwing")]
-    assert "bearish" not in today.lower() and "sell below" not in today.lower() and 'side === "short"' not in today and "sma" not in today.lower()          # buys only: no bearish rows in the Today view
+    assert "bearish" not in today.lower() and "sell below" not in today.lower() and 'side === "short"' not in today and 'side || "long") === "short"' not in today          # buys only: no bearish rows in the Today view

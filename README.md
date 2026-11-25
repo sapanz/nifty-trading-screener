@@ -995,6 +995,10 @@ So the list finds stocks that move about twice as often, but roughly **three in 
 
 **Backtest (Nov 2026, 218 F&O stocks, 6 years): only 9 trades** (hit rate 33%, average about -0.3 R, median -1.0 R; with the stop under the whole zone -0.44 R) - far too few to say anything either way, because the rule needs a year-old multi-year high to be broken and then retested once. A reliable test needs 15-20 years of daily history (raise the daily history setting for one research build). Treat it as an unproven list.
 
+### One row per stock (Price action)
+
+The Price action list is built one row per *setup*, so a stock with several setups at once (or several overlapping weekly bases found around the same retest) used to appear several times. Two fixes: (1) the scan keeps one waiting break-and-retest row per stock, source and retest candle (`price_action.one_per_retest`; the boxes found around the same candle differed a little, the candle, entry and stop did not - half of the waiting retest rows were copies); (2) the page's **One row per stock** option (on by default) shows each stock once, with the best row in the current sort order and a "+N more" chip naming the other setups; untick it to see every setup.
+
 ### Update data now (button on the page)
 
 The header's **Update data** button runs the evening builds by hand instead of waiting for the schedule: Replay history, Swing and Price action (and, in market hours, the live refresher). A static page cannot start a GitHub Actions workflow by itself, so there are two ways:
