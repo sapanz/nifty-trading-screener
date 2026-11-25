@@ -108,7 +108,7 @@ def test_the_page_has_the_position_size_calculator():
 
 def test_the_page_opens_on_the_today_view_with_buys_only():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
-    for needle in ('id="modeToday"', 'id="todayView"', "function renderToday", "function enterToday", "  enterToday();\n  setInterval(refresh, REFRESH_MS);", 'id="tdBuyRows"', 'id="tdHoldRows"', "todaySkip"):
+    for needle in ('id="modeToday"', 'id="todayView"', "function renderToday", "function enterToday", "  enterToday();\n  setInterval(refresh, REFRESH_MS);", 'id="tdBuyRows"', 'id="tdHoldRows"', 'id="tdSmaRows"', 'liveJson("sma_support.json", "dashboard-setups").then(function (d) { state.sma = d; renderToday();', "todaySkip"):
         assert needle in html, needle
     today = html[html.index("function renderToday"):html.index("function enterSwing")]
     assert "bearish" not in today.lower() and "sell below" not in today.lower() and 'side === "short"' not in today and "sma" not in today.lower()          # buys only: no bearish rows in the Today view
