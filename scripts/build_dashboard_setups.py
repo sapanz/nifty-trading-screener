@@ -24,7 +24,7 @@ import time  # noqa: E402
 
 import requests  # noqa: E402
 
-from signals import config, data, forward_log, leader_trades, macro, news, nse_events, peers, price_action_board, runtime, secure, sma_support, universe, value_universe  # noqa: E402
+from signals import config, data, forward_log, leader_trades, macro, news, nse_events, peers, price_action, price_action_board, price_action_model, runtime, secure, sma_support, universe, value_universe  # noqa: E402
 from signals.publish import publish_directory  # noqa: E402
 from signals.upstox_client import UpstoxClient  # noqa: E402
 
@@ -225,6 +225,14 @@ def main() -> None:
         logger.warning("Forward log skipped - the saved ledger could not be read, so it is left as it is (%s)", exc)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Forward log failed: %s", exc)
+    try:                                                                  # research only (nothing published): the weekly range breakout, the old rule against the live one, F&O against the other stocks
+        new_rep = price_action_model.kind_report(collected[1], "range", fo)
+        old_ev, _ = price_action_model.collect(frames, p=price_action.Params(rng_min_weeks=8, rng_min_vol=0.0))
+        old_rep = price_action_model.kind_report(old_ev, "range", fo)
+        logger.info("Range breakout research - live rule (21+ weeks, volume >= 2x): %s", json.dumps(new_rep))
+        logger.info("Range breakout research - old rule (8+ weeks, no volume check): %s", json.dumps(old_rep))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Range breakout research failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
     hist_dir = OUT_DIR / "setups_hist"
     (hist_dir / "c").mkdir(parents=True, exist_ok=True)

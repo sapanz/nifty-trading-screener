@@ -286,3 +286,19 @@ def summarize(ev: pd.DataFrame, p: pa.Params = pa.Params()) -> str:
         lines.append("  " + ", ".join(f"{name} {b:+.2f}" for name, b in zip(m["features"], m["beta"][1:])))
         lines.append(f"  recent base rate {m['base_rate']:.0%}; a miss costs {m['miss_r']:+.2f}R on average (stops and time exits)")
     return "\n".join(lines)
+
+
+def kind_report(ev: pd.DataFrame, kind: str, fo: set[str], side: str = "long") -> dict:
+    """Closed-trade statistics of one kind from `collect`'s events - all stocks, F&O stocks and the others - for comparing rules: trades, hit %, average R, profit factor,
+    and the average R by year for the stocks outside F&O."""
+    d = ev[(ev["kind"] == kind) & (ev["side"] == side) & (ev["reason"] != "open")]
+
+    def stat(x: pd.DataFrame) -> dict:
+        if not len(x):
+            return {"n": 0}
+        gain, loss = x["R"][x["R"] > 0].sum(), -x["R"][x["R"] <= 0].sum()
+        return {"n": int(len(x)), "hit": round(float(x["hit"].mean() * 100), 1), "avg_r": round(float(x["R"].mean()), 3), "pf": round(float(gain / loss), 2) if loss else None}
+    is_fo = d["symbol"].isin(fo)
+    other = d[~is_fo]
+    years = pd.to_datetime(other["date"]).dt.year if len(other) else pd.Series(dtype=int)
+    return {"all": stat(d), "fo": stat(d[is_fo]), "non_fo": stat(other), "non_fo_by_year": {int(y): round(float(g["R"].mean()), 2) for y, g in other.groupby(years)} if len(other) else {}}

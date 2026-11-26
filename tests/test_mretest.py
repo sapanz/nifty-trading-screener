@@ -129,3 +129,11 @@ def test_the_range_box_can_be_drawn_around_the_bodies_and_capped_in_height():
 def test_the_minimum_number_of_weeks_and_the_touch_rule_are_options():
     o, h, l, c = _weekly_box()
     assert pa.range_at(h, l, c, 21, pa.Params(rng_min_weeks=30), o) is None and pa.range_at(h, l, c, 21, pa.Params(rng_min_weeks=6), o)["weeks"] >= 6
+
+
+def test_kind_report_splits_fo_and_other_stocks():
+    from signals import price_action_model as pm
+    ev = pd.DataFrame({"kind": ["range"] * 5 + ["zone"], "side": ["long"] * 6, "symbol": ["A", "A", "B", "B", "B", "A"], "reason": ["target", "stop", "target", "stop", "open", "stop"],
+                       "R": [2.0, -1.0, 1.5, -1.0, 0.0, -1.0], "hit": [1, 0, 1, 0, 0, 0], "date": pd.to_datetime(["2023-01-02", "2023-02-02", "2024-01-02", "2024-02-02", "2024-03-02", "2024-04-02"])})
+    r = pm.kind_report(ev, "range", {"A"})
+    assert r["all"]["n"] == 4 and r["fo"] == {"n": 2, "hit": 50.0, "avg_r": 0.5, "pf": 2.0} and r["non_fo"]["n"] == 2 and r["non_fo_by_year"] == {2024: 0.25}
