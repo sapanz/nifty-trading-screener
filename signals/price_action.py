@@ -7,7 +7,8 @@ Twelve kinds, all found on COMPLETED weekly candles and triggered by a DAILY clo
             zone). One trade per breakout.
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
-  range     8-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top.
+  range     21-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top on at least 2x its 20-day average
+            volume (8+ weeks and no volume check until Nov 2026).
   triangle  falling (or flat) highs and rising lows that converge - symmetric / ascending; a daily close above the upper line.
   cup       cup and handle: two rims at a similar level around a rounded 12-45% dip, then a shallow handle; a daily close above the rim.
   retest    SHORT, F&O only: a base (8-40 weeks, at most 30% wide, floor tested twice) breaks down, price comes back up to retest the broken floor from below, and a
@@ -87,11 +88,11 @@ class Params:
     mr_stop_zone: bool = False          # the stop under the support candle's low (False) or under the whole zone (True: in the 9 historical cases it cut reward:risk under 1.5 for all of them)
     mr_fail_pct: float = 3.0            # a close more than this % under the old high means the breakout failed (no setup)
     mr_window: int = 150                # the first return must come within this many sessions of the breakout
-    rng_min_weeks: int = 8              # the weekly range breakout: the least number of weekly candles in the box (8 until Nov 2026) ...
+    rng_min_weeks: int = 21             # the weekly range breakout: the least number of weekly candles in the box (8 until Nov 2026; shorter boxes lost in the backtest) ...
     rng_body_height: float | None = None  # ... and, when set, the box is drawn around the candle BODIES (no wicks) and may be at most this tall (0.12 = 12%)
     rng_level: str = "high"             # the breakout level: "high" = the box's highest high; "body" = its highest body edge
     rng_touches: bool = True            # the box needs two spaced tests of each side
-    rng_min_vol: float = 0.0            # the breakout candle's volume as a multiple of its 20-day average, at least this (0 = no check)
+    rng_min_vol: float = 2.0            # the breakout candle's volume as a multiple of its 20-day average, at least this (0 = no check; none until Nov 2026)
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
 
@@ -760,7 +761,8 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                 gap = abs(level / c - 1) * 100
                 pending.append({"kind": kind, "side": side, "i": n - 1, "w": w_last, "level": level, "entry": entry, **pl, "geo": geometry(kind, pat), "f": _features(d, n - 1),
                                 "reason": (f"{pat['why']}; {gap:.1f}% {'below' if long else 'above'} the level - "
-                                           f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}")})
+                                           f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}"
+                                           + (f", on at least {p.rng_min_vol:g}x its 20-day average volume" if kind == "range" and p.rng_min_vol else ""))})
 
     def confluent(i: int, lo: float, hi: float, side: str) -> dict:
         """Does a daily trendline in the trade's direction (a rising support line for a long zone, a falling resistance line for a supply zone) run through the zone

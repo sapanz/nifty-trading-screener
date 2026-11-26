@@ -34,28 +34,36 @@ def _box(n=12, top=110.0, bot=100.0, lead=30):
     return _weeks(H, L, C)
 
 
+P8 = pa.Params(rng_min_weeks=8)                                       # the range rule's minimum was 8 weeks until Nov 2026 (21 now: shorter boxes lost in the backtest)
+
+
+def test_the_default_range_needs_a_21_week_box_and_2x_volume():
+    H, L, C = _box()
+    assert pa.range_at(H, L, C, len(H) - 1, P) is None and pa.Params().rng_min_weeks == 21 and pa.Params().rng_min_vol == 2.0
+
+
 def test_range_is_the_box_with_spaced_touches():
     H, L, C = _box()
-    r = pa.range_at(H, L, C, len(H) - 1, P)
+    r = pa.range_at(H, L, C, len(H) - 1, P8)
     assert r and r["level"] == 110.0 and r["base"] == 100.0 and r["weeks"] == 12 and abs(r["height"] - 10) < 1e-9
     assert "12-week range" in r["why"]
 
 
 def test_range_rejects_too_wide_too_short_and_the_lower_half():
     H, L, C = _box(top=140.0, bot=100.0)                             # 40% wide
-    assert pa.range_at(H, L, C, len(H) - 1, P) is None
+    assert pa.range_at(H, L, C, len(H) - 1, P8) is None
     H, L, C = _box(n=6)                                             # only 6 weeks of box: no window of 8+ fits inside the limits
-    assert pa.range_at(H, L, C, len(H) - 1, P) is None
+    assert pa.range_at(H, L, C, len(H) - 1, P8) is None
     H, L, C = _box()
     C[-1] = 101.0                                                   # sitting near the bottom of the box
-    assert pa.range_at(H, L, C, len(H) - 1, P) is None
+    assert pa.range_at(H, L, C, len(H) - 1, P8) is None
 
 
 def test_range_is_not_reported_once_a_weekly_close_is_through_the_top():
     H, L, C = _box()
     C[-1] = 111.0
     H[-1] = 112.0
-    assert pa.range_at(H, L, C, len(H) - 1, P) is None
+    assert pa.range_at(H, L, C, len(H) - 1, P8) is None
 
 
 def _triangle(flat_top=False):
