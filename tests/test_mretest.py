@@ -139,9 +139,9 @@ def test_kind_report_splits_fo_and_other_stocks():
     assert r["all"]["n"] == 4 and r["fo"] == {"n": 2, "hit": 50.0, "avg_r": 0.5, "pf": 2.0} and r["non_fo"]["n"] == 2 and r["non_fo_by_year"] == {2024: 0.25}
 
 
-def _box_after(start: float, end: float = 100.0) -> pd.DataFrame:
+def _box_after(start: float, end: float = 100.0, box: int = 140) -> pd.DataFrame:
     """400 sessions of drift from `start` to `end`, then 140 sessions inside a 100-114 box, then a breakout close at 118 on 5x volume."""
-    c = np.concatenate([np.linspace(start, end, 400), 107.0 + 6.5 * np.cos((np.arange(140) - 139) * 2 * np.pi / 35.0), [118.0]])
+    c = np.concatenate([np.linspace(start, end, 400), 107.0 + 6.5 * np.cos((np.arange(box) - (box - 1)) * 2 * np.pi / 35.0), [118.0]])
     n = len(c)
     o, h, l = c.copy(), c + 0.4, c - 0.4
     v = np.full(n, 1e6)
@@ -158,3 +158,12 @@ def test_range_breakout_needs_the_weekly_30_sma_rising():
     got = lambda df, p: [t for t in pa.scan_stock(df, p)[0] if t["kind"] == "range"]            # noqa: E731
     assert got(up, free) and got(down, free)                                                  # the box and breakout are found either way
     assert got(up, pa.Params()) and not got(down, pa.Params())                                # a falling weekly 30 SMA drops the trade
+
+
+def test_second_tier_takes_shorter_boxes_only_on_heavy_volume():
+    df = _box_after(60.0, 80.0, box=70)                                       # a 14-week box (the drift before it ends well under it), the breakout on 5x volume
+    got = lambda p: [x for x in pa.scan_stock(df, p)[0] if x["kind"] == "range"]                # noqa: E731
+    assert pa.Params().rng_short_weeks == 0                                   # off by default
+    assert not got(pa.Params(rng_sma_weeks=0))                                # 14 weeks is under the first tier's 21
+    assert got(pa.Params(rng_short_weeks=8, rng_sma_weeks=0))                 # the second tier: 5x clears the 4x it needs
+    assert not got(pa.Params(rng_short_weeks=8, rng_short_vol=8.0, rng_sma_weeks=0))

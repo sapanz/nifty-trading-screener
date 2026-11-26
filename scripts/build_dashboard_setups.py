@@ -229,6 +229,8 @@ def main() -> None:
         new_rep = price_action_model.kind_report(collected[1], "range", fo)
         for label, kw in (("21+ weeks, volume >= 2x, no trend check (rule of 26 Nov 2026)", dict(rng_sma_weeks=0, range_max_width=0.25)),
                           ("21+ weeks, volume >= 2x, weekly SMA rising, box up to 25% tall", dict(range_max_width=0.25)),
+                          ("8+ weeks, volume >= 4x, no trend check, box up to 20% tall", dict(rng_min_weeks=8, rng_min_vol=4.0, rng_sma_weeks=0)),
+                          ("two tiers: live rule OR 8-20 weeks with volume >= 4x (no trend check on the second)", dict(rng_short_weeks=8)),
                           ("13+ weeks, volume >= 2x, weekly SMA rising, box up to 20% tall", dict(rng_min_weeks=13)),
                           ("8+ weeks, no volume check, no trend check, box up to 25% (old rule)", dict(rng_min_weeks=8, rng_min_vol=0.0, rng_sma_weeks=0, range_max_width=0.25))):
             ev_x, _ = price_action_model.collect(frames, p=price_action.Params(**kw))

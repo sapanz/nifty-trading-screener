@@ -93,6 +93,9 @@ class Params:
     rng_level: str = "high"             # the breakout level: "high" = the box's highest high; "body" = its highest body edge
     rng_touches: bool = True            # the box needs two spaced tests of each side
     rng_min_vol: float = 2.0            # the breakout candle's volume as a multiple of its 20-day average, at least this (0 = no check; none until Nov 2026)
+    rng_short_weeks: int = 0            # a second tier: boxes from this many weeks up to rng_min_weeks - 1 are also taken, but only on a much heavier breakout volume (0 = off)
+    rng_short_vol: float = 4.0          # ... the breakout volume the second tier needs (a multiple of the 20-day average)
+    rng_short_sma: bool = False         # ... and whether the second tier also needs the weekly 30 SMA rising
     rng_sma_weeks: int = 4              # the weekly 30 SMA must be rising: higher than this many weeks earlier (0 = no check; none until Nov 2026)
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
@@ -114,7 +117,7 @@ def range_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params, O: 
     """The longest box ending at week w: width within limits, two spaced touches of each side, not broken on a weekly close. With `rng_body_height` the box is drawn
     around the candle BODIES (open / close, no wicks) and may be at most that tall; the breakout level is then the highest body edge (`rng_level` "body") or the highest high."""
     body = p.rng_body_height is not None and O is not None
-    for n in range(min(p.range_max_weeks, w + 1), p.rng_min_weeks - 1, -1):
+    for n in range(min(p.range_max_weeks, w + 1), (p.rng_short_weeks if 0 < p.rng_short_weeks < p.rng_min_weeks else p.rng_min_weeks) - 1, -1):
         a = w - n + 1
         h, l, c = H[a:w + 1], L[a:w + 1], C[a:w + 1]
         if body:
@@ -746,10 +749,13 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             last_trigger[(kind, side)] = i
             if pl is None:
                 continue
-            if kind == "range" and p.rng_min_vol and not _features(d, i)["vol"] >= p.rng_min_vol:
-                continue                                                                  # the breakout candle's volume is too thin
-            if kind == "range" and not sma_rising(w):
-                continue                                                                  # the weekly trend is not up
+            if kind == "range":
+                short = pat.get("weeks", p.rng_min_weeks) < p.rng_min_weeks               # a box of the second tier (shorter, heavier volume)
+                need = p.rng_short_vol if short else p.rng_min_vol
+                if need and not _features(d, i)["vol"] >= need:
+                    continue                                                              # the breakout candle's volume is too thin
+                if not (short and not p.rng_short_sma) and not sma_rising(w):
+                    continue                                                              # the weekly trend is not up
             triggers.append({"kind": kind, "side": side, "i": i, "w": w, "level": level, **pl, "geo": geometry(kind, pat), "f": _features(d, i),
                              "reason": f"{pat['why']}; daily close {c:,.1f} {'above' if long else 'below'} {level:,.1f}"})
     w_last = int(wk_of[n - 1]) if n else -1
@@ -760,7 +766,8 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             long, level = side == "long", pat["level"]
             beyond = (d["c"][first:n] > level) if long else (d["c"][first:n] < level)
             near = (level * (1 - p.near_pct / 100) <= c <= level) if long else (level <= c <= level * (1 + p.near_pct / 100))
-            if beyond.any() or not near or (kind == "range" and not sma_rising(w_last)):
+            short = kind == "range" and pat.get("weeks", p.rng_min_weeks) < p.rng_min_weeks
+            if beyond.any() or not near or (kind == "range" and not (short and not p.rng_short_sma) and not sma_rising(w_last)):
                 continue
             entry = level * (1 + buf) if long else level * (1 - buf)
             stop = min(level, d["l"][n - 1]) * (1 - buf) if long else max(level, d["h"][n - 1]) * (1 + buf)
@@ -770,8 +777,8 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                 pending.append({"kind": kind, "side": side, "i": n - 1, "w": w_last, "level": level, "entry": entry, **pl, "geo": geometry(kind, pat), "f": _features(d, n - 1),
                                 "reason": (f"{pat['why']}; {gap:.1f}% {'below' if long else 'above'} the level - "
                                            f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}"
-                                           + (f", on at least {p.rng_min_vol:g}x its 20-day average volume" if kind == "range" and p.rng_min_vol else "")
-                                           + (", with the weekly trend up" if kind == "range" and p.rng_sma_weeks else ""))})
+                                           + (f", on at least {(p.rng_short_vol if short else p.rng_min_vol):g}x its 20-day average volume" if kind == "range" and (p.rng_short_vol if short else p.rng_min_vol) else "")
+                                           + (", with the weekly trend up" if kind == "range" and p.rng_sma_weeks and not (short and not p.rng_short_sma) else ""))})
 
     def confluent(i: int, lo: float, hi: float, side: str) -> dict:
         """Does a daily trendline in the trade's direction (a rising support line for a long zone, a falling resistance line for a supply zone) run through the zone
