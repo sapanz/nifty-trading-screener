@@ -7,8 +7,8 @@ Twelve kinds, all found on COMPLETED weekly candles and triggered by a DAILY clo
             zone). One trade per breakout.
   zone      weekly support (a weekly demand zone - signals/weekly_zone_backtest.find_zones): price closed inside the zone and then a daily
             close comes back out above it.
-  range     21-40 weeks inside a box no wider than RANGE_MAX_WIDTH with at least two touches of each side; a daily close above the top on at least 2x its 20-day average
-            volume (8+ weeks and no volume check until Nov 2026).
+  range     21-40 weeks inside a box (wicks included) no taller than 20% with at least two touches of each side; a daily close above the top on at least 2x its 20-day average
+            volume, while the weekly 30 SMA is higher than 4 weeks earlier (8+ weeks, no volume check and no trend check until Nov 2026).
   triangle  falling (or flat) highs and rising lows that converge - symmetric / ascending; a daily close above the upper line.
   cup       cup and handle: two rims at a similar level around a rounded 12-45% dip, then a shallow handle; a daily close above the rim.
   retest    SHORT, F&O only: a base (8-40 weeks, at most 30% wide, floor tested twice) breaks down, price comes back up to retest the broken floor from below, and a
@@ -63,7 +63,7 @@ class Params:
     recent_weeks: int = 3               # the last few weeks' high also counts as resistance (a peak too recent to be confirmed)
     range_min_weeks: int = 8
     range_max_weeks: int = 40
-    range_max_width: float = 0.25
+    range_max_width: float = 0.20       # the weekly range breakout: the box (wicks included) at most this tall (0.25 until Nov 2026; 0.20 was better in the backtest)
     range_min_width: float = 0.05
     touch_tol: float = 0.03
     cooldown_days: int = 20             # one trigger per stock and kind in this many sessions
@@ -93,6 +93,7 @@ class Params:
     rng_level: str = "high"             # the breakout level: "high" = the box's highest high; "body" = its highest body edge
     rng_touches: bool = True            # the box needs two spaced tests of each side
     rng_min_vol: float = 2.0            # the breakout candle's volume as a multiple of its 20-day average, at least this (0 = no check; none until Nov 2026)
+    rng_sma_weeks: int = 4              # the weekly 30 SMA must be rising: higher than this many weeks earlier (0 = no check; none until Nov 2026)
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
 
@@ -698,6 +699,11 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
     wdates = wk.index
     n, buf = len(dates), p.stop_buffer_pct / 100
     wk_of = np.searchsorted(wdates.values, dates.values, side="left") - 1           # the last week that closed BEFORE each session's own week
+    wsma = pd.Series(wC).rolling(30).mean().to_numpy()                              # the weekly 30 SMA of the closes
+
+    def sma_rising(w: int) -> bool:
+        k = p.rng_sma_weeks
+        return bool(k <= 0 or (w - k >= 0 and not np.isnan(wsma[w - k]) and wsma[w] > wsma[w - k]))
     triggers, pending = [], []
     last_trigger: dict = {}
 
@@ -742,6 +748,8 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                 continue
             if kind == "range" and p.rng_min_vol and not _features(d, i)["vol"] >= p.rng_min_vol:
                 continue                                                                  # the breakout candle's volume is too thin
+            if kind == "range" and not sma_rising(w):
+                continue                                                                  # the weekly trend is not up
             triggers.append({"kind": kind, "side": side, "i": i, "w": w, "level": level, **pl, "geo": geometry(kind, pat), "f": _features(d, i),
                              "reason": f"{pat['why']}; daily close {c:,.1f} {'above' if long else 'below'} {level:,.1f}"})
     w_last = int(wk_of[n - 1]) if n else -1
@@ -752,7 +760,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             long, level = side == "long", pat["level"]
             beyond = (d["c"][first:n] > level) if long else (d["c"][first:n] < level)
             near = (level * (1 - p.near_pct / 100) <= c <= level) if long else (level <= c <= level * (1 + p.near_pct / 100))
-            if beyond.any() or not near:
+            if beyond.any() or not near or (kind == "range" and not sma_rising(w_last)):
                 continue
             entry = level * (1 + buf) if long else level * (1 - buf)
             stop = min(level, d["l"][n - 1]) * (1 - buf) if long else max(level, d["h"][n - 1]) * (1 + buf)
@@ -762,7 +770,8 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
                 pending.append({"kind": kind, "side": side, "i": n - 1, "w": w_last, "level": level, "entry": entry, **pl, "geo": geometry(kind, pat), "f": _features(d, n - 1),
                                 "reason": (f"{pat['why']}; {gap:.1f}% {'below' if long else 'above'} the level - "
                                            f"{'buy on a daily close above' if long else 'sell on a daily close below'} {level:,.1f}"
-                                           + (f", on at least {p.rng_min_vol:g}x its 20-day average volume" if kind == "range" and p.rng_min_vol else ""))})
+                                           + (f", on at least {p.rng_min_vol:g}x its 20-day average volume" if kind == "range" and p.rng_min_vol else "")
+                                           + (", with the weekly trend up" if kind == "range" and p.rng_sma_weeks else ""))})
 
     def confluent(i: int, lo: float, hi: float, side: str) -> dict:
         """Does a daily trendline in the trade's direction (a rising support line for a long zone, a falling resistance line for a supply zone) run through the zone

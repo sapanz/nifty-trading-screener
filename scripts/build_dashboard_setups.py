@@ -227,10 +227,13 @@ def main() -> None:
         logger.warning("Forward log failed: %s", exc)
     try:                                                                  # research only (nothing published): the weekly range breakout, the old rule against the live one, F&O against the other stocks
         new_rep = price_action_model.kind_report(collected[1], "range", fo)
-        old_ev, _ = price_action_model.collect(frames, p=price_action.Params(rng_min_weeks=8, rng_min_vol=0.0))
-        old_rep = price_action_model.kind_report(old_ev, "range", fo)
-        logger.info("Range breakout research - live rule (21+ weeks, volume >= 2x): %s", json.dumps(new_rep))
-        logger.info("Range breakout research - old rule (8+ weeks, no volume check): %s", json.dumps(old_rep))
+        for label, kw in (("21+ weeks, volume >= 2x, no trend check (rule of 26 Nov 2026)", dict(rng_sma_weeks=0, range_max_width=0.25)),
+                          ("21+ weeks, volume >= 2x, weekly SMA rising, box up to 25% tall", dict(range_max_width=0.25)),
+                          ("13+ weeks, volume >= 2x, weekly SMA rising, box up to 20% tall", dict(rng_min_weeks=13)),
+                          ("8+ weeks, no volume check, no trend check, box up to 25% (old rule)", dict(rng_min_weeks=8, rng_min_vol=0.0, rng_sma_weeks=0, range_max_width=0.25))):
+            ev_x, _ = price_action_model.collect(frames, p=price_action.Params(**kw))
+            logger.info("Range breakout research - %s: %s", label, json.dumps(price_action_model.kind_report(ev_x, "range", fo)))
+        logger.info("Range breakout research - live rule (21+ weeks, volume >= 2x, weekly SMA rising, box up to 20% tall): %s", json.dumps(new_rep))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Range breakout research failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).

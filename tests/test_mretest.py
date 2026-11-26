@@ -137,3 +137,24 @@ def test_kind_report_splits_fo_and_other_stocks():
                        "R": [2.0, -1.0, 1.5, -1.0, 0.0, -1.0], "hit": [1, 0, 1, 0, 0, 0], "date": pd.to_datetime(["2023-01-02", "2023-02-02", "2024-01-02", "2024-02-02", "2024-03-02", "2024-04-02"])})
     r = pm.kind_report(ev, "range", {"A"})
     assert r["all"]["n"] == 4 and r["fo"] == {"n": 2, "hit": 50.0, "avg_r": 0.5, "pf": 2.0} and r["non_fo"]["n"] == 2 and r["non_fo_by_year"] == {2024: 0.25}
+
+
+def _box_after(start: float, end: float = 100.0) -> pd.DataFrame:
+    """400 sessions of drift from `start` to `end`, then 140 sessions inside a 100-114 box, then a breakout close at 118 on 5x volume."""
+    c = np.concatenate([np.linspace(start, end, 400), 107.0 + 6.5 * np.cos((np.arange(140) - 139) * 2 * np.pi / 35.0), [118.0]])
+    n = len(c)
+    o, h, l = c.copy(), c + 0.4, c - 0.4
+    v = np.full(n, 1e6)
+    v[-1] = 5e6
+    o[-1], l[-1], h[-1] = 114.5, 114.0, 118.5
+    idx = pd.bdate_range("2021-01-01", periods=n)
+    return pd.DataFrame({"open": o, "high": np.maximum.reduce([o, h, c]), "low": np.minimum.reduce([o, l, c]), "close": c, "volume": v}, index=idx)
+
+
+def test_range_breakout_needs_the_weekly_30_sma_rising():
+    up, down = _box_after(60.0, 100.0), _box_after(160.0, 135.0)
+    free = pa.Params(rng_sma_weeks=0)
+    assert pa.Params().rng_sma_weeks == 4
+    got = lambda df, p: [t for t in pa.scan_stock(df, p)[0] if t["kind"] == "range"]            # noqa: E731
+    assert got(up, free) and got(down, free)                                                  # the box and breakout are found either way
+    assert got(up, pa.Params()) and not got(down, pa.Params())                                # a falling weekly 30 SMA drops the trade
