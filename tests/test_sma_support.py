@@ -268,7 +268,7 @@ def test_daily_long_signals_carry_the_trend_measures_and_the_files_carry_the_ran
     assert sig["gap50"] > 0 and sig["ret60"] > 0 and sig["slope"] >= 1.0
     hist = ss.history(frames, {"A": "Up", "B": "Up"}, {"A"})
     col = {k: i for i, k in enumerate(hist["cols"])}
-    assert hist["cols"][-1] == "tr" and all((r[col["tr"]] >= 0) == (r[col["tf"]] == 0 and r[col["side"]] == 0) for r in hist["rows"])
+    assert hist["cols"][-2:] == ["tr", "sl"] and all((r[col["tr"]] >= 0) == (r[col["tf"]] == 0 and r[col["side"]] == 0) for r in hist["rows"])
     c2 = _uptrend_with_a_pullback(330)
     o2, h2, l2 = list(np.r_[c2[0], c2[:-1]]), [x * 1.003 for x in c2], [x * 0.997 for x in c2]
     sma2 = pd.Series(c2).rolling(21).mean().to_numpy()
@@ -285,3 +285,15 @@ def test_the_page_has_the_clear_uptrend_filter():
     html = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
     for needle in ('id="smaTrend"', "Clear uptrend only (top fifth)", 'id="smaTrendLbl"', "clearOnly", "tr: 15", 'id="smaPresetFo"', "SMA_PRESET_FO"):
         assert needle in html, needle
+
+
+def test_backtest_page_sorts_by_volume_slope_trend_and_has_the_slope_column():
+    import re
+    page = (Path(__file__).resolve().parent.parent / "docs" / "index.html").read_text()
+    cols = re.search(r"var SMA_COL = \{([^}]*)\}", page).group(1)
+    idx = {k.strip(): int(v) for k, v in (p.split(":") for p in cols.split(","))}
+    assert [k for k, _ in sorted(idx.items(), key=lambda kv: kv[1])] == ss.HIST_COLS                    # the page reads the same columns the build writes
+    sel = re.search(r'<select id="smaHSort"[^>]*>(.*?)</select>', page, re.S).group(1)
+    for value in ("vr", "slope", "trend", "rr", "risk"):
+        assert f'<option value="{value}"' in sel
+    assert "Math.abs(b[C.sl] || 0)" in page and "Math.abs(b.slope) - Math.abs(a.slope)" in page          # steepest = the largest move either way (a bearish average falls)

@@ -308,7 +308,7 @@ def build(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[str]
 
 EPOCH = pd.Timestamp("2000-01-01")
 HIST_MIN_VOLUME = 1.0                       # the backtest list keeps the trades whose volume was at least this multiple of the 20-day (20-week) average
-HIST_COLS = ["s", "tf", "side", "sig", "ent", "entry", "stop", "target", "ext", "exit", "out", "pct", "r", "vr", "sec", "tr"]
+HIST_COLS = ["s", "tf", "side", "sig", "ent", "entry", "stop", "target", "ext", "exit", "out", "pct", "r", "vr", "sec", "tr", "sl"]
 HIST_OUT = ["stop", "target", "time"]
 
 
@@ -316,7 +316,7 @@ def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[st
     """The backtest list for the page: every closed trade of the rules (both sides and timeframes, shorts for F&O stocks only) whose volume was at least
     HIST_MIN_VOLUME x its average, as compact rows - the symbol's index in `symbols`, tf (0 daily / 1 weekly), side (0 long / 1 short), the signal / entry /
     exit dates as days since 2000-01-01, the entry, stop, target and exit prices, the exit reason (0 stop / 1 target / 2 time), the net % (costs in), the R, the volume
-    ratio, the sector flag and `tr` (the trend rank 0-100 of a daily long trade, -1 for the others). The sector, volume and trend filters of the page then work on it."""
+    ratio, the sector flag, `tr` (the trend rank 0-100 of a daily long trade, -1 for the others) and `sl` (how far the average moved over its slope window, in %, negative for a bearish signal). The sector, volume and trend filters of the page then work on it."""
     flags = sector_flags(frames, sectors)
     tables = tables if tables is not None else collect_trend_tables(frames, sectors)
     symbols, rows = [], []
@@ -338,7 +338,7 @@ def history(frames: dict[str, pd.DataFrame], sectors: dict[str, str], fo: set[st
                     pct, r = pct_and_r(tr, sig)
                     mine.append([0, 0 if tf == "D" else 1, 0 if side == "long" else 1, day(sig["date"]), day(dates[tr["entry_i"]]), round(tr["entry"], 2), round(sig["stop"], 2),
                                  round(sig["target"], 2), day(dates[tr["exit_i"]]), round(tr["exit"], 2), HIST_OUT.index(tr["reason"]), round(pct, 2), round(r, 2),
-                                 round(sig["vr"], 2), int(bool(sig["sector_ok"])), trend_rank(sig, tables) if tf == "D" and side == "long" and tables else -1])
+                                 round(sig["vr"], 2), int(bool(sig["sector_ok"])), trend_rank(sig, tables) if tf == "D" and side == "long" and tables else -1, round(sig["slope"], 2)])
         if mine:
             symbols.append(symbol)
             rows += [[len(symbols) - 1] + m[1:] for m in mine]

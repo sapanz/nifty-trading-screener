@@ -301,13 +301,13 @@
       <label><input type="checkbox" id="smaFo"> F&amp;O stocks only</label>
       <label class="smaHist" hidden>Year <select id="smaYear" aria-label="Year of the signal"><option value="all">All</option></select></label>
       <label class="smaHist" hidden>Result <select id="smaResult" aria-label="How the trade ended"><option value="all">All</option><option value="target">Target hit</option><option value="stop">Stopped</option><option value="time">Time exit</option><option value="win">Ended in profit</option><option value="loss">Ended in loss</option></select></label>
-      <label class="smaHist" hidden>Sort by <select id="smaHSort" aria-label="Order of the past trades"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="best">Best result</option><option value="worst">Worst result</option></select></label>
+      <label class="smaHist" hidden>Sort by <select id="smaHSort" aria-label="Order of the past trades"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="best">Best result</option><option value="worst">Worst result</option><option value="vr">Volume (highest first)</option><option value="slope">Steepest average</option><option value="trend">Trend rank (highest first)</option><option value="rr">Reward : risk</option><option value="risk">Smallest risk</option></select></label>
       <label class="smaHist" hidden>Show <select id="smaShow" aria-label="Rows to show"><option value="50">50</option><option value="100">100</option><option value="250">250</option><option value="0">All</option></select></label>
       <label class="smaLive">Sort by <select id="smaSort" aria-label="Order of the table"><option value="vr">Volume (highest first)</option><option value="rr">Reward : risk</option><option value="risk">Smallest risk</option><option value="slope">Steepest average</option></select></label>
     </div>
     <div id="smaHistStats" class="momBanner smaHist" hidden></div>
     <div class="tablewrap smaHist" hidden><table id="smaHistTable">
-      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Signal</th><th>Entry date</th><th>Entry</th><th>Exit date</th><th>Exit</th><th>Result</th><th>Return</th><th>R</th><th>Volume</th><th>Trend</th></tr></thead>
+      <thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Signal</th><th>Entry date</th><th>Entry</th><th>Exit date</th><th>Exit</th><th>Result</th><th>Return</th><th>R</th><th>Volume</th><th title="How far the average moved over its slope window (10 sessions daily, 8 weeks weekly)">Slope</th><th>Trend</th></tr></thead>
       <tbody id="smaHistRows"></tbody>
     </table></div>
     <div class="tablewrap smaLive"><table id="smaTable">
@@ -1409,7 +1409,7 @@
     var vth = state.smaVol === "auto" ? (d.defaults || { D: 1.5, W: 1.2 })[state.smaTf] : state.smaVol === "any" ? 0 : parseFloat(state.smaVol);
     var clearOnly = state.smaTrend === "clear" && state.smaTf === "D" && state.smaSide === "long", clearAt = d.clear_percentile || 80;
     var rows = d.rows.filter(function (r) { return r.tf === state.smaTf && (r.side || "long") === state.smaSide && (state.smaSec !== "on" || r.sector_ok) && (!vth || (r.vr !== null && r.vr >= vth)) && (!clearOnly || (r.trend !== null && r.trend !== undefined && r.trend >= clearAt)) && (!state.smaFo || r.fo); });
-    var key = { vr: function (a, b) { return (b.vr || 0) - (a.vr || 0); }, rr: function (a, b) { return b.rr - a.rr; }, risk: function (a, b) { return a.risk_pct - b.risk_pct; }, slope: function (a, b) { return b.slope - a.slope; } }[state.smaSort];
+    var key = { vr: function (a, b) { return (b.vr || 0) - (a.vr || 0); }, rr: function (a, b) { return b.rr - a.rr; }, risk: function (a, b) { return a.risk_pct - b.risk_pct; }, slope: function (a, b) { return Math.abs(b.slope) - Math.abs(a.slope); } }[state.smaSort];
     return rows.slice().sort(function (a, b) { return key(a, b) || (b.vr || 0) - (a.vr || 0); });
   }
   function smaChart(r) {
@@ -1442,7 +1442,7 @@
     return svg;
   }
   /* ---------- the SMA support backtest view: every past trade of the rules (sma_hist.json, rows are compact arrays), with the entry, the exit and a chart ---------- */
-  var SMA_COL = { s: 0, tf: 1, side: 2, sig: 3, ent: 4, entry: 5, stop: 6, target: 7, ext: 8, exit: 9, out: 10, pct: 11, r: 12, vr: 13, sec: 14, tr: 15 };
+  var SMA_COL = { s: 0, tf: 1, side: 2, sig: 3, ent: 4, entry: 5, stop: 6, target: 7, ext: 8, exit: 9, out: 10, pct: 11, r: 12, vr: 13, sec: 14, tr: 15, sl: 16 };
   function dayIso(n) { return new Date(Date.UTC(2000, 0, 1) + n * 864e5).toISOString().slice(0, 10); }
   function loadSmaHist() {
     if (state.smaHist || state.smaHistLoading) return; state.smaHistLoading = true;
@@ -1453,6 +1453,8 @@
       renderSmaSupport();
     }).catch(function () { state.smaHistLoading = false; state.smaHist = false; renderSmaSupport(); });
   }
+  function smaHistRisk(r) { return Math.abs(r[SMA_COL.entry] - r[SMA_COL.stop]) / r[SMA_COL.entry]; }
+  function smaHistRR(r) { var k = Math.abs(r[SMA_COL.entry] - r[SMA_COL.stop]); return k > 0 ? Math.abs(r[SMA_COL.target] - r[SMA_COL.entry]) / k : 0; }
   function smaHistList() {
     var d = state.smaHist, C = SMA_COL; if (!d) return [];
     var fo = {}; d.fo.forEach(function (s) { fo[s] = true; });
@@ -1462,8 +1464,10 @@
       return r[C.tf] === tf && r[C.side] === side && (state.smaSec !== "on" || r[C.sec] === 1) && (!vth || r[C.vr] >= vth) && (!(state.smaTrend === "clear" && tf === 0 && side === 0) || r[C.tr] >= 80) && (!state.smaFo || fo[d.symbols[r[C.s]]]) && (!year || dayIso(r[C.sig]).slice(0, 4) === year)
         && (res === "all" || (res === "win" ? r[C.pct] > 0 : res === "loss" ? r[C.pct] <= 0 : r[C.out] === ["stop", "target", "time"].indexOf(res)));
     });
-    var key = { "new": function (a, b) { return b[C.ent] - a[C.ent]; }, old: function (a, b) { return a[C.ent] - b[C.ent]; }, best: function (a, b) { return b[C.pct] - a[C.pct]; }, worst: function (a, b) { return a[C.pct] - b[C.pct]; } }[state.smaHSort];
-    return rows.sort(key);
+    var key = { "new": function (a, b) { return b[C.ent] - a[C.ent]; }, old: function (a, b) { return a[C.ent] - b[C.ent]; }, best: function (a, b) { return b[C.pct] - a[C.pct]; }, worst: function (a, b) { return a[C.pct] - b[C.pct]; },
+      vr: function (a, b) { return b[C.vr] - a[C.vr]; }, slope: function (a, b) { return Math.abs(b[C.sl] || 0) - Math.abs(a[C.sl] || 0); }, trend: function (a, b) { return b[C.tr] - a[C.tr]; },
+      rr: function (a, b) { return smaHistRR(b) - smaHistRR(a); }, risk: function (a, b) { return smaHistRisk(a) - smaHistRisk(b); } }[state.smaHSort] || function (a, b) { return b[C.ent] - a[C.ent]; };
+    return rows.sort(function (a, b) { return key(a, b) || b[C.ent] - a[C.ent]; });
   }
   function smaTradeChart(r, cd) {
     var C = SMA_COL, weekly = r[C.tf] === 1, short = r[C.side] === 1, bars = weekly ? weeklyFromDaily(cd) : cd, n = bars.c.length, nAvg = weekly ? 30 : 21;
@@ -1512,6 +1516,11 @@
     var win = 0, hit = 0, sum = 0, sumR = 0, gw = 0, gl = 0, held = 0;
     rows.forEach(function (r) { var p = r[C.pct]; sum += p; sumR += r[C.r]; if (p > 0) { win++; gw += p; } else gl -= p; if (r[C.out] === 1) hit++; held += (r[C.ext] - r[C.ent]) * 5 / 7; });
     var n = rows.length; stats.textContent = "Result of these " + n.toLocaleString("en-IN") + " trades: " + (hit / n * 100).toFixed(0) + "% reached the target, " + (win / n * 100).toFixed(0) + "% ended in profit, average " + (sum / n > 0 ? "+" : "") + (sum / n).toFixed(2) + "% (" + (sumR / n > 0 ? "+" : "") + (sumR / n).toFixed(2) + "R) a trade" + (gl ? ", profit factor " + (gw / gl).toFixed(2) : "") + ", held " + Math.round(held / n) + " sessions on average.";
+    var ranked = ["vr", "slope", "trend", "rr", "risk"].indexOf(state.smaHSort) >= 0;
+    if (ranked && shown.length < n) {
+      var tw = 0, tp = 0, tr_ = 0; shown.forEach(function (r) { if (r[C.pct] > 0) tw++; tp += r[C.pct]; tr_ += r[C.r]; });
+      stats.textContent += " The top " + shown.length + " by " + $("smaHSort").selectedOptions[0].textContent.replace(/ \(.*\)/, "").toLowerCase() + ": " + (tw / shown.length * 100).toFixed(0) + "% ended in profit, average " + (tp / shown.length > 0 ? "+" : "") + (tp / shown.length).toFixed(2) + "% (" + (tr_ / shown.length > 0 ? "+" : "") + (tr_ / shown.length).toFixed(2) + "R) a trade.";
+    }
     var outName = ["Stopped", "Target hit", "Time exit"];
     shown.forEach(function (r, i) {
       var sym = d.symbols[r[C.s]], tr = el("tr", { "class": "srow", tabindex: "0", role: "button", title: "Show the chart" });
@@ -1524,11 +1533,12 @@
       tr.appendChild(el("td", { "class": r[C.out] === 1 ? "up" : r[C.out] === 0 ? "down" : "" }, outName[r[C.out]]));
       tr.appendChild(el("td", { "class": cls(r[C.pct]) }, (r[C.pct] > 0 ? "+" : "") + r[C.pct].toFixed(2) + "%")); tr.appendChild(el("td", { "class": cls(r[C.r]) }, (r[C.r] > 0 ? "+" : "") + r[C.r].toFixed(2)));
       tr.appendChild(cell(r[C.vr].toFixed(1) + "×"));
+      tr.appendChild(r[C.sl] === undefined || r[C.sl] === null ? cell("-", true) : cell((r[C.sl] > 0 ? "+" : "") + r[C.sl].toFixed(1) + "%"));
       tr.appendChild(r[C.tr] >= 0 ? el("td", r[C.tr] >= 80 ? { style: "font-weight:700" } : null, String(r[C.tr])) : cell("-", true));
       var open = null;
       var toggle = function () {
         if (open) { open.remove(); open = null; return; }
-        open = el("tr"); var td = el("td", { colspan: "13", "class": "cr" }); td.appendChild(el("div", { "class": "oiNote" }, "Loading the chart…")); open.appendChild(td); tr.parentNode.insertBefore(open, tr.nextSibling);
+        open = el("tr"); var td = el("td", { colspan: "14", "class": "cr" }); td.appendChild(el("div", { "class": "oiNote" }, "Loading the chart…")); open.appendChild(td); tr.parentNode.insertBefore(open, tr.nextSibling);
         var done = function (cd) { if (!open) return; td.textContent = ""; td.appendChild(smaTradeChart(r, cd)); };
         if (state.smaHC[sym]) done(state.smaHC[sym]);
         else liveJson("sma_hist/c/" + encodeURIComponent(sym) + ".json", "dashboard-setups").then(function (raw) { var cd = { d: raw.o.map(dayIso), c: raw.c }; state.smaHC[sym] = cd; done(cd); }).catch(function () { if (open) td.textContent = "The chart for this stock is not available."; });
