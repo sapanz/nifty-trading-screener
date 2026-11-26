@@ -87,6 +87,11 @@ class Params:
     mr_stop_zone: bool = False          # the stop under the support candle's low (False) or under the whole zone (True: in the 9 historical cases it cut reward:risk under 1.5 for all of them)
     mr_fail_pct: float = 3.0            # a close more than this % under the old high means the breakout failed (no setup)
     mr_window: int = 150                # the first return must come within this many sessions of the breakout
+    rng_min_weeks: int = 8              # the weekly range breakout: the least number of weekly candles in the box (8 until Nov 2026) ...
+    rng_body_height: float | None = None  # ... and, when set, the box is drawn around the candle BODIES (no wicks) and may be at most this tall (0.12 = 12%)
+    rng_level: str = "high"             # the breakout level: "high" = the box's highest high; "body" = its highest body edge
+    rng_touches: bool = True            # the box needs two spaced tests of each side
+    rng_min_vol: float = 0.0            # the breakout candle's volume as a multiple of its 20-day average, at least this (0 = no check)
     multiyear_min_weeks: int = 52       # the old high must be at least a year old (it was 26 weeks until Nov 2026: a 9-month-old high is not "multi-year")
 
 
@@ -103,23 +108,36 @@ def _pivots(x: np.ndarray, k: int, lo: int, hi: int, high: bool) -> list[int]:
     return out
 
 
-def range_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params) -> dict | None:
-    """The longest box ending at week w: width within limits, two spaced touches of each side, not broken on a weekly close."""
-    for n in range(min(p.range_max_weeks, w + 1), p.range_min_weeks - 1, -1):
+def range_at(H: np.ndarray, L: np.ndarray, C: np.ndarray, w: int, p: Params, O: np.ndarray | None = None) -> dict | None:
+    """The longest box ending at week w: width within limits, two spaced touches of each side, not broken on a weekly close. With `rng_body_height` the box is drawn
+    around the candle BODIES (open / close, no wicks) and may be at most that tall; the breakout level is then the highest body edge (`rng_level` "body") or the highest high."""
+    body = p.rng_body_height is not None and O is not None
+    for n in range(min(p.range_max_weeks, w + 1), p.rng_min_weeks - 1, -1):
         a = w - n + 1
         h, l, c = H[a:w + 1], L[a:w + 1], C[a:w + 1]
-        top, bot = h.max(), l.min()
-        width = top / bot - 1
-        if not (p.range_min_width <= width <= p.range_max_width) or c[-1] > h[:-1].max():
-            continue                                              # too wide / narrow, or the last week already closed above the earlier weeks' top
-        hi_t = np.flatnonzero(h >= top * (1 - p.touch_tol))
-        lo_t = np.flatnonzero(l <= bot * (1 + p.touch_tol))
-        if len(hi_t) < 2 or len(lo_t) < 2 or hi_t[-1] - hi_t[0] < 3 or lo_t[-1] - lo_t[0] < 3:
+        if body:
+            bt, bb = np.maximum(O[a:w + 1], c), np.minimum(O[a:w + 1], c)
+            top, bot = float(bt.max()), float(bb.min())
+            width = top / bot - 1
+            if not (0.02 <= width <= p.rng_body_height) or c[-1] > bt[:-1].max():
+                continue                                          # too tall / flat (bodies), or the last week already closed above the earlier bodies' top
+            hi_t = np.flatnonzero(bt >= top * (1 - p.touch_tol))
+            lo_t = np.flatnonzero(bb <= bot * (1 + p.touch_tol))
+            level, base = (top, bot) if p.rng_level == "body" else (float(h.max()), float(l.min()))
+        else:
+            top, bot = h.max(), l.min()
+            width = top / bot - 1
+            if not (p.range_min_width <= width <= p.range_max_width) or c[-1] > h[:-1].max():
+                continue                                          # too wide / narrow, or the last week already closed above the earlier weeks' top
+            hi_t = np.flatnonzero(h >= top * (1 - p.touch_tol))
+            lo_t = np.flatnonzero(l <= bot * (1 + p.touch_tol))
+            level, base = float(top), float(bot)
+        if p.rng_touches and (len(hi_t) < 2 or len(lo_t) < 2 or hi_t[-1] - hi_t[0] < 3 or lo_t[-1] - lo_t[0] < 3):
             continue
         if c[-1] < bot + 0.5 * (top - bot):                       # sitting in the lower half: not a breakout candidate
             return None
-        return {"level": float(top), "base": float(bot), "height": float(top - bot), "start": a, "end": w, "weeks": n,
-                "why": f"{n}-week range {bot:,.1f}-{top:,.1f} ({width * 100:.0f}% wide), {len(hi_t)} tests of the top"}
+        return {"level": float(level), "base": float(base), "height": float(level - base), "start": a, "end": w, "weeks": n,
+                "why": f"{n}-week range {bot:,.1f}-{top:,.1f} ({width * 100:.0f}% {'body ' if body else ''}wide), {len(hi_t)} tests of the top"}
     return None
 
 
@@ -334,7 +352,7 @@ PATTERNS = [("range", "long", range_at, False), ("triangle", "long", triangle_at
 DETECTORS = {"range": range_at, "triangle": triangle_at, "cup": cup_at}
 
 
-def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Params) -> dict[tuple[str, str], dict]:
+def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Params, wO: np.ndarray | None = None) -> dict[tuple[str, str], dict]:
     """Every structure present as of week w, keyed by (kind, side), in real prices with `height` and `why` filled in."""
     found: dict[tuple[str, str], dict] = {}
     inv = None
@@ -342,7 +360,7 @@ def patterns_at(wH: np.ndarray, wL: np.ndarray, wC: np.ndarray, w: int, p: Param
         if (kind == "triple" and ("hs", side) in found) or (kind == "double" and (("hs", side) in found or ("triple", side) in found)):
             continue                                              # the same lows / highs are already named by the bigger shape
         if side == "long":
-            pat = fn(wH, wL, wC, w, p)
+            pat = fn(wH, wL, wC, w, p, wO) if kind == "range" else fn(wH, wL, wC, w, p)
         else:                                                      # a short is the long detector on inverted prices (high <-> 1/low), turned back into real prices
             inv = inv or (1.0 / wL, 1.0 / wH, 1.0 / wC)
             pat = fn(*inv, w, p)
@@ -675,6 +693,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
          "v": df["volume"].to_numpy(float) if "volume" in df else np.full(len(df), np.nan)}
     wk = weekly_bars(df.set_axis(dates))
     wH, wL, wC = (wk[c].to_numpy(float) for c in ("high", "low", "close"))
+    wO = wk["open"].to_numpy(float)
     wdates = wk.index
     n, buf = len(dates), p.stop_buffer_pct / 100
     wk_of = np.searchsorted(wdates.values, dates.values, side="left") - 1           # the last week that closed BEFORE each session's own week
@@ -703,7 +722,7 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
         if w < 40:
             continue
         if w not in cache:
-            cache[w] = patterns_at(wH, wL, wC, w, p)
+            cache[w] = patterns_at(wH, wL, wC, w, p, wO)
         if not cache[w]:
             continue
         first = int(np.searchsorted(dates.values, wdates.values[w], side="right"))        # first session after that week closed
@@ -720,13 +739,15 @@ def scan_stock(df: pd.DataFrame, p: Params = Params()) -> tuple[list[dict], list
             last_trigger[(kind, side)] = i
             if pl is None:
                 continue
+            if kind == "range" and p.rng_min_vol and not _features(d, i)["vol"] >= p.rng_min_vol:
+                continue                                                                  # the breakout candle's volume is too thin
             triggers.append({"kind": kind, "side": side, "i": i, "w": w, "level": level, **pl, "geo": geometry(kind, pat), "f": _features(d, i),
                              "reason": f"{pat['why']}; daily close {c:,.1f} {'above' if long else 'below'} {level:,.1f}"})
     w_last = int(wk_of[n - 1]) if n else -1
     if n and w_last >= 40:                                                        # armed now: structure intact and the close just short of its level
         first = int(np.searchsorted(dates.values, wdates.values[w_last], side="right"))
         c = d["c"][n - 1]
-        for (kind, side), pat in (cache.get(w_last) or patterns_at(wH, wL, wC, w_last, p)).items():
+        for (kind, side), pat in (cache.get(w_last) or patterns_at(wH, wL, wC, w_last, p, wO)).items():
             long, level = side == "long", pat["level"]
             beyond = (d["c"][first:n] > level) if long else (d["c"][first:n] < level)
             near = (level * (1 - p.near_pct / 100) <= c <= level) if long else (level <= c <= level * (1 + p.near_pct / 100))

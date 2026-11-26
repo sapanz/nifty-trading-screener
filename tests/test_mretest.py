@@ -107,3 +107,25 @@ def test_overlapping_bases_do_not_give_the_same_waiting_retest_several_times():
     out = pa.one_per_retest(items)
     assert len(out) == 3 and sorted((o["geo"]["source"], o["geo"]["retest_date"]) for o in out) == [("range", "2026-11-09"), ("range", "2026-11-10"), ("zone", "2026-11-09")]
     assert [o for o in out if o["geo"]["source"] == "range" and o["geo"]["retest_date"] == "2026-11-09"][0]["rr"] == 1.8            # the best reward:risk wins
+
+
+def _weekly_box():
+    k = np.arange(40)
+    c = 100 + 3 * np.sin(k * 0.9)
+    o = np.r_[c[0], c[:-1]]
+    return o, np.maximum(o, c) + 3.0, np.minimum(o, c) - 3.0, c
+
+
+def test_the_range_box_can_be_drawn_around_the_bodies_and_capped_in_height():
+    o, h, l, c = _weekly_box()
+    body = pa.range_at(h, l, c, 21, pa.Params(rng_body_height=0.12, rng_min_weeks=6, rng_level="body"), o)
+    assert body and abs(body["level"] - max(np.maximum(o, c)[body["start"]:22].max(), 0)) < 1e-9 and body["why"].count("body wide") == 1        # level = the highest body edge
+    high = pa.range_at(h, l, c, 21, pa.Params(rng_body_height=0.12, rng_min_weeks=6, rng_level="high"), o)
+    assert high and high["level"] > body["level"]                                       # the highest high sits above the body edge
+    assert pa.range_at(h, l, c, 21, pa.Params(rng_body_height=0.03, rng_min_weeks=6), o) is None             # bodies taller than the cap: no box
+    assert pa.range_at(h, l, c, 21, pa.Params(), o) is not None                         # the default (wick) rule is unchanged
+
+
+def test_the_minimum_number_of_weeks_and_the_touch_rule_are_options():
+    o, h, l, c = _weekly_box()
+    assert pa.range_at(h, l, c, 21, pa.Params(rng_min_weeks=30), o) is None and pa.range_at(h, l, c, 21, pa.Params(rng_min_weeks=6), o)["weeks"] >= 6
