@@ -233,7 +233,7 @@ def main() -> None:
                           ("8+ weeks, no volume check, no trend check, box up to 25% (old rule)", dict(rng_min_weeks=8, rng_min_vol=0.0, rng_sma_weeks=0, range_max_width=0.25))):
             ev_x, _ = price_action_model.collect(frames, p=price_action.Params(**kw))
             logger.info("Range breakout research - %s: %s", label, json.dumps(price_action_model.kind_report(ev_x, "range", fo)))
-        logger.info("Range breakout research - live rule (21+ weeks, volume >= 2x, weekly SMA rising, box up to 20% tall): %s", json.dumps(new_rep))
+        logger.info("Range breakout research - %s: %s", "live rule (21+ weeks, volume >= 2x, weekly SMA rising, box up to 20% tall)", json.dumps(new_rep))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Range breakout research failed: %s", exc)
     # The backtest view: past setups by year, and each stock's daily candles in its own file (the page loads one when a row is opened).
